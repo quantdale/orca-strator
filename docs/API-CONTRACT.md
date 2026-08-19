@@ -12,6 +12,7 @@ The controller API is the sole UI-facing boundary for repository configuration/s
 - Client-visible errors use one machine-readable envelope.
 - Raw stack traces, SQL, tokens, cookies, and secrets must not appear in normal API payloads.
 - API versioning is not required for Change 001; keep routes under `/api/` so a future versioning seam exists.
+- V1 does not expose a configurable branch field; managed repository Git operations target `main`.
 
 ## 2. Health
 
@@ -46,7 +47,6 @@ Success `200`:
       "displayName": "Nightwatch",
       "githubRemote": "https://github.com/quantdale/nightwatch.git",
       "localPath": "/home/dale/projects/nightwatch",
-      "branch": "main",
       "environment": "wsl",
       "wslDistribution": "Ubuntu-24.04",
       "executorCli": "kimi",
@@ -92,7 +92,6 @@ Example Windows request:
   "displayName": "TabDock",
   "githubRemote": "https://github.com/quantdale/tabdock.git",
   "localPath": "D:\\Projects\\TabDock",
-  "branch": "main",
   "environment": "windows",
   "executorCli": "codex",
   "executorModel": "gpt-5.6-luna-xhigh",
@@ -120,7 +119,6 @@ Example WSL request:
 Defaults when omitted:
 
 ```text
-branch = main
 maxIterations = 20
 maxRuntimeMinutes = 480
 ```
@@ -164,7 +162,8 @@ Clients cannot patch:
 
 - `id`;
 - `createdAt`;
-- `updatedAt` directly.
+- `updatedAt` directly;
+- a branch field, because V1 has no branch configuration surface.
 
 Success `200`:
 
@@ -242,7 +241,8 @@ Reject:
 - non-positive ceilings;
 - non-integer ceilings;
 - invalid/non-conversation Sol URL;
-- empty executor CLI/model.
+- empty executor CLI/model;
+- unknown extra configuration fields when strict request schemas are used, including a legacy/configurable `branch` field in V1.
 
 Do not mutate persistent data when validation fails.
 
@@ -337,6 +337,7 @@ Required coverage:
 - get known/unknown;
 - patch valid;
 - patch invalid merged result leaves old record untouched;
+- reject unsupported/legacy branch field if strict schema parsing is used;
 - delete known/unknown;
 - error envelope shape;
 - no stack trace leakage;
