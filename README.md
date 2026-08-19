@@ -62,16 +62,19 @@ Git/GitHub is the durable cross-agent handoff layer. Local SQLite stores machine
 
 ## Application architecture
 
-V1 stack:
+V1 stack baseline:
 
-- **Windows desktop shell:** Electron
-- **shared UI:** React + TypeScript + Vite
-- **styling/components:** Tailwind CSS + shadcn/ui
+- **Runtime/tooling:** Node.js 24 LTS + npm workspaces + TypeScript
+- **controller HTTP:** Fastify 5
+- **local database:** Node `node:sqlite` behind a small storage boundary
+- **Windows desktop shell:** Electron stable 43 line baseline
+- **shared UI:** React 19.2 + Vite 8.1
+- **styling/components:** Tailwind CSS 4.3 + selective shadcn/ui
+- **tests:** Vitest 4.1+ plus focused React/controller/storage tests
 - **background controller:** standalone Node.js/TypeScript process
 - **controller boundary:** localhost HTTP + WebSocket events
-- **local persistence:** SQLite
-- **Sol browser automation:** Playwright
-- **repository/executor integration:** Git + PowerShell/`wsl.exe` + configured coding-agent CLIs
+- **Sol browser automation later:** Playwright
+- **repository/executor integration later:** Git + PowerShell/`wsl.exe` + configured coding-agent CLIs
 - **private phone access later:** same responsive UI through Tailscale Serve
 
 Electron is not the orchestration owner. The controller remains the runtime source of truth so active work does not conceptually depend on a desktop window staying open.
@@ -130,6 +133,7 @@ AGENTS.md
    -> delta specs
    -> design
    -> tasks
+   -> focused normative docs required by the task
    -> relevant implementation
 ```
 
@@ -147,17 +151,40 @@ After a significant amount of implementation:
 
 This keeps mega-prompts out of the executor workflow. The repository is the detailed work contract.
 
-## Durable development files
+## Documentation map
+
+Start with [`docs/INDEX.md`](docs/INDEX.md) for the authority map.
+
+### Development continuity
 
 - [`AGENTS.md`](AGENTS.md) — non-negotiable coding-agent contract and recovery rules
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — detailed `/go`, checkpoint, OpenSpec, Git, blocked, and session-exit procedure
 - [`.agent/state.json`](.agent/state.json) — current concise machine-readable development waypoint
 - [`.agent/state.schema.json`](.agent/state.schema.json) — waypoint schema
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — locked V1 product architecture
-- [`docs/RUNTIME-MODEL.md`](docs/RUNTIME-MODEL.md) — future runtime state machine, actor, concurrency, Pause/Stop/recovery semantics
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged milestones with explicit exit/review gates
-- [`openspec/changes/001-bootstrap-control-plane/`](openspec/changes/001-bootstrap-control-plane/) — active implementation-grade OpenSpec
 - [`.agents/skills/go/SKILL.md`](.agents/skills/go/SKILL.md) — repository-local `/go` recovery skill
+
+### Product/runtime architecture
+
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — locked V1 decision ledger
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — locked V1 product architecture
+- [`docs/RUNTIME-MODEL.md`](docs/RUNTIME-MODEL.md) — runtime states, actor/concurrency, Pause/Stop/drain/recovery semantics
+- [`docs/CROSS-AGENT-PROTOCOL.md`](docs/CROSS-AGENT-PROTOCOL.md) — exact Sol/executor Git mailbox protocol
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged milestones with explicit exit/review gates
+
+### Implementation contracts
+
+- [`docs/TECH-BASELINE.md`](docs/TECH-BASELINE.md) — selected supported technology lines
+- [`docs/IMPLEMENTATION-BLUEPRINT.md`](docs/IMPLEMENTATION-BLUEPRINT.md) — target workspace/modules/dependency boundaries
+- [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md) — SQLite repository/config persistence contract
+- [`docs/API-CONTRACT.md`](docs/API-CONTRACT.md) — controller REST/WebSocket/error/event contract
+- [`docs/UI-UX-SPEC.md`](docs/UI-UX-SPEC.md) — desktop and phone UI behavior/control semantics
+- [`docs/SECURITY.md`](docs/SECURITY.md) — trust/security boundaries
+- [`docs/OBSERVABILITY-AND-FAILURES.md`](docs/OBSERVABILITY-AND-FAILURES.md) — failure taxonomy, logs, retry semantics
+- [`docs/TEST-STRATEGY.md`](docs/TEST-STRATEGY.md) — layered verification and milestone qualification
+
+### Active implementation plan
+
+- [`openspec/changes/001-bootstrap-control-plane/`](openspec/changes/001-bootstrap-control-plane/) — current implementation-grade proposal/spec/design/tasks
 
 ## Development principles
 
@@ -173,3 +200,4 @@ This keeps mega-prompts out of the executor workflow. The repository is the deta
 10. Never force-push automatically by default.
 11. Every meaningful development session leaves a durable waypoint.
 12. Significant work goes through focused OpenSpec changes and review gates rather than giant prompts.
+13. Detailed documentation reduces ambiguity; it does not authorize premature framework complexity or future-milestone implementation.
