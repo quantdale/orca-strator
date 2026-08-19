@@ -1,281 +1,154 @@
 # Orca-Strator Development Protocol
 
-This document defines how Orca-Strator itself is developed across short or long AI coding sessions. It is intentionally durable: a completely fresh coding-agent session should be able to recover the current roadmap position without relying on prior chat history.
+This document defines how Orca-Strator itself is developed across short or long AI coding sessions. A fresh coding-agent session must recover the current roadmap position without relying on prior chat history.
 
 ## 1. Core development model
 
-Development proceeds as a sequence of focused OpenSpec changes.
+Development is a continuous sequence of focused OpenSpec changes:
 
 ```text
-high-level product roadmap
-        |
-        v
-active OpenSpec change
-        |
-        v
-small coherent implementation slice
-        |
-        v
-verify -> checkpoint -> commit -> push
-        |
-        +----> next slice
-        |
-        +----> change complete -> archive/fold spec -> next OpenSpec
+V1 roadmap goal
+    ↓
+active OpenSpec
+    ↓
+coherent implementation slices
+    ↓
+verify → checkpoint → commit → push
+    ↓
+change complete
+    ↓
+fold/archive + update waypoint/roadmap
+    ↓
+create/activate next OpenSpec
+    ↓
+continue implementation
 ```
 
-The repository itself is the source of development continuity.
+Under unattended goal mode, an intermediate change or review checkpoint is **not** a stopping condition.
 
-The minimum durable recovery set is:
+The minimum durable recovery set is `AGENTS.md`, `.agent/state.json`, `docs/ROADMAP.md`, the active OpenSpec, and Git state/history.
 
-1. `AGENTS.md` — invariant operating rules for coding agents;
-2. `.agent/state.json` — concise current waypoint;
-3. `docs/ROADMAP.md` — ordered milestone plan;
-4. the active `openspec/changes/<id>/` artifacts;
-5. Git history and the current working tree.
+## 2. Startup/continuation contract
 
-No single chat/session is authoritative.
+On `/go`, `/goal`, or a continuation request:
 
-## 2. `/go` contract
+1. read `AGENTS.md`;
+2. inspect Git status/current HEAD/local-only commits/remote `main` and in-progress Git operations;
+3. preserve and reconcile dirty work;
+4. fetch/reconcile ordinary remote-main movement without force-push;
+5. read `.agent/state.json` and `docs/ROADMAP.md`;
+6. read active proposal/spec/design/tasks;
+7. inspect relevant implementation/recent commits;
+8. start the next coherent incomplete requirement.
 
-`/go` means: **recover this repository from durable state and continue the active roadmap work autonomously.**
-
-A `/go` session MUST NOT begin by asking the user what to work on when the repository already answers that question.
-
-### Startup sequence
-
-Perform these steps in order:
-
-1. Read `AGENTS.md`.
-2. Inspect Git before modifying files:
-   - current branch;
-   - `git status`;
-   - local commits not on remote;
-   - remote `main`/configured integration branch;
-   - current HEAD.
-3. Preserve existing work. Never assume a dirty tree is disposable.
-4. Fetch remote state.
-5. Reconcile ordinary divergence when safe. Do not force-push by default.
-6. Read `.agent/state.json`.
-7. Read `docs/ROADMAP.md`.
-8. Read the active OpenSpec artifacts in this order:
-   - `proposal.md`;
-   - all delta `spec.md` files;
-   - `design.md`;
-   - `tasks.md`.
-9. Inspect implementation files relevant to the next unchecked task.
-10. Run a cheap baseline check when useful to distinguish pre-existing failures from failures introduced by the session.
-11. Continue from the smallest coherent unfinished slice.
-
-### Arguments
-
-`/go <instruction>` does not replace durable state. Arguments narrow or prioritize the current work unless they explicitly change scope.
-
-Examples:
-
-```text
-/go
-/go focus on the controller API tasks first
-/go continue but do not touch the desktop package today
-```
-
-If an argument conflicts with the active OpenSpec or locked architecture, the agent should update the durable artifact only when the user's instruction clearly changes the decision; otherwise preserve the existing contract.
+**Skip broad baseline testing at startup.** Do not spend the beginning of a long autonomous run establishing a full old baseline simply to classify failures. Use focused checks while implementing and broader gates at meaningful checkpoints.
 
 ## 3. Working-tree recovery
 
-Dirty work is expected and may come from:
+Dirty work may come from interrupted agents, pauses, user edits, refactors, or unfinished Git operations. Default policy is recover, inspect, preserve, reconcile.
 
-- a previously interrupted agent session;
-- a manually paused coding session;
-- the user making local edits;
-- an interrupted rebase/build/refactor;
-- generated-but-not-yet-committed files.
+Do not automatically hard-reset, clean, overwrite local work, stash-and-forget, or force-push.
 
-The default policy is **recover, inspect, preserve, reconcile**.
+If one local path is difficult to reconcile, preserve evidence and continue other safe work when possible. A dirty-tree problem only blocks the entire run when no independent safe work remains.
 
-Do not automatically:
+## 4. Coherent implementation slices
 
-- `git reset --hard`;
-- delete untracked files merely to make status clean;
-- overwrite local work with remote copies;
-- stash and forget existing work;
-- force-push rewritten history.
+Prefer coherent slices that advance one or a small cluster of requirements, keep interfaces consistent, add relevant tests, and leave useful committed checkpoints.
 
-The coding agent should determine what the local changes represent, integrate useful work into the current implementation, resolve ordinary conflicts, and leave intended work committed/pushed when practical.
-
-If safe reconciliation is impossible, record the exact blocker and evidence in `.agent/state.json` and stop.
-
-## 4. Implementation slice rule
-
-A session should prefer a **coherent slice**, not an arbitrary token/time-sized slice.
-
-A coherent slice should usually:
-
-- advance one or a small cluster of related task checkboxes;
-- leave interfaces internally consistent;
-- avoid knowingly leaving trivial syntax/type/build breakage that can be fixed immediately;
-- include relevant tests when the slice introduces testable behavior;
-- remain small enough that a fresh agent can understand what changed from Git/OpenSpec state.
-
-Do not try to complete an entire milestone in one giant unreviewable change when several safe checkpoints are available.
+A long goal-mode run may complete many slices and many OpenSpec changes. Keep checkpoints reviewable even when the run continues.
 
 ## 5. Verification policy
 
-Verification is evidence, not ceremony.
+Verification is evidence, not a mandatory startup ceremony.
 
-For each slice:
-
-1. run the narrowest tests/checks that directly exercise the change;
-2. run broader workspace checks at meaningful checkpoints;
-3. distinguish pre-existing failures from newly introduced failures when possible;
-4. never claim a command passed if it was not run or its result is unknown;
-5. record persistent failures/blockers in durable state.
-
-A failing test does not automatically mean the session must loop forever. If the implementation has reached the best safe state and the remaining failure requires architectural review or a stronger model, checkpoint and report it truthfully.
+- no broad baseline suite at session start unless a specific current task genuinely requires it;
+- run narrow tests/checks around changed behavior;
+- run broader typecheck/test/build/lint at meaningful checkpoints, before strong acceptance claims, and before folding major changes when useful;
+- never report unrun checks as passing;
+- fix introduced regressions when practical;
+- if one verification path fails and does not block independent work, record it and continue elsewhere;
+- do not loop indefinitely solely to make every historical/baseline failure green before progressing.
 
 ## 6. OpenSpec lifecycle
 
-### Before implementation
-
-Significant work should have:
+Significant work uses:
 
 ```text
 openspec/changes/<change-id>/
 ├── proposal.md
 ├── design.md
 ├── tasks.md
-└── specs/
-    └── <capability>/
-        └── spec.md
+└── specs/<capability>/spec.md
 ```
 
-The proposal explains why and scope.
+During implementation, update artifacts when implementation evidence changes assumptions and check tasks only when acceptance intent is satisfied.
 
-The delta spec defines externally meaningful requirements and scenarios.
+When a change is complete:
 
-The design records implementation boundaries and tradeoffs.
+1. run meaningful completion verification;
+2. reconcile implementation with final delta requirements;
+3. fold/archive into canonical `openspec/specs/` as appropriate;
+4. update roadmap and waypoint;
+5. identify the next roadmap change;
+6. create proposal/spec/design/tasks if absent;
+7. commit/push the transition;
+8. **continue implementing the next change immediately** unless the user explicitly requested a review stop.
 
-The task list is the executable development checklist.
+## 7. Durable waypoint
 
-### During implementation
+`.agent/state.json` is a concise pointer/checkpoint, not a transcript. It should state current status, goal, milestone/change, checkpoint, next action, blockers, and policies.
 
-- Check tasks only when their acceptance intent is satisfied.
-- If implementation reveals that a design/spec assumption is wrong, update the artifact before or alongside the implementation.
-- Do not silently implement behavior that materially contradicts the active spec.
-- Add newly discovered required work to `tasks.md` when it belongs to the active change.
-- Keep deferred/future ideas out of the current change unless they are required for correctness.
+During long goal-mode development, update it periodically and whenever a change/milestone transition occurs.
 
-### Completion
+## 8. Commit/push policy
 
-A change is complete only when:
+At meaningful checkpoints:
 
-1. all required tasks are complete or explicitly resolved;
-2. relevant verification has been run;
-3. the implementation matches the final delta spec;
-4. the repository is at a useful committed/pushed checkpoint;
-5. the delta spec has been folded/archived into canonical `openspec/specs/` behavior as appropriate;
-6. `.agent/state.json` advances to the next change/milestone or a terminal development state.
-
-## 7. Durable waypoint contract
-
-`.agent/state.json` is intentionally short. It is a pointer and checkpoint, not a log.
-
-It should answer:
-
-- What are we building overall?
-- Which milestone is active?
-- Which OpenSpec change is active?
-- What was most recently completed?
-- What should the next fresh session do?
-- Are there blockers or known verification failures?
-- What branch/policies must be preserved?
-
-Detailed reasoning belongs in OpenSpec/design docs or Git commits, not in the state file.
-
-### Waypoint update timing
-
-Update `.agent/state.json`:
-
-- after a meaningful coherent implementation checkpoint;
-- before intentionally ending a development session;
-- when a blocker changes the next action;
-- when an OpenSpec change completes;
-- when the active milestone/change changes.
-
-Do not rewrite the waypoint after every tiny file edit.
-
-## 8. Commit and push policy
-
-`main` is the integration branch unless the user changes this later.
-
-At each meaningful checkpoint:
-
-1. inspect `git diff`/status;
-2. ensure intended generated files are included and secrets are not;
-3. update task checkboxes and waypoint when appropriate;
+1. inspect diff/status;
+2. ensure intended files only and no secrets;
+3. update tasks/waypoint;
 4. run relevant verification;
-5. commit with a descriptive message;
-6. fetch/rebase if remote moved;
-7. resolve ordinary conflicts;
-8. push to `main`.
+5. commit descriptively;
+6. fetch/rebase ordinary remote movement;
+7. push `main`.
 
-Prefer several coherent commits over one enormous session dump, but avoid micro-committing every trivial edit.
+Do this throughout long runs rather than accumulating one enormous local session.
 
 ## 9. Review checkpoints
 
-The user may periodically ask ChatGPT/Sol to review the GitHub repository after significant implementation.
+The roadmap's review checkpoints mean "the repository should be reviewable here," not "coding must stop here."
 
-When preparing for such a review, leave the repository so an external reviewer can determine:
+External Sol/ChatGPT review can happen while continuous implementation proceeds because state is repeatedly committed/pushed. Only stop at a review checkpoint when the user explicitly asks for a review boundary.
 
-- what OpenSpec change is active;
-- which tasks are complete;
-- which verification passed/failed;
-- what changed since the previous waypoint;
-- what remains;
-- whether there are unresolved blockers.
+If a later external review commits corrective OpenSpec/state changes, a running/fresh agent should pull/reconcile them and continue according to the updated durable contract.
 
-The reviewer may update architecture/OpenSpec/state before the next `/go` session.
+## 10. Blocker routing
 
-A coding agent should treat those committed artifact changes as the new durable contract after pulling `main`.
+A blocked subtask does not normally block the development goal.
 
-## 10. Session exit protocol
+For a local blocker:
 
-Before voluntarily ending a session:
+1. preserve useful work;
+2. capture concise evidence;
+3. record it in task/waypoint when material;
+4. select another independent safe task/change;
+5. continue implementation;
+6. revisit later.
 
-1. finish the current smallest safe operation;
-2. inspect the working tree;
-3. run relevant verification for the completed slice;
-4. update `tasks.md` accurately;
-5. update `.agent/state.json` with a fresh checkpoint and next action;
-6. commit intended work;
-7. fetch/rebase remote changes if necessary;
-8. push to `main`;
-9. leave any unavoidable local-only state explicitly documented as a blocker/recovery item.
+Only stop or let Kimi goal mode become globally `blocked` when no safe useful roadmap work remains without external credentials/infrastructure, explicit user input/approval, or a genuinely unresolved product decision.
 
-A session should not disappear leaving a fresh agent unable to tell whether half-written local changes are intentional.
+## 11. Session exit
 
-## 11. Blocked protocol
+If the user/process actually ends the session, finish the smallest safe operation, update tasks/waypoint, commit/push intended work, and document unavoidable recovery state.
 
-When genuinely blocked, do not thrash indefinitely.
+Do not voluntarily exit merely because an OpenSpec completed, an ordinary review checkpoint was reached, or one line of work is blocked.
 
-Record in `.agent/state.json`:
+## 12. Goal mode
 
-- concise blocker code/category;
-- human-readable summary;
-- relevant command/test/error evidence;
-- what was attempted when useful;
-- safest next action.
+For Kimi Code, use the canonical objective in `docs/GOAL-MODE.md`.
 
-Commit/push safe useful work before stopping whenever possible.
+The finish line is the committed Orca-Strator **V1 roadmap**, not `001a` or any other intermediate change. The agent should continuously repair, implement, checkpoint, fold/archive, create/activate subsequent OpenSpec changes, and continue until the V1 target is complete as far as safely possible.
 
-## 12. Simplicity rule
+## 13. Simplicity
 
-Detailed documentation does not justify complicated implementation.
-
-For V1:
-
-- prefer explicit code over framework-heavy abstraction;
-- introduce an interface only when two real implementations/boundaries need it or a future seam is already unavoidable;
-- avoid premature plugin systems;
-- avoid distributed infrastructure when one local controller suffices;
-- keep repository-level concurrency independent but serialize work within one repository;
-- build the current OpenSpec change, not the future product all at once.
+Continuous development does not authorize scope creep. Build the roadmap in order, keep V1 explicit, and do not implement deferred multi-session-per-repository, dynamic model routing by Sol, public exposure, or unrelated future systems merely to avoid stopping.
