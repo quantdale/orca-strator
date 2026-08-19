@@ -8,10 +8,12 @@
   "completedMilestones": [0],
   "planningBaseSha": "ac1f204564d1650d3d432466d5761c3f263f6289",
   "checkpoint": {
-    "summary": "Architecture and roadmap are locked. OpenSpec Change 001 (bootstrap control plane) has proposal, delta requirements, design, and implementation tasks and is ready to apply.",
-    "updatedAt": "2026-08-19T19:16:00+08:00"
+    "summary": "V1 architecture and development workflow are locked and hardened. The repository now has a detailed /go recovery protocol, waypoint schema, runtime-state/concurrency contract, milestone exit/review gates, and an implementation-grade Change 001 covering workspace, controller, SQLite, API/events, responsive UI, and Electron boundaries.",
+    "updatedAt": "2026-08-19T19:22:00+08:00",
+    "lastCompletedTask": "Milestone 0 planning/control-plane hardening and detailed OpenSpec Change 001 preparation",
+    "lastVerification": "Planning-only checkpoint: durable artifacts were cross-aligned; no application implementation exists yet, so build/test verification starts in Change 001."
   },
-  "nextAction": "Run /go in a fresh coding-agent session and implement openspec/changes/001-bootstrap-control-plane from the first unchecked task, updating tasks and this waypoint as progress is committed to main.",
+  "nextAction": "Start a fresh coding-agent session and run /go. Implement openspec/changes/001-bootstrap-control-plane beginning at Section 0 preflight, then progress through coherent checkpoints. Update tasks and this waypoint, commit and push to main. When Change 001 reaches its exit gate, stop for a deep Sol/ChatGPT GitHub review before creating Change 002.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",
