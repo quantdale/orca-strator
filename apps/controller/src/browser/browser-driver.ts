@@ -1,0 +1,17 @@
+export interface BrowserPage {
+  goto(url: string, options?: { timeout?: number }): Promise<void>;
+  typeText(selector: string, text: string): Promise<void>;
+  click(selector: string): Promise<void>;
+  waitForSelector(selector: string, options?: { timeout?: number }): Promise<boolean>;
+  close(): Promise<void>;
+  url(): string;
+}
+
+export interface BrowserDriver {
+  launch(profileDir: string, headless: boolean): Promise<void>;
+  openPage(repositoryId: string, url: string): Promise<BrowserPage>;
+  closePage(repositoryId: string): Promise<void>;
+  close(): Promise<void>;
+  isRunning(): boolean;
+  activePageCount(): number;
+}

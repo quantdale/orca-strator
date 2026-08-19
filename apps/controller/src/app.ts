@@ -10,6 +10,7 @@ import { healthRoutes } from './http/routes/health.js';
 import { repositoryRoutes } from './http/routes/repositories.js';
 import { watcherRoutes } from './http/routes/watcher.js';
 import { executorRoutes } from './http/routes/executor.js';
+import { browserRoutes } from './http/routes/browser.js';
 import { websocketRoutes } from './events/websocket.js';
 import { registerStaticUi } from './http/static-ui.js';
 import { DispatchStore } from './watcher/dispatch-store.js';
@@ -18,6 +19,10 @@ import { CommitInspector } from './watcher/commit-inspector.js';
 import { WatcherService } from './watcher/watcher-service.js';
 import { ExecutorStore } from './executor/executor-store.js';
 import { ExecutorService } from './executor/executor-service.js';
+import { SolWakeStore } from './browser/sol-wake-store.js';
+import { BrowserManager } from './browser/browser-manager.js';
+
+import type { BrowserDriver } from './browser/browser-driver.js';
 
 export interface AppInstance {
   fastify: FastifyInstance;
@@ -28,9 +33,17 @@ export interface AppInstance {
   watcherService: WatcherService;
   executorStore: ExecutorStore;
   executorService: ExecutorService;
+  wakeStore: SolWakeStore;
+  browserManager: BrowserManager;
 }
 
-export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
+export async function buildApp(
+  config: ControllerConfig,
+  overrides: {
+    browserDriver?: BrowserDriver;
+    browserManager?: BrowserManager;
+  } = {}
+): Promise<AppInstance> {
   const fastify = Fastify({
     logger: {
       level: config.logLevel
@@ -43,6 +56,7 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
   const store = new RepositoryStore(dbContext.db);
   const dispatchStore = new DispatchStore(dbContext.db);
   const executorStore = new ExecutorStore(dbContext.db);
+  const wakeStore = new SolWakeStore(dbContext.db);
   const eventBus = new EventBus();
   const repositoryService = new RepositoryService(store, eventBus);
 
@@ -65,8 +79,18 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
     eventPublisher: (event) => eventBus.publish(event)
   });
 
+  const browserManager =
+    overrides.browserManager ||
+    new BrowserManager({
+      dataDir: config.dataDir,
+      driver: overrides.browserDriver,
+      wakeStore,
+      eventPublisher: (event) => eventBus.publish(event)
+    });
+
   fastify.addHook('onClose', async () => {
     watcherService.stop();
+    await browserManager.close();
   });
 
   await fastify.register(websocket);
@@ -75,6 +99,7 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
   await fastify.register(repositoryRoutes(repositoryService));
   await fastify.register(watcherRoutes(watcherService, dispatchStore, repositoryService));
   await fastify.register(executorRoutes(executorService, repositoryService));
+  await fastify.register(browserRoutes(browserManager, repositoryService, dispatchStore));
   await fastify.register(websocketRoutes(eventBus));
 
   await registerStaticUi(fastify, config.uiDistDir);
@@ -87,6 +112,8 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
     dispatchStore,
     watcherService,
     executorStore,
-    executorService
+    executorService,
+    wakeStore,
+    browserManager
   };
 }

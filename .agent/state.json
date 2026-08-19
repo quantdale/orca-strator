@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 4,
-  "activeChange": "004-playwright-sol-bridge",
-  "completedMilestones": [0, 1, 2, 3],
-  "planningBaseSha": "b0ad5530ae9e3a7c646b9a8976b92a2a07530bd7",
+  "activeMilestone": 5,
+  "activeChange": "005-autonomous-loop-engine",
+  "completedMilestones": [0, 1, 2, 3, 4],
+  "planningBaseSha": "c12c1c62f22bda43b3eeea94747ebc79659bfa77",
   "checkpoint": {
-    "summary": "Milestone 3 (headless executor runtime) is fully implemented, verified (99 tests passing across all workspaces, Windows/WSL adapters, process-tree supervision, live log streaming to disk and memory buffer, timeout enforcement, Pause/Resume/Kill/Stop controls, ExecutorStore SQLite persistence, and FakeExecutor qualification), and folded into canonical openspec/specs/headless-executor-runtime/. Milestone 4 (Playwright Sol bridge) is now active.",
-    "updatedAt": "2026-08-19T22:31:00+08:00",
-    "lastCompletedTask": "Complete Milestone 3 headless executor runtime, fold into canonical spec, and activate Milestone 4 OpenSpec",
-    "lastVerification": "Full workspace typecheck passed with 0 errors, all 99 Vitest tests passed, build and lint succeeded."
+    "summary": "Milestone 4 (Playwright Sol bridge) is fully implemented, verified (110 tests passing across all workspaces, Playwright persistent profile management with exclusive PID process locking and stale-lock recovery, interactive setup browser flow, on-demand browser manager with multi-repo page multiplexing, input-only trusted wake submission, and REST APIs), and folded into canonical openspec/specs/playwright-sol-bridge/. Milestone 5 (autonomous loop and multi-repository concurrency) is now active.",
+    "updatedAt": "2026-08-19T22:37:00+08:00",
+    "lastCompletedTask": "Complete Milestone 4 Playwright Sol bridge, fold into canonical spec, and activate Milestone 5 OpenSpec",
+    "lastVerification": "Full workspace typecheck passed with 0 errors, all 110 Vitest tests passed, build and lint succeeded."
   },
-  "nextAction": "Implement Milestone 4 (openspec/changes/004-playwright-sol-bridge): generateSolWakeMessage in @orca/shared, SQLite migration 004 for sol_wakes, ProfileLockManager with stale-lock recovery, BrowserManager with Playwright/Mock drivers, interactive Setup Browser flow, input-only trusted wake submission, and browser qualification integration tests.",
+  "nextAction": "Implement Milestone 5 (openspec/changes/005-autonomous-loop-engine): LoopState and RunRecord types in @orca/shared, SQLite migration 005 for runs table, RunStore, RepositoryLoopRunner per-repo state machine, LoopService multi-repo concurrent orchestrator, run control endpoints, and loop qualification integration tests.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

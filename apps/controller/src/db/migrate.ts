@@ -93,6 +93,30 @@ export const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_executor_runs_dispatch ON executor_runs(dispatch_id);
       `);
     }
+  },
+  {
+    version: 4,
+    name: "004_create_sol_wakes",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sol_wakes (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL,
+          dispatch_id TEXT NOT NULL REFERENCES dispatches(id) ON DELETE CASCADE,
+          conversation_url TEXT NOT NULL,
+          message TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('pending', 'submitted', 'failed', 'busy')),
+          error_message TEXT,
+          submitted_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sol_wakes_repo ON sol_wakes(repository_id);
+        CREATE INDEX IF NOT EXISTS idx_sol_wakes_dispatch ON sol_wakes(dispatch_id);
+      `);
+    }
   }
 ];
 

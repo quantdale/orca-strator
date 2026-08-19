@@ -189,9 +189,9 @@ Prove Windows and WSL paths can independently:
 
 ## Milestone 4 — Playwright Sol bridge
 
-OpenSpec: `004-playwright-sol-bridge`
+OpenSpec: `004-playwright-sol-bridge` (folded into `openspec/specs/playwright-sol-bridge/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
@@ -234,17 +234,13 @@ Prove with at least two dedicated conversations:
 - killing one repo page does not falsely complete another;
 - Chromium closes when no Sol operations remain.
 
-### Review checkpoint
-
-Review browser security, profile ownership, page isolation, retry behavior, UI fragility before full loop.
-
 ---
 
 ## Milestone 5 — Autonomous loop and multi-repository concurrency
 
-Planned OpenSpec: `005-autonomous-loop`
+OpenSpec: `005-autonomous-loop-engine`
 
-Status: **planned**
+Status: **active**
 
 ### Purpose
 

@@ -103,21 +103,22 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 3 — Headless executor runtime** is complete and folded (`openspec/specs/headless-executor-runtime/`).
 
-**Milestone 4 — Playwright Sol bridge** is active:
+**Milestone 4 — Playwright Sol bridge** is complete and folded (`openspec/specs/playwright-sol-bridge/`).
+
+**Milestone 5 — Autonomous loop and multi-repository concurrency** is active:
 
 Active OpenSpec:
 
 ```text
-openspec/changes/004-playwright-sol-bridge/
+openspec/changes/005-autonomous-loop-engine/
 ```
 
-Milestone 4 builds:
-- dedicated persistent Chromium user-data profile in Orca data directory;
-- global profile lock and interactive "Open ChatGPT Setup Browser" login flow;
-- on-demand headless Chromium Browser Manager hosting one Page per active repository;
-- input-only trusted wake submission to configured ChatGPT Sol conversation URL;
-- ChatGPT busy/backpressure handling with bounded retry;
-- auth status verification and browser error diagnostics.
+Milestone 5 builds:
+- per-repository autonomous state machine loop (`SOL_PENDING` -> `SOL_REVIEWING` -> `EXECUTOR_PENDING` -> `EXECUTING` -> `SOL_PENDING`);
+- terminal and control states (`GOAL_COMPLETE`, `BLOCKED`, `NEEDS_HUMAN`, `PAUSED`, `STOPPED`, `DRAINING`, `SOL_STALLED`);
+- durable run lifecycle persistence in SQLite;
+- multi-repository concurrent loop orchestration without global executor limits;
+- iteration ceiling and runtime budget enforcement.
 
 ## Durable development workflow
 
