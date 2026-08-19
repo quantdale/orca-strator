@@ -7,11 +7,16 @@ coverage/
 .vite/
 *.tsbuildinfo
 
+# Python cache
+__pycache__/
+*.pyc
+
 # Test / browser automation output
 playwright-report/
 test-results/
 blob-report/
 .playwright/
+.playwright-mcp/
 playwright/.auth/
 
 # Local Orca runtime data (never commit browser/session/database state)
@@ -39,6 +44,7 @@ browser-profile/
 *.temp
 *.swp
 *.swo
+*.zip
 
 # IDE / OS noise
 .idea/

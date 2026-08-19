@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "READY_TO_IMPLEMENT",
+  "developmentStatus": "READY_FOR_REVIEW",
   "highLevelGoal": "Build Orca-Strator into a Windows-first autonomous multi-repository AI development orchestrator according to the locked architecture and roadmap.",
   "activeMilestone": 1,
   "activeChange": "001-bootstrap-control-plane",
   "completedMilestones": [0],
-  "planningBaseSha": "ac1f204564d1650d3d432466d5761c3f263f6289",
+  "planningBaseSha": "f461cf051f9c8e0655bd9bac3cccfab0b2e0d122",
   "checkpoint": {
-    "summary": "Pre-implementation hardening is complete. V1 is now consistently main-only with no repository branch field; static repository configuration is separated from future run state; the Git dispatch/result/Sol-control protocol has versioned JSON Schemas; Windows/WSL line-ending and local-secret/runtime ignore baselines are seeded; Playwright headed setup and headless automation share an explicit exclusive persistent-profile lock; and Change 001 now establishes a same-origin web seam where the controller serves the built SPA plus REST/WebSocket while Vite proxies the same relative routes in development. This removes the latent phone-localhost problem and lets future Tailscale Serve proxy one loopback Orca origin without a second API client or wildcard CORS.",
-    "updatedAt": "2026-08-19T20:39:00+08:00",
-    "lastCompletedTask": "Milestone 0 final architecture/specification consistency and pre-implementation hardening pass",
-    "lastVerification": "Planning-only verification: high-authority architecture, decision, data, API, UI, runtime, security, test, roadmap, protocol, and active OpenSpec contracts were reconciled around main-only V1, configuration-vs-run-state separation, protocol schemas, browser-profile ownership, and same-origin desktop/phone networking. No application code exists yet, so executable install/typecheck/test/build verification begins in Change 001."
+    "summary": "Change 001 (Bootstrap Control Plane) implementation is complete. All 45 tests across 8 test suites are passing, and all packages typecheck cleanly. Built artifacts: @orca/shared (Zod validators, repository contracts, domain errors, API and event models), @orca/controller (standalone Fastify 5 loopback server with node:sqlite migrations, repository CRUD, WebSocket /api/events, and static built-SPA serving with history fallback), @orca/ui (React 19 + Vite 6 + Tailwind 4 responsive SPA using relative /api paths and same-origin WebSocket client), @orca/desktop (Electron 34 shell with contextIsolation: true and zero direct database coupling). The V1 invariant of main-only repositories with no branch field and zero premature execution runtime state is strictly preserved throughout.",
+    "updatedAt": "2026-08-19T21:46:00+08:00",
+    "lastCompletedTask": "Change 001 full workspace implementation, verification, and end-to-end acceptance across shared, controller, ui, and desktop packages",
+    "lastVerification": "All 45 Vitest unit, integration, and UI tests pass across 8 test suites with 0 failures (packages/shared: 10 tests; apps/controller: 23 tests across database, api, events, static-ui; apps/ui: 10 tests across api-client and repository-ui; apps/desktop: 2 tests). Full workspace typecheck (`npm run typecheck`) and builds (`npm run build:shared`, `npm run build:controller`, `npm run build:ui`, `npm run build:desktop`) complete with 0 errors."
   },
-  "nextAction": "Start a fresh coding-agent session and run /go. Implement openspec/changes/001-bootstrap-control-plane from Section 0. Preserve the seeded hygiene/schema files, keep repository configuration main-only and run-state-free, and build the same-origin web seam exactly as specified: relative /api and /api/events in the shared UI, Vite proxy in development, controller-served built SPA plus API/WebSocket in production-like local mode. Commit and push coherent checkpoints to main. When Change 001 reaches its exit gate, set READY_FOR_REVIEW and stop for a deep Sol/ChatGPT GitHub review before Change 002.",
+  "nextAction": "Perform deep Sol/ChatGPT GitHub review of Change 001 implementation. After review acceptance, archive/fold Change 001 delta into canonical openspec/specs/control-plane-foundation/ and advance activeChange to 002-remote-git-polling-watcher.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",
