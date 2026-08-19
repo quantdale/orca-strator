@@ -101,22 +101,23 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 2 — Repository watcher and transactional dispatch** is complete and folded (`openspec/specs/repository-watch-dispatch/`).
 
-**Milestone 3 — Headless executor runtime** is active:
+**Milestone 3 — Headless executor runtime** is complete and folded (`openspec/specs/headless-executor-runtime/`).
+
+**Milestone 4 — Playwright Sol bridge** is active:
 
 Active OpenSpec:
 
 ```text
-openspec/changes/003-headless-executor-runtime/
+openspec/changes/004-playwright-sol-bridge/
 ```
 
-Milestone 3 builds:
-- native Windows/PowerShell and WSL execution adapters;
-- user-configured headless executor CLI invocation (e.g. codex, claude, kimi, goose, aider);
-- stable small bootstrap prompt injection;
-- process supervision, stdout/stderr streaming, and live lifecycle event publishing;
-- result manifest validation (`schemas/protocol/executor-result.schema.json`);
-- Pause/Resume, graceful Stop, and Emergency Kill controls;
-- deterministic fake executor qualification before live agent testing.
+Milestone 4 builds:
+- dedicated persistent Chromium user-data profile in Orca data directory;
+- global profile lock and interactive "Open ChatGPT Setup Browser" login flow;
+- on-demand headless Chromium Browser Manager hosting one Page per active repository;
+- input-only trusted wake submission to configured ChatGPT Sol conversation URL;
+- ChatGPT busy/backpressure handling with bounded retry;
+- auth status verification and browser error diagnostics.
 
 ## Durable development workflow
 

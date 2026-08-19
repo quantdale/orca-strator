@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 3,
-  "activeChange": "003-headless-executor-runtime",
-  "completedMilestones": [0, 1, 2],
-  "planningBaseSha": "bedc59ae4402636f32e604f7c10b784a0d9b4b7c",
+  "activeMilestone": 4,
+  "activeChange": "004-playwright-sol-bridge",
+  "completedMilestones": [0, 1, 2, 3],
+  "planningBaseSha": "b0ad5530ae9e3a7c646b9a8976b92a2a07530bd7",
   "checkpoint": {
-    "summary": "Milestone 2 (repository watcher and transactional dispatch) is fully implemented, verified (83 tests passing across all workspaces including unit and temporary bare-remote Git integration tests for main-only polling, isolated dispatch commits, mixed-commit rejection, and multi-repo concurrency), and folded into canonical openspec/specs/repository-watch-dispatch/. Milestone 3 (headless executor runtime) is now active.",
-    "updatedAt": "2026-08-19T22:26:00+08:00",
-    "lastCompletedTask": "Complete Milestone 2 repository watcher and transactional dispatch, fold into canonical spec, and activate Milestone 3 OpenSpec",
-    "lastVerification": "Full workspace typecheck passed with 0 errors, all 83 Vitest tests passed, build and lint succeeded."
+    "summary": "Milestone 3 (headless executor runtime) is fully implemented, verified (99 tests passing across all workspaces, Windows/WSL adapters, process-tree supervision, live log streaming to disk and memory buffer, timeout enforcement, Pause/Resume/Kill/Stop controls, ExecutorStore SQLite persistence, and FakeExecutor qualification), and folded into canonical openspec/specs/headless-executor-runtime/. Milestone 4 (Playwright Sol bridge) is now active.",
+    "updatedAt": "2026-08-19T22:31:00+08:00",
+    "lastCompletedTask": "Complete Milestone 3 headless executor runtime, fold into canonical spec, and activate Milestone 4 OpenSpec",
+    "lastVerification": "Full workspace typecheck passed with 0 errors, all 99 Vitest tests passed, build and lint succeeded."
   },
-  "nextAction": "Implement Milestone 3 (openspec/changes/003-headless-executor-runtime): ExecutorResult protocol types/schemas in @orca/shared, SQLite migration 003 for executor_runs, WindowsPowerShellAdapter and WslAdapter, ExecutorRunner process supervisor with log streaming, operational controls (Pause/Resume/Kill), REST endpoints, and FakeExecutor qualification integration tests.",
+  "nextAction": "Implement Milestone 4 (openspec/changes/004-playwright-sol-bridge): generateSolWakeMessage in @orca/shared, SQLite migration 004 for sol_wakes, ProfileLockManager with stale-lock recovery, BrowserManager with Playwright/Mock drivers, interactive Setup Browser flow, input-only trusted wake submission, and browser qualification integration tests.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

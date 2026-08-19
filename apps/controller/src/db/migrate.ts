@@ -67,6 +67,32 @@ export const migrations: Migration[] = [
         );
       `);
     }
+  },
+  {
+    version: 3,
+    name: "003_create_executor_runs",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS executor_runs (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          dispatch_id TEXT NOT NULL REFERENCES dispatches(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL,
+          iteration INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'paused', 'failed', 'killed', 'timed_out')),
+          exit_code INTEGER,
+          log_path TEXT,
+          error_message TEXT,
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_executor_runs_repo ON executor_runs(repository_id);
+        CREATE INDEX IF NOT EXISTS idx_executor_runs_dispatch ON executor_runs(dispatch_id);
+      `);
+    }
   }
 ];
 

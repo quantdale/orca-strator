@@ -9,12 +9,15 @@ import { errorHandler } from './http/errors.js';
 import { healthRoutes } from './http/routes/health.js';
 import { repositoryRoutes } from './http/routes/repositories.js';
 import { watcherRoutes } from './http/routes/watcher.js';
+import { executorRoutes } from './http/routes/executor.js';
 import { websocketRoutes } from './events/websocket.js';
 import { registerStaticUi } from './http/static-ui.js';
 import { DispatchStore } from './watcher/dispatch-store.js';
 import { GitClient } from './watcher/git-client.js';
 import { CommitInspector } from './watcher/commit-inspector.js';
 import { WatcherService } from './watcher/watcher-service.js';
+import { ExecutorStore } from './executor/executor-store.js';
+import { ExecutorService } from './executor/executor-service.js';
 
 export interface AppInstance {
   fastify: FastifyInstance;
@@ -23,6 +26,8 @@ export interface AppInstance {
   repositoryService: RepositoryService;
   dispatchStore: DispatchStore;
   watcherService: WatcherService;
+  executorStore: ExecutorStore;
+  executorService: ExecutorService;
 }
 
 export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
@@ -37,6 +42,7 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
   const dbContext = initDatabase(config.dbPath);
   const store = new RepositoryStore(dbContext.db);
   const dispatchStore = new DispatchStore(dbContext.db);
+  const executorStore = new ExecutorStore(dbContext.db);
   const eventBus = new EventBus();
   const repositoryService = new RepositoryService(store, eventBus);
 
@@ -51,6 +57,14 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
     pollIntervalMs: 5000
   });
 
+  const executorService = new ExecutorService({
+    repoStore: store,
+    dispatchStore,
+    executorStore,
+    dataDir: config.dataDir,
+    eventPublisher: (event) => eventBus.publish(event)
+  });
+
   fastify.addHook('onClose', async () => {
     watcherService.stop();
   });
@@ -60,6 +74,7 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
   await fastify.register(healthRoutes(dbContext.db));
   await fastify.register(repositoryRoutes(repositoryService));
   await fastify.register(watcherRoutes(watcherService, dispatchStore, repositoryService));
+  await fastify.register(executorRoutes(executorService, repositoryService));
   await fastify.register(websocketRoutes(eventBus));
 
   await registerStaticUi(fastify, config.uiDistDir);
@@ -70,6 +85,8 @@ export async function buildApp(config: ControllerConfig): Promise<AppInstance> {
     eventBus,
     repositoryService,
     dispatchStore,
-    watcherService
+    watcherService,
+    executorStore,
+    executorService
   };
 }

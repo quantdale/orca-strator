@@ -146,9 +146,9 @@ Prove:
 
 ## Milestone 3 — Headless executor runtime
 
-OpenSpec: `003-headless-executor-runtime`
+OpenSpec: `003-headless-executor-runtime` (folded into `openspec/specs/headless-executor-runtime/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
@@ -185,17 +185,13 @@ Prove Windows and WSL paths can independently:
 7. pause/resume without discarding partial files;
 8. stop/kill with accurate state reporting.
 
-### Review checkpoint
-
-Deep-review process model, WSL boundary, Git reconciliation, interruption semantics before automated Sol wake.
-
 ---
 
 ## Milestone 4 — Playwright Sol bridge
 
-Planned OpenSpec: `004-playwright-sol-bridge`
+OpenSpec: `004-playwright-sol-bridge`
 
-Status: **planned**
+Status: **active**
 
 ### Purpose
 
