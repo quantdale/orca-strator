@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/quantdale/orca-strator/schemas/protocol/dispatch.schema.json",
+  "title": "Orca Dispatch Marker v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "type",
+    "runId",
+    "dispatchId",
+    "iteration",
+    "createdAt",
+    "baseSha",
+    "changePath",
+    "goal",
+    "instructionsVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "type": { "type": "string", "const": "dispatch" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "dispatchId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "iteration": { "type": "integer", "minimum": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "baseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "changePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$"
+    },
+    "goal": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "instructionsVersion": { "type": "integer", "minimum": 1 }
+  }
+}
