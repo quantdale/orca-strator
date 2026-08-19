@@ -53,7 +53,7 @@ Reason: preserve the user's desired ChatGPT-browser usage economics/limits.
 
 Not GitHub Actions, webhook, or MCP as primary V1 transport.
 
-Watcher sees remote branch movement and reacts only to valid isolated dispatch markers.
+Watcher sees remote `main` movement and reacts only to valid isolated dispatch markers.
 
 ## D-007 — Transactional dispatch
 
@@ -135,9 +135,13 @@ Each managed repository has its own coordination artifacts/state; Orca local SQL
 
 ## D-018 — Git integration branch
 
-**Decision:** default `main`, configurable per repository.
+**Decision:** V1 always watches, reconciles, commits, and pushes `main`.
 
-For Orca-Strator development itself, commit/push directly to `main` unless explicitly changed.
+There is no configurable branch field in the V1 repository record, API, or UI. This intentionally removes branch-selection complexity while V1 supports only one session/executor per repository.
+
+For Orca-Strator development itself, commit/push directly to `main` unless the user explicitly revises this decision.
+
+**Deferred:** branch-per-session and configurable integration branches when multi-session-per-repository support is designed.
 
 ## D-019 — Dirty working trees
 
@@ -149,7 +153,7 @@ Orca must not automatically discard with hard reset/clean.
 
 ## D-020 — Remote divergence
 
-**Decision:** executor should fetch/rebase/pull and resolve ordinary conflicts where possible.
+**Decision:** executor should fetch/rebase/pull `main` and resolve ordinary conflicts where possible.
 
 Do not automatically force-push.
 
@@ -269,6 +273,14 @@ Patch versions follow lockfile/current compatible security releases.
 **Decision:** detailed specification should reduce ambiguity, not justify elaborate implementation.
 
 Avoid premature plugin systems, distributed services, cloud backend, message brokers, ORMs, and framework layers unless a concrete V1 requirement proves they are needed.
+
+## D-034 — Cross-agent protocol schemas
+
+**Decision:** dispatch, executor-result, and Sol-control artifacts are validated against versioned machine-readable JSON Schemas under `schemas/protocol/`.
+
+The prose protocol explains semantics; schemas define structural validity. Watcher/runtime implementations must reject structurally invalid protocol artifacts rather than guessing missing fields.
+
+Schema version 1 is append-only/backward-stable once runtime implementation begins. Breaking changes require an explicit new schema version and migration/compatibility decision.
 
 ## How to revise a locked decision
 
