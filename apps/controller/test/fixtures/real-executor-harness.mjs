@@ -48,6 +48,8 @@ function main() {
     git(["config", "user.email", "orca-harness@example.com"]);
     git(["config", "user.name", "Orca Test Harness"]);
     git(["config", "commit.gpgsign", "false"]);
+    // Cross-environment (WSL mounted Windows tree) git may flag dubious ownership.
+    git(["config", "--global", "--add", "safe.directory", "*"]);
     git(["fetch", "origin", "main"]);
     git(["rebase", "origin/main"]);
   } catch (err) {

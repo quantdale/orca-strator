@@ -21,6 +21,7 @@ import { WindowsPowerShellAdapter } from "./adapters/windows-adapter.js";
 import { WslAdapter } from "./adapters/wsl-adapter.js";
 import { ExecutorRunner } from "./executor-runner.js";
 import { buildExecutorInvocation, resolveProfile } from "./profiles.js";
+import { toWslPath } from "../wsl-path.js";
 
 export interface ExecutorStartOptions {
   /** Resume an interrupted dispatch; instructs the executor to preserve partial work. */
@@ -132,7 +133,8 @@ export class ExecutorService {
     const invocation = buildExecutorInvocation(profile, {
       cli: repo.executorCli,
       model: repo.executorModel,
-      prompt
+      prompt,
+      environment: repo.environment
     });
 
     const timeoutMs = (repo.maxRuntimeMinutes || 480) * 60 * 1000;
@@ -291,7 +293,7 @@ export class ExecutorService {
         ? {
             environment: "wsl",
             workingPath: repo.localPath,
-            linuxPath: repo.localPath,
+            linuxPath: toWslPath(repo.localPath),
             wslDistribution: repo.wslDistribution
           }
         : { environment: "windows", workingPath: repo.localPath };
@@ -362,7 +364,7 @@ export class ExecutorService {
         ? {
             environment: "wsl",
             workingPath: repo.localPath,
-            linuxPath: repo.localPath,
+            linuxPath: toWslPath(repo.localPath),
             wslDistribution: repo.wslDistribution
           }
         : { environment: "windows", workingPath: repo.localPath };

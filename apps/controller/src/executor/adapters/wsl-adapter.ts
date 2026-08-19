@@ -1,6 +1,7 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import type { ExecutorAdapter, ExecutionContext } from "./executor-adapter.js";
+import { toWslPath } from "../../wsl-path.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,8 +13,11 @@ export class WslAdapter implements ExecutorAdapter {
       wslArgs.push("-d", context.wslDistribution);
     }
 
+    // The executor's working directory is supplied as a Windows path; under WSL it
+    // must be the Linux mount path (Finding C). Do NOT run Linux git with a Windows
+    // cwd.
     if (context.cwd) {
-      wslArgs.push("--cd", context.cwd);
+      wslArgs.push("--cd", toWslPath(context.cwd));
     }
 
     wslArgs.push("--", context.command, ...context.args);

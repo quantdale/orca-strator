@@ -25,6 +25,8 @@ export interface BuildInvocationParams {
   cli: string;
   model: string;
   prompt: string;
+  /** Repository environment; lets the deterministic harness run under WSL (Q/C). */
+  environment?: "windows" | "wsl";
 }
 
 export function resolveProfile(cli: string): ExecutorProfileId {
@@ -35,20 +37,29 @@ export function resolveProfile(cli: string): ExecutorProfileId {
   return "generic";
 }
 
+import { toWslPath } from "../wsl-path.js";
+
 /**
  * Building block for the deterministic "test" harness used by the real
  * qualification tier. The harness path comes from the environment so the
  * controller never guesses where the test fixture lives; it is only used by the
  * qualification tests, never in production.
  */
-export function buildTestInvocation(_params: BuildInvocationParams): ExecutorInvocation {
+export function buildTestInvocation(params: BuildInvocationParams): ExecutorInvocation {
   const harnessPath = process.env.ORCA_TEST_EXECUTOR_HARNESS;
   if (!harnessPath) {
     throw new Error(
       "ORCA_TEST_EXECUTOR_HARNESS is not set; cannot build a test executor invocation."
     );
   }
-  // Spawn Node directly against the harness script with no shell interpolation.
+  // Under WSL the harness must run with the Linux node and a Linux mount path
+  // (Finding C). On Windows we spawn the host Node directly. No shell interpolation.
+  if (params.environment === "wsl") {
+    return {
+      command: "node",
+      args: [toWslPath(harnessPath)]
+    };
+  }
   return {
     command: process.execPath,
     args: [harnessPath]

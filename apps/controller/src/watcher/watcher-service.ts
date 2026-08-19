@@ -10,6 +10,7 @@ import type { DispatchStore } from "./dispatch-store.js";
 import type { SolControlStore } from "./sol-control-store.js";
 import type { GitClient, GitContext } from "./git-client.js";
 import type { CommitInspector, CommitInspectionResult } from "./commit-inspector.js";
+import { toWslPath } from "../wsl-path.js";
 
 export interface WatcherServiceOptions {
   repoStore: RepositoryStore;
@@ -136,7 +137,7 @@ export class WatcherService {
       ? {
           environment: "wsl",
           workingPath: repo.localPath,
-          linuxPath: repo.localPath,
+          linuxPath: toWslPath(repo.localPath),
           wslDistribution: repo.wslDistribution
         }
       : { environment: "windows", workingPath: repo.localPath };

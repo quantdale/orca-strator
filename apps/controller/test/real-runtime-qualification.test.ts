@@ -43,7 +43,21 @@ import { WindowsPowerShellAdapter } from "../src/executor/adapters/windows-adapt
 import { BrowserManager } from "../src/browser/browser-manager.js";
 import { LoopService } from "../src/loop/loop-service.js";
 import { MockBrowserDriver } from "./fixtures/mock-browser-driver.js";
+import { toWslPath } from "../src/wsl-path.js";
 import type { RepositoryRecord } from "@orca/shared";
+
+/** True when wsl.exe is present and the named distro has node available (Q.5). */
+function wslDistroReady(distribution: string): boolean {
+  try {
+    execFileSync("wsl.exe", ["-d", distribution, "-e", "bash", "-lc", "command -v node"], {
+      stdio: ["ignore", "ignore", "ignore"],
+      windowsHide: true
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const HARNESS_PATH = path.resolve(__dirname, "fixtures", "real-executor-harness.mjs");
 
@@ -282,4 +296,101 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
       if (saved) process.env.ORCA_TEST_EXECUTOR_HARNESS = saved;
     }
   });
+
+  it("Q.WIN.WSL.1 autonomous pipeline via REAL wsl.exe executor with a Linux working tree", async () => {
+    // This is the genuine WSL execution path (C/Q.5): the executor runs through
+    // wsl.exe -d Ubuntu --cd <linux working tree> -- node <harness>. It must NOT
+    // be skipped silently; if WSL or a node-capable distro is missing on this
+    // machine we mark it UNQUALIFIED rather than faking green.
+    const distribution = "Ubuntu";
+    if (!wslDistroReady(distribution)) {
+      console.warn(
+        `Q.WIN.WSL.1 SKIPPED: wsl.exe distro '${distribution}' with node not available; UNQUALIFIED on this machine.`
+      );
+      this.skip();
+      return;
+    }
+
+    // The Windows-side watcher reads the bare remote via the Windows path, but the
+    // WSL executor must push through the Linux mount path. Repoint the clone's
+    // origin to the WSL path so the executor's `git push` reaches the same bare
+    // repo without a Windows cwd under Linux.
+    const wslBarePath = toWslPath(bareDir);
+
+    const wslRepo: RepositoryRecord = {
+      ...repo,
+      id: "repo-real-wsl",
+      displayName: "Real WSL Repo",
+      environment: "wsl",
+      wslDistribution: distribution,
+      solConversationUrl: "https://chatgpt.com/c/real-qual-wsl-test"
+    };
+    repoStore.create(wslRepo);
+
+    const run = await loopService.startRun(wslRepo.id, {
+      goal: "Real WSL qualification run",
+      maxIterations: 5
+    });
+    expect(["SOL_PENDING", "SOL_REVIEWING"]).toContain(run.status);
+
+    // Commit a real isolated dispatch marker and push it (Windows-side, before the
+    // origin remote is repointed for the WSL executor).
+    const dispatchId = `disp-real-wsl-${crypto.randomUUID().slice(0, 8)}`;
+    const baseSha = git(cloneDir, ["rev-parse", "HEAD"]);
+    const marker = {
+      schemaVersion: 1,
+      type: "dispatch",
+      runId: run.id,
+      dispatchId,
+      iteration: 1,
+      createdAt: new Date().toISOString(),
+      baseSha,
+      changePath: "openspec/changes/009-real",
+      goal: "Real WSL qualification dispatch",
+      instructionsVersion: 1
+    };
+    fs.mkdirSync(path.join(cloneDir, ".orca", "dispatch"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cloneDir, ".orca", "dispatch", `${dispatchId}.json`),
+      JSON.stringify(marker, null, 2)
+    );
+    git(cloneDir, ["add", "-A"]);
+    git(cloneDir, ["commit", "-m", `chore(sol): dispatch ${dispatchId}`]);
+    git(cloneDir, ["push", "origin", "main"]);
+
+    // Repoint the clone origin to the WSL mount path for the executor turn.
+    git(cloneDir, ["remote", "set-url", "origin", wslBarePath]);
+
+    watcherService.start();
+
+    await waitForCondition(
+      () => dispatchStore.get(dispatchId)?.status === "consumed",
+      40000
+    );
+
+    const execRuns = executorStore.getByRepository(wslRepo.id);
+    expect(execRuns.length).toBeGreaterThan(0);
+    expect(
+      execRuns.find((r) => r.status === "completed"),
+      "WSL executor run should be completed by the real harness"
+    ).toBeTruthy();
+
+    const wakes = wakeStore.getByRepository(wslRepo.id);
+    expect(wakes.length).toBeGreaterThan(0);
+    const page = mockBrowser.history.get(wslRepo.id);
+    expect(page, "sol wake page should exist in history").toBeTruthy();
+    const wakeText = (page?.typedMessages ?? []).map((t) => t.text).join("\n");
+    expect(wakeText).toMatch(/COMPLETED/);
+
+    // The durable result manifest must exist on main (committed by the WSL executor).
+    const remoteResultPath = `.orca/results/${dispatchId}.json`;
+    const remoteHead = git(bareDir, ["rev-parse", "HEAD"]);
+    const resultSha = git(bareDir, ["rev-parse", `${remoteHead}:${remoteResultPath}`]);
+    expect(resultSha).toBeTruthy();
+
+    const loopStatus = loopService.getStatus(wslRepo.id);
+    expect(loopStatus.state).toBe("SOL_REVIEWING");
+
+    watcherService.stop();
+  }, 90000);
 });
