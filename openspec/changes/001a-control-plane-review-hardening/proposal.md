@@ -6,87 +6,90 @@
 
 Roadmap milestone: **1 — Bootstrap control plane**
 
-This is a corrective review change. It does **not** advance Orca-Strator to Milestone 2.
+This is a corrective review change. It repairs Milestone 1 before later runtime systems depend on it. The corrective scope itself does not contain watcher/executor/Playwright runtime, but **completion of 001a is not a session stop**: after folding Milestone 1, the coding agent should create/activate the next roadmap OpenSpec and continue development.
 
 ## Why
 
-The deep review of Change 001 found that the basic architecture is promising, but the milestone was marked `READY_FOR_REVIEW` with several acceptance gates either violated or insufficiently proven. The foundation must be corrected before Git watching, executor spawning, or Playwright are allowed to depend on it.
+The deep review of Change 001 found a promising architecture with several foundation defects and overclaimed acceptance evidence:
 
-The most important findings are:
+1. root `npm run dev` did not actually launch controller runtime + Vite + Electron;
+2. fresh-checkout workspace behavior could depend on ignored `@orca/shared/dist` output;
+3. committed React/Vite/Tailwind/Vitest/Electron lines drifted from the locked technology baseline without a durable decision;
+4. SQLite migration body + migration metadata recording were not atomic;
+5. WebSocket reconnect semantics were broken in disconnect/error/React StrictMode lifecycle paths;
+6. hash routing did not satisfy the documented pathname/deep-link reload contract;
+7. Sol conversation URL validation accepted generic ChatGPT paths;
+8. several acceptance/manual-E2E boxes were stronger than the evidence actually exercised;
+9. documentation/waypoint status drift remained.
 
-1. **Root development orchestration is not functional as specified.** `npm run dev` launches the controller TypeScript compiler in watch mode and Vite, but does not launch the controller runtime and does not launch Electron. The controller workspace `dev` script itself only runs `tsc --watch`.
-2. **Fresh-checkout workspace behavior is not robustly established.** `@orca/shared` exports `dist/*`, generated `dist/` is intentionally untracked, while root tests/typechecks import `@orca/shared`. The required root commands must work from a clean checkout without relying on stale ignored build artifacts.
-3. **The implementation materially drifted from the locked technology baseline without documenting or approving the deviation.** The committed packages use older React/Vite/Tailwind/Vitest/Electron lines than `docs/TECH-BASELINE.md` and `docs/DECISIONS.md` specify.
-4. **SQLite migration application is not atomic.** Migration body execution and insertion into `schema_migrations` are currently separate operations without an explicit transaction, despite the migration contract requiring failed migrations not to leave ambiguous partially-applied state.
-5. **WebSocket reconnect semantics are broken in lifecycle/error paths.** The singleton client permanently disables automatic reconnect after `disconnect()`, and the `onerror` path clears the active socket before close handling can schedule a retry. React StrictMode makes this especially important because effects are intentionally mounted/cleaned up more than once in development.
-6. **SPA routing does not satisfy the deep-link contract.** The UI currently uses hash routing, while Change 001 and the static-server acceptance contract require real client routes such as `/repositories/:id` to survive direct browser reload. The server test proves only that `index.html` is returned, not that the React application resolves the pathname to the intended screen.
-7. **Sol conversation URL validation is too permissive.** The current regex accepts generic single-segment ChatGPT paths rather than requiring a dedicated conversation URL. Later browser automation must never be routed to an arbitrary ChatGPT page because a weak validator accepted it.
-8. **Review evidence was overclaimed.** Several manual/end-to-end task boxes were checked despite tests that only validate small helpers rather than actual Electron/dev-stack/reload behavior. No CI/check status exists for the implementation commit, so the milestone should record exact reproducible verification rather than infer acceptance from the test count.
-9. **Documentation/waypoint drift remains.** README still describes Milestone 1 as ready for implementation even though Change 001 implementation exists, and the waypoint suggested advancing directly to a differently named Change 002 before this review was accepted.
+These issues should be resolved before Milestone 2 code depends on the foundation.
 
 ## Goals
 
-Bring the Change 001 foundation to a state that is safe to accept by:
+1. make clean-output install/typecheck/test/build/lint behavior deterministic;
+2. make `npm run dev` launch the practical Windows controller + UI + Electron stack;
+3. align dependencies with the locked technology baseline or explicitly amend it only with reproduced evidence;
+4. make migrations atomic and failure-tested;
+5. make WebSocket reconnect/refetch behavior correct across StrictMode/errors/disconnect/reconnect;
+6. implement real browser-history/deep-link routing consistent with the same-origin server seam;
+7. tighten Sol conversation URL validation to actual supported conversation URLs;
+8. make checked acceptance evidence truthful/reproducible;
+9. reconcile README/OpenSpec/roadmap/waypoint;
+10. then fold Milestone 1 and **continue into the next roadmap OpenSpec automatically**.
 
-1. making fresh-checkout install/typecheck/test/build/lint behavior deterministic;
-2. making `npm run dev` launch the practical controller + UI + Electron stack on Windows;
-3. aligning dependencies with the locked supported technology baseline, or explicitly revising the baseline only if verified implementation evidence demands it;
-4. making migration application atomic and testable under failure;
-5. making WebSocket reconnect/refetch behavior correct across StrictMode, errors, disconnect/reconnect, and multiple consumers;
-6. implementing real browser-history/deep-link routing consistent with the same-origin static-server seam;
-7. tightening Sol conversation URL validation to actual conversation URLs;
-8. improving acceptance evidence so checked tasks correspond to behavior genuinely exercised;
-9. reconciling README, OpenSpec tasks, roadmap, and durable waypoint after the fixes.
+## Non-goals inside 001a
 
-## Non-goals
+Do not implement the following *inside this corrective change*:
 
-This corrective change MUST NOT implement:
-
-- remote Git polling/watcher runtime;
-- `.orca/dispatch` execution;
+- remote Git watcher/dispatch execution;
 - coding-agent process launch;
 - Playwright/ChatGPT automation;
 - autonomous run state machine;
-- Tailscale configuration;
-- phone notifications;
+- Tailscale/phone notifications;
 - multiple sessions/branches per repository.
 
-Do not use review hardening as an excuse to build Milestone 2 early.
+Those remain later milestones. Once 001a is complete/folded, moving into Milestone 2 is expected and should happen in its own focused OpenSpec without stopping the coding session.
 
-## Acceptance posture
+## Continuous acceptance posture
 
-Change 001 remains **not accepted** until Change 001a is implemented and re-reviewed.
-
-The intended sequence is:
+The sequence is now:
 
 ```text
 Change 001 implementation
-        -> deep review
-        -> Change 001a corrective hardening
-        -> verification
-        -> second deep review
-        -> accept/fold Milestone 1
-        -> only then create Milestone 2 watcher change
+        → deep review
+        → Change 001a corrective hardening
+        → meaningful verification
+        → accept/fold Milestone 1
+        → create/activate Milestone 2 OpenSpec
+        → continue implementation
 ```
+
+A second external Sol review is useful but **non-blocking by default** during unattended goal mode. The repository must remain reviewable at all times through committed/pushed checkpoints.
+
+## Verification posture
+
+Do not begin with a broad baseline suite. Reproduce the specific review findings directly, implement fixes, use focused checks while working, and run broader root gates at meaningful completion checkpoints.
+
+Failing tests or one blocked subtask are not global stop conditions. Record them and continue independent safe work whenever possible.
 
 ## Severity summary
 
 ### High
 
 - broken one-command development stack;
-- fresh-checkout package/build dependency uncertainty;
-- non-transactional migration runner;
+- clean-checkout package/build dependency uncertainty;
+- non-transactional migrations;
 - WebSocket reconnect lifecycle bug;
 - deep-link contract mismatch;
-- unsupported/stale dependency-line drift from locked baseline.
+- unsupported dependency-line drift.
 
 ### Medium
 
-- overly permissive Sol URL validation;
-- inaccurate acceptance-task evidence;
+- permissive Sol URL validation;
+- inaccurate acceptance evidence;
 - README/waypoint/status drift;
-- API route-not-found semantics and similar small contract inconsistencies discovered while hardening.
+- nearby API/config contract inconsistencies discovered while hardening.
 
-## Review exit gate
+## Exit gate
 
-This change is complete only when a fresh supported Windows checkout can reproduce the documented workflow without pre-existing build artifacts, actual desktop/browser behaviors match the Change 001 contract, all corrective regression tests pass, and the durable state is truthful enough for a second Sol review.
+001a is complete when the material review findings are fixed or explicitly superseded by durable evidence-backed decisions, the foundation has truthful verification evidence, and Milestone 1 can be folded without known High defects. Completion advances into Milestone 2 rather than ending the development run.
