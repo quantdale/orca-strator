@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "READY_TO_IMPLEMENT",
+  "developmentStatus": "V1_ROADMAP_COMPLETE",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 8,
-  "activeChange": "008-end-to-end-autonomy-qualification",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7],
-  "planningBaseSha": "2ba0e5e",
+  "activeMilestone": null,
+  "activeChange": null,
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+  "planningBaseSha": "fdf5c7d",
   "checkpoint": {
-    "summary": "Milestone 7 (private phone access and notifications) is fully implemented, verified (132 tests passing across all workspaces, GET /api/system/tailscale endpoint for loopback reverse-proxy guidance, notification filtering helper in @orca/shared, responsive mobile layout in apps/ui with live run controls Start/Pause/Resume/Stop/Recover, and browser notification dispatcher), and folded into canonical openspec/specs/remote-phone-experience/. Milestone 8 (end-to-end autonomy qualification) is now active.",
-    "updatedAt": "2026-08-19T22:49:00+08:00",
-    "lastCompletedTask": "Complete Milestone 7 private phone access and notifications, fold into canonical spec, and activate Milestone 8 OpenSpec",
-    "lastVerification": "Full workspace typecheck passed with 0 errors, all 132 Vitest tests passed, build and lint succeeded."
+    "summary": "All Milestones (0 through 8) in the Orca-Strator V1 Roadmap are fully implemented, tested, and verified. 136 tests passing across 33 test suites with 0 errors across @orca/shared, @orca/controller, @orca/ui, and @orca/desktop. All canonical OpenSpec specifications folded into openspec/specs/.",
+    "updatedAt": "2026-08-19T22:52:00+08:00",
+    "lastCompletedTask": "Complete Milestone 8 End-to-End Autonomy Qualification and fold into canonical spec",
+    "lastVerification": "Full workspace typecheck passed with 0 errors, all 136 Vitest tests passed across 33 test files, build and lint succeeded."
   },
-  "nextAction": "Implement Milestone 8 (openspec/changes/008-end-to-end-autonomy-qualification): e2e-autonomy-qualification integration suite covering multi-repo concurrent loops, Windows/WSL matrix, Sol bridge, crash reconstruction, ceilings, and phone access, followed by final V1 roadmap completion.",
+  "nextAction": "V1 Roadmap implementation is complete. Orca-Strator is ready for leave-and-forget autonomous multi-repository development orchestration.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

@@ -111,20 +111,9 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 7 — Private phone access and notifications** is complete and folded (`openspec/specs/remote-phone-experience/`).
 
-**Milestone 8 — End-to-end autonomy qualification** is active:
+**Milestone 8 — End-to-end autonomy qualification** is complete and folded (`openspec/specs/end-to-end-autonomy-qualification/`).
 
-Active OpenSpec:
-
-```text
-openspec/changes/008-end-to-end-autonomy-qualification/
-```
-
-Milestone 8 qualifies:
-- full-lifecycle leave-and-forget autonomy across multiple concurrent repositories;
-- Windows & WSL executor matrix execution;
-- ChatGPT Sol bridge interaction under rate limits/busy states;
-- comprehensive crash, restart, reboot, and network recovery qualification;
-- complete end-to-end verification across all subpackages and apps.
+All V1 roadmap milestones are **fully implemented, qualified, and verified**. Orca-Strator is complete for V1 operation as an autonomous multi-repository development orchestrator.
 
 ## Durable development workflow
 

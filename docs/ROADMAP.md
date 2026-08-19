@@ -373,9 +373,9 @@ From authorized phone on private tailnet:
 
 ## Milestone 8 — End-to-end autonomy qualification
 
-OpenSpec: `008-end-to-end-autonomy-qualification`
+OpenSpec: `008-end-to-end-autonomy-qualification` (folded into `openspec/specs/end-to-end-autonomy-qualification/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
