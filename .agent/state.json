@@ -8,10 +8,10 @@
   "completedMilestones": [0],
   "planningBaseSha": "ac1f204564d1650d3d432466d5761c3f263f6289",
   "checkpoint": {
-    "summary": "V1 product decisions are locked. Architecture, roadmap, durable agent contract, and the first implementation change are being seeded into the repository.",
+    "summary": "Architecture and roadmap are locked. OpenSpec Change 001 (bootstrap control plane) has proposal, delta requirements, design, and implementation tasks and is ready to apply.",
     "updatedAt": "2026-08-19T19:16:00+08:00"
   },
-  "nextAction": "Read and implement openspec/changes/001-bootstrap-control-plane, starting with its first unchecked task and preserving a runnable checkpoint after each coherent slice.",
+  "nextAction": "Run /go in a fresh coding-agent session and implement openspec/changes/001-bootstrap-control-plane from the first unchecked task, updating tasks and this waypoint as progress is committed to main.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",
