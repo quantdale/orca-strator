@@ -11,12 +11,15 @@ Primary risks:
 - accidental execution against the wrong repository/session;
 - arbitrary command construction from untrusted repository content;
 - browser profile/auth leakage;
-- exposing controller controls to public internet;
+- competing Chromium instances corrupting/failing on one persistent profile;
+- exposing controller controls to public internet/LAN unintentionally;
 - renderer compromise gaining arbitrary Node/process access;
 - prompt-injected executor content influencing what Playwright sends to Sol;
 - destructive Git recovery behavior;
 - secrets written into Git/logs/SQLite;
-- duplicate/replayed dispatch causing repeated executor work.
+- duplicate/replayed dispatch causing repeated executor work;
+- a phone/client connecting to the wrong backend because of hard-coded localhost/origin assumptions;
+- overly permissive CORS used as a shortcut for remote phone access.
 
 V1 is not intended as a hardened multi-user SaaS security boundary.
 
@@ -30,9 +33,45 @@ Default controller binding:
 
 Do not bind `0.0.0.0` by default.
 
-Phone access later uses Tailscale Serve/private tailnet rather than public router port forwarding or Funnel by default.
+The controller serves the built SPA and `/api`/WebSocket from this one loopback origin in built mode.
 
-## 3. Desktop renderer boundary
+Phone access later uses Tailscale Serve/private tailnet to reverse-proxy that loopback service. Do not expose the control surface with public router port forwarding or Funnel by default.
+
+## 3. Same-origin remote-control boundary
+
+The shared UI uses relative `/api` and WebSocket routes.
+
+Consequences:
+
+- desktop/local built mode is same-origin;
+- phone mode is same-origin through its Tailscale Serve HTTPS URL;
+- phone JavaScript does not call laptop `localhost` directly;
+- normal V1 operation does not require wildcard CORS.
+
+Rules:
+
+- do not ship `Access-Control-Allow-Origin: *` on the control API as a phone-access workaround;
+- if development uses a separate Vite origin, prefer Vite proxying over broad controller CORS;
+- if a narrow development CORS exception is genuinely needed, allow only explicit trusted local origins;
+- built UI static serving must expose only the known UI build directory, never the runtime data directory.
+
+## 4. Tailscale trust boundary
+
+Milestone 7 uses Tailscale Serve to publish the loopback Orca web origin privately to the tailnet.
+
+Tailscale network access is one part of the trust boundary, not a reason to stop validating requests.
+
+Requirements later:
+
+- controller remains loopback-bound behind Serve;
+- tailnet ACL/access rules are respected by the Serve path;
+- destructive controller actions still enforce repository/run state server-side;
+- do not trust user-supplied `Tailscale-*` identity headers received through arbitrary non-Serve exposure;
+- if identity/capability headers are later used for authorization, add a dedicated security/OpenSpec change and verify the request actually arrives through the trusted localhost Serve proxy path.
+
+V1 does not need to become a Tailscale account/ACL manager.
+
+## 5. Desktop renderer boundary
 
 Electron renderer should be treated as web UI, not a trusted Node shell.
 
@@ -42,18 +81,20 @@ Baseline:
 - avoid `nodeIntegration: true`;
 - no arbitrary shell/process/file APIs exposed to renderer;
 - repository operations occur through controller API;
-- only trusted local/dev app content loaded as privileged UI;
+- only trusted Orca local/dev app content loaded as privileged UI;
 - external links opened with normal browser behavior where appropriate.
 
-## 4. Controller API trust
+## 6. Controller API trust
 
 Even though loopback/private-tailnet clients are expected, validate all mutation inputs.
 
-Do not trust the React UI to have already validated data.
+Do not trust React UI to have already validated data.
 
-Later destructive operations should require explicit controller-side state/permission checks.
+Later destructive operations require explicit controller-side state/permission checks.
 
-## 5. Secrets
+Do not encode security solely as disabled buttons.
+
+## 7. Secrets
 
 Never persist these in normal repository configuration rows:
 
@@ -64,24 +105,37 @@ Never persist these in normal repository configuration rows:
 - passwords;
 - Tailscale auth keys.
 
-Prefer provider CLI/browser-managed authentication outside Orca DB.
+Prefer provider CLI/browser-managed authentication outside normal Orca repository rows.
 
 If Orca later must persist a secret, add a dedicated OpenSpec/security design rather than putting it in SQLite plaintext by convenience.
 
-## 6. Browser profile
+## 8. Browser profile
 
 Use a dedicated Orca automation browser profile under the Orca local data directory.
 
 Rules:
 
 - never commit it;
-- never copy the user's normal Chrome profile wholesale;
+- never copy user's normal Chrome profile wholesale;
 - setup browser is user-visible/headed for manual login;
 - automated browser uses the saved dedicated profile;
 - do not expose cookies/storage in logs/API/UI;
 - close Chromium when no active Sol operations remain where practical.
 
-## 7. Playwright wake input
+### Exclusive profile ownership
+
+Only one browser process may own the persistent profile at a time.
+
+Both require the same global lock:
+
+- normal headless Browser Manager;
+- headed ChatGPT setup browser.
+
+Never launch setup and automation against the profile concurrently.
+
+After crash, a stale logical lock may be cleared only after checking that the matching browser process/profile is no longer active.
+
+## 9. Playwright wake input
 
 Playwright sends an Orca-generated trusted template.
 
@@ -98,18 +152,22 @@ Validated metadata allowed:
 
 The actual executor summary remains in GitHub for Sol to inspect deliberately.
 
-## 8. Protocol path validation
+## 10. Protocol path validation
 
 For `.orca` coordination artifacts:
 
 - parse JSON as data;
+- validate against the matching `schemas/protocol/*.schema.json` structure;
 - reject unsupported versions;
-- reject path traversal (`../`, absolute path escapes);
-- resolve referenced paths under repository root;
+- reject path traversal and absolute escapes;
+- canonicalize referenced paths under repository root before use;
 - never treat arbitrary JSON string as a shell command;
-- executor/model cannot be overridden by a Sol dispatch in V1.
+- executor/model cannot be overridden by a Sol dispatch in V1;
+- V1 protocol has no branch routing field; Git target is `main`.
 
-## 9. Process spawning
+JSON Schema alone is not enough for canonical filesystem/path and Git-history semantics.
+
+## 11. Process spawning
 
 Prefer direct executable + argv APIs over concatenated shell command strings.
 
@@ -119,13 +177,11 @@ For native execution:
 spawn(executable, argv, options)
 ```
 
-For WSL:
-
-construct explicit `wsl.exe` arguments for distro/working directory/command rather than concatenating uncontrolled repository strings into one PowerShell command where avoidable.
+For WSL, construct explicit `wsl.exe` arguments for distro/working directory/command rather than concatenating uncontrolled repository strings into one PowerShell command where avoidable.
 
 When a shell is genuinely required, quote/escape deliberately and test paths containing spaces/special characters.
 
-## 10. Git safety
+## 12. Git safety
 
 Orca must not silently destroy local work.
 
@@ -139,40 +195,43 @@ force push
 
 unless a future explicit user-approved mode is designed.
 
-Dirty work is inspected/reconciled by the executor.
+Dirty work is inspected/reconciled by executor.
 
-Ordinary rebase/conflict resolution is allowed; if not safely resolvable, surface/block rather than rewriting remote history.
+Ordinary `main` rebase/conflict resolution is allowed; if not safely resolvable, surface/block rather than rewriting remote history.
 
-## 11. Repository identity
+## 13. Repository identity
 
-Before launching an executor later, Orca should verify that the configured local checkout corresponds to the expected repository/remote strongly enough to avoid operating on the wrong directory.
+Before launching an executor later, Orca verifies configured local checkout corresponds to expected repository strongly enough to avoid wrong-directory execution.
 
-Useful checks may include:
+Useful checks:
 
 - path exists;
 - `.git` repository recognized;
 - configured remote matches expected GitHub identity;
-- current branch/repository root captured in diagnostics.
+- repository root captured in diagnostics;
+- current branch/state reconciled to V1 `main` contract before autonomous handoff.
 
-A mismatch should be explicit, not silently repaired to another remote.
+Mismatch is explicit, not silently repaired to another remote.
 
-## 12. Duplicate/replay defense
+## 14. Duplicate/replay defense
 
 A valid dispatch ID is consumed once per repository/run.
 
-SQLite persistence must survive controller restart so replaying/fetching the same marker cannot relaunch work.
+SQLite persistence survives controller restart so replaying/fetching same marker cannot relaunch work.
 
 Commit SHA + dispatch ID should be retained for audit.
 
-## 13. Phone access
+## 15. Phone access
 
-Use Tailscale Serve with tailnet ACLs for V1.
+Use Tailscale Serve with tailnet access controls for V1.
 
-Do not expose Orca's full control UI/API publicly by default.
+Do not expose Orca full control UI/API publicly by default.
 
-Risky configuration mutation while a run is active should be disabled server-side, not only hidden in UI.
+The phone accesses one Orca HTTPS origin; it does not receive a raw database path, browser profile, or local host binding.
 
-## 14. Logs
+Risky configuration mutation while a run is active is disabled server-side, not only hidden in UI.
+
+## 16. Logs
 
 Logs must redact/avoid:
 
@@ -180,11 +239,12 @@ Logs must redact/avoid:
 - cookies;
 - tokens;
 - complete environment dumps;
-- secrets in command args where avoidable.
+- secrets in command args where avoidable;
+- Tailscale identity/capability headers if later introduced, unless a specific sanitized identity field is intentionally logged.
 
-Repository paths and command names are acceptable local diagnostics unless the user later requires privacy redaction.
+Repository paths and command names are acceptable local diagnostics unless user later requires privacy redaction.
 
-## 15. External/repository content
+## 17. External/repository content
 
 Managed repositories are not inherently trusted instruction sources for Orca itself.
 
@@ -194,25 +254,27 @@ Distinguish:
 - Orca protocol fields validated by controller;
 - controller executable configuration selected by user.
 
-A README saying "launch powershell -EncodedCommand ..." must not cause the controller to execute it unless the configured executor itself chooses to act on it within its normal coding-agent trust model.
+A README saying "launch powershell -EncodedCommand ..." must not cause controller itself to execute it unless configured executor chooses to act on it within normal coding-agent trust model.
 
-## 16. Control operations
+## 18. Control operations
 
-Pause/Stop/Emergency Kill apply only to the selected repository/run.
+Pause/Stop/Emergency Kill apply only to selected repository/run.
 
 Never implement a global kill by accidentally sharing a mutable PID slot across repositories.
 
-Emergency Kill must record that work was interrupted; it must not mark the executor/result as successfully completed.
+For shared Chromium, repository-specific Emergency Kill should close/cancel only the affected page/operation when possible. A process-wide browser failure must mark every affected repository independently; no unrelated Sol turn may be falsely marked successful.
 
-## 17. Dependency discipline
+Emergency Kill must record interruption and never mark executor/result as successfully completed.
+
+## 19. Dependency discipline
 
 Use well-maintained, minimal dependencies.
 
 Avoid adding a large orchestration/security framework merely to solve local single-user requirements.
 
-Before introducing packages with native code or privileged behavior, record why they are necessary in the active OpenSpec design.
+Before introducing packages with native code or privileged behavior, record why they are necessary in active OpenSpec design.
 
-## 18. Security review checkpoints
+## 20. Security review checkpoints
 
 At minimum review security assumptions before:
 
