@@ -1,12 +1,24 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export type BrowserLockMode = "INTERACTIVE_SETUP" | "AUTOMATED";
+
 export interface LockInfo {
   pid: number;
   acquiredAt: string;
+  mode: BrowserLockMode;
+  /** Raw caller-provided reason, preserved for diagnostics/back-compat. */
   reason: string;
 }
 
+/**
+ * Cross-process + in-process browser profile lock.
+ *
+ * Finding J: a PID-only lock is insufficient because setup and automated browser
+ * operations can live in the SAME controller process. We therefore record the
+ * MODE and reject incompatible overlaps even within one process, and verify real
+ * ownership for stale-lock recovery.
+ */
 export class ProfileLockManager {
   private readonly lockFilePath: string;
 
@@ -30,7 +42,11 @@ export class ProfileLockManager {
 
     try {
       const raw = fs.readFileSync(this.lockFilePath, "utf8");
-      return JSON.parse(raw) as LockInfo;
+      const parsed = JSON.parse(raw) as Partial<LockInfo>;
+      if (typeof parsed.pid !== "number" || typeof parsed.mode !== "string") {
+        return null;
+      }
+      return parsed as LockInfo;
     } catch {
       return null;
     }
@@ -39,17 +55,24 @@ export class ProfileLockManager {
   acquire(reason: string): boolean {
     fs.mkdirSync(path.dirname(this.lockFilePath), { recursive: true });
 
+    const mode = resolveMode(reason);
+
     const existing = this.getLockInfo();
     if (existing) {
-      if (existing.pid === process.pid) {
-        return true;
+      if (existing.pid === process.pid && existing.mode === mode) {
+        return true; // Re-entrant same mode in same process.
       }
 
-      if (this.isProcessAlive(existing.pid)) {
+      // Different mode (even in the same process) is an incompatible overlap (J).
+      if (existing.pid === process.pid && existing.mode !== mode) {
         return false;
       }
 
-      // Stale lock recovery
+      if (this.isProcessAlive(existing.pid)) {
+        return false; // Owned by a live process with a different mode.
+      }
+
+      // Stale lock recovery — verify before removing.
       try {
         fs.unlinkSync(this.lockFilePath);
       } catch {}
@@ -58,6 +81,7 @@ export class ProfileLockManager {
     const info: LockInfo = {
       pid: process.pid,
       acquiredAt: new Date().toISOString(),
+      mode,
       reason
     };
 
@@ -83,4 +107,16 @@ export class ProfileLockManager {
     if (!info) return false;
     return this.isProcessAlive(info.pid);
   }
+}
+
+/**
+ * Map a caller-provided reason to a lock MODE. Known setup/automated reasons map
+ * directly; anything else defaults to AUTOMATED. The mode is what enforces
+ * incompatible-overlap semantics within a single process (J).
+ */
+function resolveMode(reason: string): BrowserLockMode {
+  const r = reason.toLowerCase();
+  if (r.includes("setup") || r.includes("interactive")) return "INTERACTIVE_SETUP";
+  if (r.includes("automated") || r.includes("wake")) return "AUTOMATED";
+  return "AUTOMATED";
 }

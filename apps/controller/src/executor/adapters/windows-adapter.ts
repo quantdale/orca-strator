@@ -12,7 +12,6 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
         ...process.env,
         ...context.env
       },
-      shell: true,
       windowsHide: true
     });
   }

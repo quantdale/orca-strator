@@ -122,9 +122,9 @@ describe("Browser Manager & Sol Wake Integration (Task 6)", () => {
 
     expect(wake.status).toBe("submitted");
     expect(wake.submittedAt).not.toBeNull();
-    expect(mockDriver.isRunning()).toBe(true);
 
-    const page = mockDriver.pages.get(mockRepo1.id);
+    // The page is closed after the wake (L); inspect the persistent history.
+    const page = mockDriver.history.get(mockRepo1.id);
     expect(page).toBeDefined();
     expect(page?.typedMessages.length).toBeGreaterThan(0);
     expect(page?.typedMessages[0].text).toContain("Orca-Strator executor turn completed");
@@ -134,7 +134,7 @@ describe("Browser Manager & Sol Wake Integration (Task 6)", () => {
     expect(persisted?.status).toBe("submitted");
   });
 
-  it("6.T3 two repositories multiplex on the same browser context with separate pages", async () => {
+  it("6.T3 two repositories each get a dedicated page and wake during multiplexing", async () => {
     const mockDispatch2: DispatchRecord = {
       id: "disp-wake-int-2",
       dispatchId: "disp-wake-int-2",
@@ -155,7 +155,7 @@ describe("Browser Manager & Sol Wake Integration (Task 6)", () => {
     };
     dispatchStore.create(mockDispatch2);
 
-    await browserManager.submitSolWake(mockRepo1.id, {
+    const wake1 = await browserManager.submitSolWake(mockRepo1.id, {
       runId: mockDispatch1.runId,
       iteration: 1,
       dispatchId: mockDispatch1.id,
@@ -164,7 +164,7 @@ describe("Browser Manager & Sol Wake Integration (Task 6)", () => {
       repositoryName: mockRepo1.displayName
     });
 
-    await browserManager.submitSolWake(mockRepo2.id, {
+    const wake2 = await browserManager.submitSolWake(mockRepo2.id, {
       runId: mockDispatch2.runId,
       iteration: 1,
       dispatchId: mockDispatch2.id,
@@ -173,8 +173,10 @@ describe("Browser Manager & Sol Wake Integration (Task 6)", () => {
       repositoryName: mockRepo2.displayName
     });
 
-    expect(mockDriver.activePageCount()).toBe(2);
-    expect(mockDriver.pages.get(mockRepo1.id)?.currentUrl).toBe(mockRepo1.solConversationUrl);
-    expect(mockDriver.pages.get(mockRepo2.id)?.currentUrl).toBe(mockRepo2.solConversationUrl);
+    // Each repository is opened on its own page with its own conversation URL.
+    expect(wake1.status).toBe("submitted");
+    expect(wake2.status).toBe("submitted");
+    expect(mockDriver.history.get(mockRepo1.id)?.currentUrl).toBe(mockRepo1.solConversationUrl);
+    expect(mockDriver.history.get(mockRepo2.id)?.currentUrl).toBe(mockRepo2.solConversationUrl);
   });
 });

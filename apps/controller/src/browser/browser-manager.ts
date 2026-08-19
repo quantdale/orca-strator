@@ -4,7 +4,7 @@ import {
   generateSolWakeMessage,
   type BrowserStatus,
   type SolWakeRecord,
-  type ExecutorResultStatus,
+  type SolWakeResultStatus,
   type RepositoryMutationEvent,
   ValidationError
 } from "@orca/shared";
@@ -21,6 +21,10 @@ export interface BrowserManagerOptions {
   submitter?: SolWakeSubmitter;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
 }
+
+/** Backpressure budget before a wake is reported busy/queued (L). */
+const WAKE_LOCK_RETRIES = 5;
+const WAKE_LOCK_RETRY_MS = 1500;
 
 export class BrowserManager {
   private readonly profileDir: string;
@@ -43,8 +47,13 @@ export class BrowserManager {
   async openSetupBrowser(): Promise<void> {
     if (this.isSetupOpen) return;
 
-    if (!this.lockManager.acquire("interactive_setup")) {
-      throw new ValidationError("Browser profile is currently locked by another process.");
+    if (!this.lockManager.acquire("INTERACTIVE_SETUP")) {
+      const holder = this.lockManager.getLockInfo();
+      throw new ValidationError(
+        holder && holder.mode === "AUTOMATED"
+          ? "Automated Chromium owns the profile; headed setup cannot reuse it. Wait for automated operations to finish."
+          : "Browser profile is currently locked by another process."
+      );
     }
 
     try {
@@ -68,13 +77,17 @@ export class BrowserManager {
     }
   }
 
+  /**
+   * Submit a Sol wake. Returns the durable wake record. Real ChatGPT transport
+   * is handled by the driver/submitter; the loop uses the returned status.
+   */
   async submitSolWake(
     repositoryId: string,
     params: {
       runId: string;
       iteration: number;
       dispatchId?: string | null;
-      resultStatus: ExecutorResultStatus;
+      resultStatus: SolWakeResultStatus;
       conversationUrl: string;
       repositoryName: string;
     }
@@ -89,6 +102,24 @@ export class BrowserManager {
       dispatchId: params.dispatchId || "none",
       resultStatus: params.resultStatus
     });
+
+    // Duplicate wake idempotency (L): do not double-submit the SAME wake intent.
+    // The wake intent is its full generated message (runId + iteration + dispatchId
+    // + resultStatus). The initial wake and a later executor-completed wake for the
+    // same run are DISTINCT intents and BOTH must be delivered; keying dedup on
+    // runId alone would silently swallow the subsequent wake (Q/L defect).
+    const existing = this.wakeStore
+      .getByRepository(repositoryId)
+      .find(
+        (w) =>
+          w.runId === params.runId &&
+          w.message === message &&
+          w.status !== "failed" &&
+          w.status !== "busy"
+      );
+    if (existing) {
+      return existing;
+    }
 
     const wakeRecord: SolWakeRecord = {
       id: wakeId,
@@ -106,7 +137,17 @@ export class BrowserManager {
 
     this.wakeStore.create(wakeRecord);
 
-    if (!this.lockManager.acquire("automated_wake")) {
+    // Backpressure: wait for the automated profile lock to free up (L).
+    let locked = false;
+    for (let attempt = 0; attempt < WAKE_LOCK_RETRIES; attempt++) {
+      if (this.lockManager.acquire("AUTOMATED")) {
+        locked = true;
+        break;
+      }
+      await new Promise<void>((r) => setTimeout(r, WAKE_LOCK_RETRY_MS));
+    }
+
+    if (!locked) {
       this.wakeStore.updateStatus(wakeId, "busy", {
         errorMessage: "Profile is locked by setup browser or another process"
       });
@@ -115,16 +156,14 @@ export class BrowserManager {
 
     try {
       if (!this.driver.isRunning()) {
-        await this.driver.launch(this.profileDir, true); // Headless for automated background wake
+        await this.driver.launch(this.profileDir, true); // Headless for automated wake
       }
 
       const page = await this.driver.openPage(repositoryId, params.conversationUrl);
       await this.submitter.submitWake(page, message);
 
       const submittedAt = new Date().toISOString();
-      this.wakeStore.updateStatus(wakeId, "submitted", {
-        submittedAt
-      });
+      this.wakeStore.updateStatus(wakeId, "submitted", { submittedAt });
 
       this.publishEvent({
         type: "repository.updated",
@@ -132,15 +171,34 @@ export class BrowserManager {
         repositoryId
       });
 
+      // Close this repository's page when its Sol operation completes (L).
+      await this.closeRepositoryPage(repositoryId);
       return this.wakeStore.get(wakeId)!;
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
-      this.wakeStore.updateStatus(wakeId, "failed", {
-        errorMessage
-      });
-      return this.wakeStore.get(wakeId)!;
+      // Cloudflare/CAPTCHA/verification -> ATTENTION_REQUIRED signal for the loop.
+      const needsAttention =
+        /ATTENTION_REQUIRED|verification|cloudflare|captcha|login required/i.test(errorMessage);
+      this.wakeStore.updateStatus(wakeId, "failed", { errorMessage });
+      throw new Error(needsAttention ? `ATTENTION_REQUIRED: ${errorMessage}` : errorMessage);
     } finally {
-      // Keep automated browser context alive for page multiplexing, release lock on full close
+      // If no active Sol pages remain, close Chromium so it does not idle (L).
+      if (!this.isSetupOpen && this.driver.activePageCount() === 0) {
+        await this.driver.close().catch(() => {});
+      }
+      // Automated lock is released when the full browser closes; release defensively.
+      if (!this.driver.isRunning()) {
+        this.lockManager.release();
+      }
+    }
+  }
+
+  /** Close the browser page associated with a repository (L). */
+  async closeRepositoryPage(repositoryId: string): Promise<void> {
+    try {
+      await this.driver.closePage(repositoryId);
+    } catch (err) {
+      console.warn("[BrowserManager] Failed to close repository page:", err);
     }
   }
 

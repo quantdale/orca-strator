@@ -52,11 +52,10 @@ export class PlaywrightDriver implements BrowserDriver {
 
     this.context = await chromium.launchPersistentContext(profileDir, {
       headless,
-      viewport: { width: 1280, height: 800 },
-      args: [
-        "--disable-blink-features=AutomationControlled",
-        "--no-sandbox"
-      ]
+      viewport: { width: 1280, height: 800 }
+      // Intentionally do NOT add --disable-blink-features=AutomationControlled or
+      // --no-sandbox. They were removed: we do not implement anti-detection, and
+      // --no-sandbox is a security downgrade that requires a documented reason.
     });
   }
 

@@ -21,18 +21,22 @@ export class StartupReconciler {
       reconciledCount++;
 
       if (activeRun.status === "EXECUTING" || activeRun.status === "EXECUTOR_PENDING") {
+        // M: executor turn interrupted by controller/process loss. Preserve the
+        // dirty checkout; require an explicit Resume/recovery rather than silently
+        // restarting or creating a duplicate run.
         this.runStore.updateStatus(activeRun.id, "RECOVERY_REQUIRED", {
           lastError: "Controller process restarted while executor turn was in progress. Manual recovery required."
         });
         recoveryRequiredCount++;
       } else if (activeRun.status === "SOL_PENDING") {
-        // Resubmit wake
-        await this.loopService.startRun(repo.id, {
-          goal: activeRun.goal,
-          maxIterations: activeRun.maxIterations
-        }).catch(() => {});
+        // Resubmit the pending Sol wake idempotently. This MUST NOT recreate the
+        // run (the old code called startRun() against the already-active run and
+        // silently failed). The loop rehydrates the existing run.
+        await this.loopService.resubmitPendingWake(repo.id, activeRun).catch((err) => {
+          console.warn("[StartupReconciler] Failed to resubmit pending wake:", err);
+        });
       }
-      // If SOL_REVIEWING or PAUSED, it resumes naturally
+      // SOL_REVIEWING and PAUSED resolve naturally or via explicit user action.
     }
 
     return { reconciledCount, recoveryRequiredCount };

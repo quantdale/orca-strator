@@ -7,7 +7,9 @@ export type EventType =
   | "repository.deleted"
   | "watcher.dispatch_detected"
   | "watcher.dispatch_rejected"
+  | "watcher.control_detected"
   | "watcher.poll_completed"
+  | "executor.log"
   | "loop.state_changed";
 
 export interface RepositoryMutationEvent {
@@ -21,5 +23,8 @@ export interface RepositoryMutationEvent {
     reason?: string;
     loopState?: string;
     runId?: string;
+    controlId?: string;
+    decision?: string;
+    logMessage?: string;
   };
 }

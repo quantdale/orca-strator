@@ -4,6 +4,7 @@ export * from "./api.js";
 export * from "./events.js";
 export * from "./validation.js";
 export * from "./dispatch.js";
+export * from "./sol-control.js";
 export * from "./executor-result.js";
 export * from "./prompt.js";
 export * from "./sol-wake.js";

@@ -2,9 +2,13 @@ import {
   validateDispatchMarker,
   isDispatchFilePath,
   extractDispatchIdFromPath,
-  type DispatchMarker
+  validateSolControlMarker,
+  isSolControlFilePath,
+  extractControlIdFromPath,
+  type DispatchMarker,
+  type SolControlMarker
 } from "@orca/shared";
-import type { FileChange, GitClient } from "./git-client.js";
+import type { FileChange, GitContext, GitClient } from "./git-client.js";
 
 export type CommitInspectionResult =
   | {
@@ -20,6 +24,18 @@ export type CommitInspectionResult =
       reason: string;
     }
   | {
+      type: "SOL_CONTROL";
+      commitSha: string;
+      controlId: string;
+      control: SolControlMarker;
+    }
+  | {
+      type: "REJECTED_SOL_CONTROL";
+      commitSha: string;
+      controlId: string | null;
+      reason: string;
+    }
+  | {
       type: "NO_DISPATCH";
       commitSha: string;
     };
@@ -27,15 +43,22 @@ export type CommitInspectionResult =
 export class CommitInspector {
   constructor(private readonly gitClient: GitClient) {}
 
-  inspectChanges(changes: FileChange[], fileContentGetter: (path: string) => Promise<string>, commitSha: string): Promise<CommitInspectionResult> {
+  inspectChanges(
+    changes: FileChange[],
+    fileContentGetter: (path: string) => Promise<string>,
+    commitSha: string
+  ): Promise<CommitInspectionResult> {
     return this.evaluateChanges(changes, fileContentGetter, commitSha);
   }
 
-  async inspectCommit(repoPath: string, commitSha: string): Promise<CommitInspectionResult> {
-    const changes = await this.gitClient.getCommitChanges(repoPath, commitSha);
+  async inspectCommit(
+    target: GitContext | string,
+    commitSha: string
+  ): Promise<CommitInspectionResult> {
+    const changes = await this.gitClient.getCommitChanges(target, commitSha);
     return this.evaluateChanges(
       changes,
-      (filePath) => this.gitClient.getFileContentAtCommit(repoPath, commitSha, filePath),
+      (filePath) => this.gitClient.getFileContentAtCommit(target, commitSha, filePath),
       commitSha
     );
   }
@@ -46,28 +69,98 @@ export class CommitInspector {
     commitSha: string
   ): Promise<CommitInspectionResult> {
     const dispatchChanges = changes.filter((c) => isDispatchFilePath(c.path));
-    const nonDispatchChanges = changes.filter((c) => !isDispatchFilePath(c.path));
+    const controlChanges = changes.filter((c) => isSolControlFilePath(c.path));
+    const nonArtifactChanges = changes.filter(
+      (c) => !isDispatchFilePath(c.path) && !isSolControlFilePath(c.path)
+    );
 
-    // Case 1: No dispatch files touched in this commit (ordinary commit)
+    // --- Sol control marker handling ---
+    if (controlChanges.length > 0) {
+      const single = controlChanges[0]!;
+      const controlId = extractControlIdFromPath(single.path);
+
+      if (controlChanges.length > 1) {
+        return {
+          type: "REJECTED_SOL_CONTROL",
+          commitSha,
+          controlId,
+          reason: `Multiple sol-control files in single commit rejected: ${controlChanges
+            .map((c) => c.path)
+            .join(", ")}`
+        };
+      }
+
+      if (single.status !== "A") {
+        return {
+          type: "REJECTED_SOL_CONTROL",
+          commitSha,
+          controlId,
+          reason: `Sol-control immutability violation: file must be added, not modified/deleted (status=${single.status}, path=${single.path})`
+        };
+      }
+
+      if (nonArtifactChanges.length > 0) {
+        return {
+          type: "REJECTED_SOL_CONTROL",
+          commitSha,
+          controlId,
+          reason: `Mixed sol-control commit rejected: sol-control marker must be isolated, but also modified: ${nonArtifactChanges
+            .map((c) => c.path)
+            .join(", ")}`
+        };
+      }
+
+      try {
+        const content = await getFileContent(single.path);
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(content);
+        } catch (err: any) {
+          return {
+            type: "REJECTED_SOL_CONTROL",
+            commitSha,
+            controlId,
+            reason: `Malformed JSON in sol-control file ${single.path}: ${err.message}`
+          };
+        }
+        const control = validateSolControlMarker(parsed);
+        if (control.controlId !== controlId) {
+          return {
+            type: "REJECTED_SOL_CONTROL",
+            commitSha,
+            controlId,
+            reason: `Control ID mismatch: filename ID '${controlId}' does not match payload controlId '${control.controlId}'`
+          };
+        }
+        return { type: "SOL_CONTROL", commitSha, controlId: control.controlId, control };
+      } catch (err: any) {
+        return {
+          type: "REJECTED_SOL_CONTROL",
+          commitSha,
+          controlId,
+          reason: `Sol-control schema validation failed: ${err.message}`
+        };
+      }
+    }
+
+    // --- Dispatch marker handling ---
     if (dispatchChanges.length === 0) {
       return { type: "NO_DISPATCH", commitSha };
     }
 
-    // Case 2: Mixed commit (touches dispatch file AND other files)
-    if (nonDispatchChanges.length > 0) {
+    if (nonArtifactChanges.length > 0) {
       const firstDispatch = dispatchChanges[0];
       const dispatchId = firstDispatch ? extractDispatchIdFromPath(firstDispatch.path) : null;
       return {
         type: "REJECTED_DISPATCH",
         commitSha,
         dispatchId,
-        reason: `Mixed commit rejected: Dispatch commit must only introduce a dispatch marker, but also modified: ${nonDispatchChanges
+        reason: `Mixed commit rejected: Dispatch commit must only introduce a dispatch marker, but also modified: ${nonArtifactChanges
           .map((c) => c.path)
           .join(", ")}`
       };
     }
 
-    // Case 3: Multiple dispatch files in single commit
     if (dispatchChanges.length > 1) {
       return {
         type: "REJECTED_DISPATCH",
@@ -82,7 +175,6 @@ export class CommitInspector {
     const singleChange = dispatchChanges[0]!;
     const dispatchIdFromPath = extractDispatchIdFromPath(singleChange.path);
 
-    // Case 4: Modified or deleted existing dispatch file (immutability violation)
     if (singleChange.status !== "A") {
       return {
         type: "REJECTED_DISPATCH",
@@ -92,7 +184,6 @@ export class CommitInspector {
       };
     }
 
-    // Case 5: Content parsing and schema validation
     try {
       const content = await getFileContent(singleChange.path);
       let parsed: unknown;

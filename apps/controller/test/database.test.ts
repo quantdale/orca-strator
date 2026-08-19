@@ -27,7 +27,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
 
   it('4.T1 fresh temp DB migrates and creates schema_migrations', () => {
     const rows = dbCtx.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(7);
     expect(rows[0].version).toBe(1);
     expect(rows[0].name).toBe('001_create_repositories');
     expect(rows[1].version).toBe(2);
@@ -38,6 +38,10 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
     expect(rows[3].name).toBe('004_create_sol_wakes');
     expect(rows[4].version).toBe(5);
     expect(rows[4].name).toBe('005_create_runs');
+    expect(rows[5].version).toBe(6);
+    expect(rows[5].name).toBe('006_add_repository_enabled');
+    expect(rows[6].version).toBe(7);
+    expect(rows[6].name).toBe('007_create_sol_controls');
   });
 
   it('4.T2 reopen is idempotent and does not fail or duplicate migrations', () => {
@@ -45,7 +49,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
     const reopened = initDatabase(dbPath);
     dbCtx = reopened;
     const rows = reopened.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(7);
   });
 
   it('4.T3 CRUD round-trips and supports multiple records', () => {
@@ -61,6 +65,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
       solConversationUrl: 'https://chatgpt.com/c/111',
       maxIterations: 20,
       maxRuntimeMinutes: 480,
+      enabled: true,
       createdAt: '2026-08-19T10:00:00.000Z',
       updatedAt: '2026-08-19T10:00:00.000Z'
     };
@@ -77,6 +82,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
       solConversationUrl: 'https://chatgpt.com/c/222',
       maxIterations: 10,
       maxRuntimeMinutes: 300,
+      enabled: true,
       createdAt: '2026-08-19T11:00:00.000Z',
       updatedAt: '2026-08-19T11:00:00.000Z'
     };
@@ -107,6 +113,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
       solConversationUrl: 'https://chatgpt.com/c/111',
       maxIterations: 20,
       maxRuntimeMinutes: 480,
+      enabled: true,
       createdAt: '2026-08-19T10:00:00.000Z',
       updatedAt: '2026-08-19T10:00:00.000Z'
     };
@@ -140,6 +147,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
       solConversationUrl: 'https://chatgpt.com/c/111',
       maxIterations: 20,
       maxRuntimeMinutes: 480,
+      enabled: true,
       createdAt: '2026-08-19T10:00:00.000Z',
       updatedAt: '2026-08-19T10:00:00.000Z'
     };
@@ -163,6 +171,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
       solConversationUrl: 'https://chatgpt.com/c/111',
       maxIterations: 20,
       maxRuntimeMinutes: 480,
+      enabled: true,
       createdAt: '2026-08-19T10:00:00.000Z',
       updatedAt: '2026-08-19T10:00:00.000Z'
     };

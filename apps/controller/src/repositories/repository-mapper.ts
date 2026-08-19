@@ -12,6 +12,7 @@ export interface RepositoryRow {
   sol_conversation_url: string;
   max_iterations: number;
   max_runtime_minutes: number;
+  enabled: number;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +30,7 @@ export function toRepositoryRecord(row: RepositoryRow): RepositoryRecord {
     solConversationUrl: row.sol_conversation_url,
     maxIterations: Number(row.max_iterations),
     maxRuntimeMinutes: Number(row.max_runtime_minutes),
+    enabled: row.enabled === 0 ? false : true,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

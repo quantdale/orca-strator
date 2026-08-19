@@ -12,7 +12,9 @@ export type LoopState =
   | "PAUSED"
   | "STOPPED"
   | "DRAINING"
+  | "CEILING_REACHED"
   | "SOL_STALLED"
+  | "ATTENTION_REQUIRED"
   | "EXECUTOR_UNAVAILABLE"
   | "RECOVERY_REQUIRED";
 
@@ -58,8 +60,11 @@ export function isTerminalLoopState(state: LoopState): boolean {
     state === "BLOCKED" ||
     state === "NEEDS_HUMAN" ||
     state === "STOPPED" ||
+    state === "CEILING_REACHED" ||
     state === "SOL_STALLED" ||
-    state === "EXECUTOR_UNAVAILABLE"
+    state === "ATTENTION_REQUIRED" ||
+    state === "EXECUTOR_UNAVAILABLE" ||
+    state === "RECOVERY_REQUIRED"
   );
 }
 
@@ -75,8 +80,10 @@ export function shouldNotifyLoopState(state: LoopState): boolean {
     state === "NEEDS_HUMAN" ||
     state === "BLOCKED" ||
     state === "SOL_STALLED" ||
+    state === "ATTENTION_REQUIRED" ||
     state === "EXECUTOR_UNAVAILABLE" ||
     state === "RECOVERY_REQUIRED" ||
+    state === "CEILING_REACHED" ||
     state === "STOPPED"
   );
 }

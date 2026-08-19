@@ -28,7 +28,8 @@ export class WslAdapter implements ExecutorAdapter {
         ...context.env,
         WSLENV: `${existingWslEnv}${wslEnvVars}`
       },
-      windowsHide: true
+      windowsHide: true,
+      shell: false
     });
   }
 

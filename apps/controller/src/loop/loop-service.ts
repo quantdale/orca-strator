@@ -4,12 +4,16 @@ import {
   type RunRecord,
   type LoopStatusResponse,
   type RepositoryMutationEvent,
+  type ExecutorResult,
+  type SolWakeResultStatus,
+  type SolControlDecision,
   getActiveActor,
   ValidationError,
   RepositoryNotFoundError
 } from "@orca/shared";
 import type { RepositoryStore } from "../repositories/repository-store.js";
 import type { DispatchStore } from "../watcher/dispatch-store.js";
+import type { SolControlStore } from "../watcher/sol-control-store.js";
 import type { WatcherService } from "../watcher/watcher-service.js";
 import type { ExecutorService } from "../executor/executor-service.js";
 import type { BrowserManager } from "../browser/browser-manager.js";
@@ -22,21 +26,29 @@ export interface LoopServiceOptions {
   watcherService?: WatcherService;
   executorService: ExecutorService;
   browserManager: BrowserManager;
+  solControlStore?: SolControlStore | null;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
 }
 
+/** Canonical loop states from which a new dispatch/executor cycle may begin. */
+const DISPATCH_RECEPTIVE_STATES: LoopState[] = ["SOL_PENDING", "SOL_REVIEWING"];
+
 export class LoopService {
   private readonly repoStore: RepositoryStore;
+  private readonly dispatchStore: DispatchStore | null;
   private readonly runStore: RunStore;
   private readonly executorService: ExecutorService;
   private readonly browserManager: BrowserManager;
+  private readonly solControlStore: SolControlStore | null;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
 
   constructor(options: LoopServiceOptions) {
     this.repoStore = options.repoStore;
+    this.dispatchStore = options.dispatchStore ?? null;
     this.runStore = options.runStore;
     this.executorService = options.executorService;
     this.browserManager = options.browserManager;
+    this.solControlStore = options.solControlStore ?? null;
     this.eventPublisher = options.eventPublisher;
   }
 
@@ -63,7 +75,7 @@ export class LoopService {
       repositoryId,
       goal: params.goal,
       status: "SOL_PENDING",
-      currentIteration: 1,
+      currentIteration: 0,
       maxIterations,
       activeDispatchId: null,
       lastError: null,
@@ -76,27 +88,34 @@ export class LoopService {
     this.runStore.create(runRecord);
     this.publishStateChange(repositoryId, runId, "SOL_PENDING");
 
-    // Submit initial wake to Sol
-    await this.submitSolWakeForRun(repositoryId, runRecord);
+    // Initial Sol wake carries INITIAL result status: it must NOT pretend an
+    // executor result is COMPLETED (G: initial wake truthfulness).
+    await this.submitSolWakeForRun(repositoryId, runRecord, "INITIAL");
 
     return this.runStore.get(runId)!;
   }
 
+  /** Production wiring entry point: watcher detected a durable dispatch commit. */
   async onDispatchDetected(repositoryId: string, dispatchId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
 
-    if (activeRun.status !== "SOL_REVIEWING" && activeRun.status !== "SOL_PENDING") {
+    if (!DISPATCH_RECEPTIVE_STATES.includes(activeRun.status)) {
       return;
     }
 
-    // Move to EXECUTOR_PENDING
+    // Reflect the iteration the dispatch actually represents (G: truthful
+    // iteration counting). Fall back to local progression only if the dispatch
+    // record is unavailable.
+    const dispatch = this.dispatchStore?.get(dispatchId);
+    const nextIteration = dispatch?.iteration ?? activeRun.currentIteration + 1;
+
     this.runStore.updateStatus(activeRun.id, "EXECUTOR_PENDING", {
-      activeDispatchId: dispatchId
+      activeDispatchId: dispatchId,
+      currentIteration: nextIteration
     });
     this.publishStateChange(repositoryId, activeRun.id, "EXECUTOR_PENDING");
 
-    // Launch executor
     try {
       this.runStore.updateStatus(activeRun.id, "EXECUTING");
       this.publishStateChange(repositoryId, activeRun.id, "EXECUTING");
@@ -112,38 +131,112 @@ export class LoopService {
     }
   }
 
-  async onExecutorCompleted(repositoryId: string, _dispatchId: string): Promise<void> {
+  /**
+   * Production wiring entry point: executor finished a turn.
+   * `result` is the validated durable result manifest, or null when the executor
+   * exited 0 without producing/committing the required durable state (E).
+   */
+  async onExecutorCompleted(
+    repositoryId: string,
+    dispatchId: string,
+    result: ExecutorResult | null
+  ): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
 
-    const repo = this.repoStore.get(repositoryId);
-    const maxRuntimeMinutes = repo?.maxRuntimeMinutes || 480;
-    const elapsedMinutes = (Date.now() - Date.parse(activeRun.startedAt)) / (60 * 1000);
-
-    if (
-      activeRun.status === "DRAINING" ||
-      activeRun.currentIteration >= activeRun.maxIterations ||
-      elapsedMinutes >= maxRuntimeMinutes
-    ) {
-      // Reached iteration ceiling, wall-clock budget, or completed draining
-      this.runStore.updateStatus(activeRun.id, "GOAL_COMPLETE", {
-        finishedAt: new Date().toISOString()
-      });
-      this.publishStateChange(repositoryId, activeRun.id, "GOAL_COMPLETE");
+    // A stop or other terminal transition may have landed while the executor ran.
+    if (activeRun.status === "STOPPED" || activeRun.status === "RECOVERY_REQUIRED") {
       return;
     }
 
-    // Increment iteration and prepare next Sol wake
-    const nextIteration = activeRun.currentIteration + 1;
-    this.runStore.updateStatus(activeRun.id, "SOL_PENDING", {
-      currentIteration: nextIteration
-    });
-    this.publishStateChange(repositoryId, activeRun.id, "SOL_PENDING");
+    if (!result) {
+      this.runStore.updateStatus(activeRun.id, "RECOVERY_REQUIRED", {
+        lastError:
+          "Executor turn completed without producing a valid, committed result manifest. Treat as invalid/incomplete, not success (E).",
+        finishedAt: new Date().toISOString()
+      });
+      this.publishStateChange(repositoryId, activeRun.id, "RECOVERY_REQUIRED");
+      return;
+    }
 
-    await this.submitSolWakeForRun(repositoryId, {
-      ...activeRun,
-      currentIteration: nextIteration
+    if (result.status === "COMPLETED") {
+      this.dispatchStore?.updateStatus(dispatchId, "consumed");
+
+      const maxIterations = activeRun.maxIterations;
+      if (activeRun.currentIteration >= maxIterations) {
+        // Ceiling crossed while actor was active => DRAINING, then STOPPED/CEILING_REACHED.
+        // Never GOAL_COMPLETE merely from a ceiling (G).
+        this.runStore.updateStatus(activeRun.id, "DRAINING");
+        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
+        this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
+          finishedAt: new Date().toISOString()
+        });
+        this.publishStateChange(repositoryId, activeRun.id, "CEILING_REACHED");
+        return;
+      }
+
+      // Sol alone is authoritative for GOAL_COMPLETE. Wake Sol with the real
+      // result status; Sol decides completion via a control marker (G/H).
+      await this.submitSolWakeForRun(repositoryId, activeRun, result.status);
+      return;
+    }
+
+    // BLOCKED / NEEDS_HUMAN / FAILED: truthful problem or failure state.
+    const terminalState: LoopState =
+      result.status === "BLOCKED"
+        ? "BLOCKED"
+        : result.status === "NEEDS_HUMAN"
+        ? "NEEDS_HUMAN"
+        : "RECOVERY_REQUIRED";
+
+    this.runStore.updateStatus(activeRun.id, terminalState, {
+      lastError:
+        result.status === "FAILED"
+          ? `Executor reported FAILED: ${result.summary}`
+          : `Executor reported ${result.status}: ${result.summary}`,
+      finishedAt: new Date().toISOString()
     });
+    this.publishStateChange(repositoryId, activeRun.id, terminalState);
+  }
+
+  /** Production wiring entry point: watcher detected a durable Sol control marker (H). */
+  async onControlDetected(
+    repositoryId: string,
+    controlId: string,
+    decision: SolControlDecision,
+    runId: string
+  ): Promise<void> {
+    if (this.solControlStore) {
+      const existing = this.solControlStore.get(controlId);
+      if (existing && existing.status === "consumed") {
+        return; // idempotent
+      }
+      this.solControlStore.updateStatus(controlId, "consumed");
+    }
+
+    const activeRun = this.runStore.getActiveRun(repositoryId);
+    if (!activeRun) return;
+
+    // Only the run this control references is authoritative.
+    if (activeRun.id !== runId) return;
+
+    const targetState: LoopState =
+      decision === "GOAL_COMPLETE"
+        ? "GOAL_COMPLETE"
+        : decision === "BLOCKED"
+        ? "BLOCKED"
+        : decision === "NEEDS_HUMAN"
+        ? "NEEDS_HUMAN"
+        : "PAUSED";
+
+    if (decision === "PAUSED") {
+      await this.executorService.pauseRun(repositoryId);
+    }
+
+    this.runStore.updateStatus(activeRun.id, targetState, {
+      finishedAt: targetState === "GOAL_COMPLETE" ? new Date().toISOString() : activeRun.finishedAt
+    });
+    this.publishStateChange(repositoryId, activeRun.id, targetState);
   }
 
   async drainRun(repositoryId: string): Promise<void> {
@@ -154,13 +247,23 @@ export class LoopService {
     this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
   }
 
+  /**
+   * Idempotent wake resubmission for rehydration (M). Must NOT create a new run;
+   * it resumes the existing SOL_PENDING run's pending wake.
+   */
+  async resubmitPendingWake(repositoryId: string, run: RunRecord): Promise<void> {
+    await this.submitSolWakeForRun(repositoryId, run, "INITIAL");
+  }
+
   async recoverRun(
     repositoryId: string,
     action: "retry" | "stop" | "complete"
   ): Promise<RunRecord> {
-    const activeRun = this.runStore.getActiveRun(repositoryId);
+    // Recovery applies to runs in terminal/problem states that are intentionally
+    // excluded from the "active" view, so resolve by most-recent run (M).
+    const activeRun = this.runStore.getLatestRun(repositoryId);
     if (!activeRun) {
-      throw new ValidationError(`No active run for repository ${repositoryId}`);
+      throw new ValidationError(`No run for repository ${repositoryId}`);
     }
 
     if (
@@ -186,13 +289,17 @@ export class LoopService {
     } else if (action === "retry") {
       this.runStore.updateStatus(activeRun.id, "SOL_PENDING");
       this.publishStateChange(repositoryId, activeRun.id, "SOL_PENDING");
-      await this.submitSolWakeForRun(repositoryId, activeRun);
+      await this.submitSolWakeForRun(repositoryId, activeRun, "INITIAL");
     }
 
     return this.runStore.get(activeRun.id)!;
   }
 
-  private async submitSolWakeForRun(repositoryId: string, run: RunRecord): Promise<void> {
+  private async submitSolWakeForRun(
+    repositoryId: string,
+    run: RunRecord,
+    resultStatus: SolWakeResultStatus
+  ): Promise<void> {
     const repo = this.repoStore.get(repositoryId);
     if (!repo) return;
 
@@ -202,7 +309,7 @@ export class LoopService {
         runId: run.id,
         iteration: run.currentIteration,
         dispatchId: run.activeDispatchId || null,
-        resultStatus: "COMPLETED",
+        resultStatus,
         conversationUrl: repo.solConversationUrl
       });
 
@@ -226,6 +333,7 @@ export class LoopService {
     }
   }
 
+  /** Pause: terminate the executor promptly to stop inference usage, preserve tree, PAUSED (I). */
   async pauseRun(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
@@ -236,19 +344,41 @@ export class LoopService {
     this.publishStateChange(repositoryId, activeRun.id, "PAUSED");
   }
 
+  /**
+   * Resume: restart the SAME unfinished dispatch with a recovery bootstrap that
+   * instructs the executor to inspect/preserve partial work and continue (I).
+   */
   async resumeRun(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun || activeRun.status !== "PAUSED") return;
+    if (!activeRun.activeDispatchId) return;
 
-    this.runStore.updateStatus(activeRun.id, "SOL_REVIEWING");
-    this.publishStateChange(repositoryId, activeRun.id, "SOL_REVIEWING");
+    this.runStore.updateStatus(activeRun.id, "EXECUTING");
+    this.publishStateChange(repositoryId, activeRun.id, "EXECUTING");
+
+    try {
+      await this.executorService.startRun(
+        repositoryId,
+        activeRun.activeDispatchId,
+        { recovery: true }
+      );
+    } catch (err: any) {
+      const errorMessage = err?.message || String(err);
+      this.runStore.updateStatus(activeRun.id, "EXECUTOR_UNAVAILABLE", {
+        lastError: errorMessage,
+        finishedAt: new Date().toISOString()
+      });
+      this.publishStateChange(repositoryId, activeRun.id, "EXECUTOR_UNAVAILABLE");
+    }
   }
 
+  /**
+   * Stop: graceful drain. Allow the current actor to finish; prevent the next
+   * handoff; do NOT immediately kill the executor (I).
+   */
   async stopRun(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
-
-    await this.executorService.killRun(repositoryId);
 
     this.runStore.updateStatus(activeRun.id, "STOPPED", {
       finishedAt: new Date().toISOString()
@@ -256,18 +386,70 @@ export class LoopService {
     this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
   }
 
+  /**
+   * Emergency Kill: separate destructive operation. Immediately terminate the
+   * repository's active executor/browser page; preserve a truthful
+   * RECOVERY_REQUIRED / interrupted state (I).
+   */
+  async emergencyKill(repositoryId: string): Promise<void> {
+    const activeRun = this.runStore.getActiveRun(repositoryId);
+
+    await this.executorService.killRun(repositoryId).catch(() => {});
+    await this.browserManager.closeRepositoryPage(repositoryId).catch(() => {});
+
+    if (activeRun) {
+      this.runStore.updateStatus(activeRun.id, "RECOVERY_REQUIRED", {
+        lastError: "Run interrupted by emergency kill. Manual recovery required.",
+        finishedAt: new Date().toISOString()
+      });
+      this.publishStateChange(repositoryId, activeRun.id, "RECOVERY_REQUIRED");
+    }
+  }
+
   getStatus(repositoryId: string): LoopStatusResponse {
     const activeRun = this.runStore.getActiveRun(repositoryId);
-    const state: LoopState = activeRun ? activeRun.status : "IDLE";
-    const activeActor = getActiveActor(state);
 
+    // N: separate active, latest-problem, and genuinely-idle. A clean stop or a
+    // completed goal is a finished run; surface it as IDLE. Problem/terminal
+    // states (BLOCKED, NEEDS_HUMAN, RECOVERY_REQUIRED, SOL_STALLED,
+    // EXECUTOR_UNAVAILABLE, CEILING_REACHED, ATTENTION_REQUIRED) MUST remain
+    // visible and must never be hidden as IDLE.
+    if (activeRun) {
+      return this.buildStatus(activeRun);
+    }
+
+    const latest = this.runStore.getLatestRun(repositoryId);
+    if (!latest) {
+      return this.idleStatus(repositoryId);
+    }
+
+    if (latest.status === "STOPPED" || latest.status === "GOAL_COMPLETE") {
+      return this.idleStatus(repositoryId);
+    }
+
+    return this.buildStatus(latest);
+  }
+
+  private buildStatus(run: RunRecord): LoopStatusResponse {
+    const state: LoopState = run.status;
+    return {
+      repositoryId: run.repositoryId,
+      state,
+      activeRun: run,
+      currentIteration: run.currentIteration,
+      maxIterations: run.maxIterations,
+      activeActor: getActiveActor(state)
+    };
+  }
+
+  private idleStatus(repositoryId: string): LoopStatusResponse {
     return {
       repositoryId,
-      state,
-      activeRun,
-      currentIteration: activeRun ? activeRun.currentIteration : 0,
-      maxIterations: activeRun ? activeRun.maxIterations : 0,
-      activeActor
+      state: "IDLE",
+      activeRun: null,
+      currentIteration: 0,
+      maxIterations: 0,
+      activeActor: "NONE"
     };
   }
 

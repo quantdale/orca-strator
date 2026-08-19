@@ -16,7 +16,31 @@ import { BrowserManager } from "../src/browser/browser-manager.js";
 import { LoopService } from "../src/loop/loop-service.js";
 import { FakeExecutorAdapter } from "./fixtures/fake-executor.js";
 import { MockBrowserDriver } from "./fixtures/mock-browser-driver.js";
-import type { DispatchRecord, RepositoryRecord } from "@orca/shared";
+import type { DispatchRecord, ExecutorResult, RepositoryRecord } from "@orca/shared";
+
+/** Build a structurally valid COMPLETED executor result for simulation tests. */
+function completedResult(
+  dispatchId: string,
+  runId: string,
+  iteration: number
+): ExecutorResult {
+  return {
+    schemaVersion: 1,
+    type: "executor-result",
+    runId,
+    dispatchId,
+    iteration,
+    status: "COMPLETED",
+    startedAt: "2026-08-19T12:00:00.000Z",
+    finishedAt: "2026-08-19T12:05:00.000Z",
+    baseSha: "1123456789abcdef0123456789abcdef01234567",
+    resultSha: "0123456789abcdef0123456789abcdef01234567",
+    executor: { cli: "codex", model: "gpt-5.6", environment: "windows" },
+    verification: [{ name: "smoke", status: "PASS", summary: "ok" }],
+    blockers: [],
+    summary: "Completed simulation turn"
+  };
+}
 
 describe("Autonomous Loop Engine Integration (Task 6)", () => {
   let tempDir: string;
@@ -124,7 +148,9 @@ describe("Autonomous Loop Engine Integration (Task 6)", () => {
     });
 
     expect(run.status).toBe("SOL_REVIEWING");
-    expect(mockBrowser.isRunning()).toBe(true);
+    // The initial Sol wake opened a page (closed afterward, so the browser may
+    // be idle). Assert the wake page was actually opened via persistent history.
+    expect(mockBrowser.history.has(mockRepo1.id)).toBe(true);
 
     const mockDispatch: DispatchRecord = {
       id: "disp-loop-01",
@@ -154,14 +180,18 @@ describe("Autonomous Loop Engine Integration (Task 6)", () => {
     await new Promise((r) => setTimeout(r, 60));
 
     // Notify executor completed -> triggers next Sol wake
-    await loopService.onExecutorCompleted(mockRepo1.id, mockDispatch.id);
+    await loopService.onExecutorCompleted(
+      mockRepo1.id,
+      mockDispatch.id,
+      completedResult(mockDispatch.id, run.id, mockDispatch.iteration)
+    );
 
     const statusAfter = loopService.getStatus(mockRepo1.id);
     expect(statusAfter.state).toBe("SOL_REVIEWING");
-    expect(statusAfter.currentIteration).toBe(2);
+    expect(statusAfter.currentIteration).toBe(1);
   });
 
-  it("6.T2 reaches iteration ceiling and marks GOAL_COMPLETE", async () => {
+  it("6.T2 reaches iteration ceiling and stops at CEILING_REACHED (never GOAL_COMPLETE)", async () => {
     const run = await loopService.startRun(mockRepo1.id, {
       goal: "Quick run",
       maxIterations: 1
@@ -180,33 +210,64 @@ describe("Autonomous Loop Engine Integration (Task 6)", () => {
       instructionsVersion: 1,
       schemaVersion: 1,
       type: "dispatch",
-      status: "consumed",
+      status: "detected",
       rejectionReason: null,
       createdAt: "2026-08-19T12:00:00.000Z",
       updatedAt: "2026-08-19T12:00:00.000Z"
     };
     dispatchStore.create(mockDispatch);
 
-    await loopService.onExecutorCompleted(mockRepo1.id, mockDispatch.id);
+    // A ceiling crossing while the actor is active => DRAINING then CEILING_REACHED.
+    await loopService.onDispatchDetected(mockRepo1.id, mockDispatch.id);
+    expect(loopService.getStatus(mockRepo1.id).state).toBe("EXECUTING");
+
+    await loopService.onExecutorCompleted(
+      mockRepo1.id,
+      mockDispatch.id,
+      completedResult(mockDispatch.id, run.id, mockDispatch.iteration)
+    );
 
     const status = loopService.getStatus(mockRepo1.id);
-    expect(status.state).toBe("IDLE"); // Terminal state means no active run
+    expect(status.state).toBe("CEILING_REACHED");
 
     const savedRun = runStore.get(run.id);
-    expect(savedRun?.status).toBe("GOAL_COMPLETE");
+    expect(savedRun?.status).toBe("CEILING_REACHED");
   });
 
-  it("6.T3 operational controls: pause, resume, stop", async () => {
+  it("6.T3 operational controls: pause, resume (same dispatch), stop", async () => {
     const run = await loopService.startRun(mockRepo1.id, {
       goal: "Control test",
       maxIterations: 5
     });
 
+    const mockDispatch: DispatchRecord = {
+      id: "disp-loop-control-1",
+      dispatchId: "disp-loop-control-1",
+      repositoryId: mockRepo1.id,
+      runId: run.id,
+      iteration: 1,
+      commitSha: "0123456789abcdef0123456789abcdef01234567",
+      baseSha: "1123456789abcdef0123456789abcdef01234567",
+      changePath: "openspec/changes/005-autonomous-loop-engine",
+      goal: "Implement loop",
+      instructionsVersion: 1,
+      schemaVersion: 1,
+      type: "dispatch",
+      status: "detected",
+      rejectionReason: null,
+      createdAt: "2026-08-19T12:00:00.000Z",
+      updatedAt: "2026-08-19T12:00:00.000Z"
+    };
+    dispatchStore.create(mockDispatch);
+    await loopService.onDispatchDetected(mockRepo1.id, mockDispatch.id);
+    expect(loopService.getStatus(mockRepo1.id).state).toBe("EXECUTING");
+
     await loopService.pauseRun(mockRepo1.id);
     expect(loopService.getStatus(mockRepo1.id).state).toBe("PAUSED");
 
+    // Resume restarts the SAME unfinished dispatch with a recovery bootstrap (I).
     await loopService.resumeRun(mockRepo1.id);
-    expect(loopService.getStatus(mockRepo1.id).state).toBe("SOL_REVIEWING");
+    expect(loopService.getStatus(mockRepo1.id).state).toBe("EXECUTING");
 
     await loopService.stopRun(mockRepo1.id);
     expect(loopService.getStatus(mockRepo1.id).state).toBe("IDLE");

@@ -36,7 +36,8 @@ export const createRepositorySchema = z
       .int("Max runtime minutes must be an integer.")
       .positive("Max runtime minutes must be greater than 0.")
       .optional()
-      .default(DEFAULT_MAX_RUNTIME_MINUTES)
+      .default(DEFAULT_MAX_RUNTIME_MINUTES),
+    enabled: z.boolean().optional().default(true)
   })
   .strict("Unknown fields are not allowed in repository configuration.")
   .superRefine((data, ctx) => {
@@ -74,7 +75,8 @@ export const updateRepositorySchema = z
       .number({ invalid_type_error: "Max runtime minutes must be a number." })
       .int("Max runtime minutes must be an integer.")
       .positive("Max runtime minutes must be greater than 0.")
-      .optional()
+      .optional(),
+    enabled: z.boolean().optional()
   })
   .strict("Unknown fields are not allowed in repository patch.")
   .refine((data) => Object.keys(data).length > 0, {
@@ -82,6 +84,7 @@ export const updateRepositorySchema = z
   });
 
 export function validateCreateRepository(input: unknown): CreateRepositoryInput & {
+  enabled: boolean;
   maxIterations: number;
   maxRuntimeMinutes: number;
   wslDistribution: string | null;
@@ -136,7 +139,8 @@ export function validateMergedRepository(
     executorModel: patch.executorModel ?? current.executorModel,
     solConversationUrl: patch.solConversationUrl ?? current.solConversationUrl,
     maxIterations: patch.maxIterations ?? current.maxIterations,
-    maxRuntimeMinutes: patch.maxRuntimeMinutes ?? current.maxRuntimeMinutes
+    maxRuntimeMinutes: patch.maxRuntimeMinutes ?? current.maxRuntimeMinutes,
+    enabled: patch.enabled ?? current.enabled
   };
 
   const validated = validateCreateRepository(merged);
@@ -144,6 +148,7 @@ export function validateMergedRepository(
   return {
     id: current.id,
     ...validated,
+    enabled: validated.enabled ?? current.enabled,
     createdAt: current.createdAt,
     updatedAt: new Date().toISOString()
   };

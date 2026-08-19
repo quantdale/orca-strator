@@ -35,9 +35,10 @@ export class RepositoryStore {
         sol_conversation_url,
         max_iterations,
         max_runtime_minutes,
+        enabled,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -52,6 +53,7 @@ export class RepositoryStore {
       record.solConversationUrl,
       record.maxIterations,
       record.maxRuntimeMinutes,
+      record.enabled ? 1 : 0,
       record.createdAt,
       record.updatedAt
     );
@@ -72,6 +74,7 @@ export class RepositoryStore {
         sol_conversation_url = ?,
         max_iterations = ?,
         max_runtime_minutes = ?,
+        enabled = ?,
         updated_at = ?
       WHERE id = ?
     `);
@@ -87,6 +90,7 @@ export class RepositoryStore {
       record.solConversationUrl,
       record.maxIterations,
       record.maxRuntimeMinutes,
+      record.enabled ? 1 : 0,
       record.updatedAt,
       record.id
     );

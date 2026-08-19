@@ -19,6 +19,7 @@ import { DispatchStore } from './watcher/dispatch-store.js';
 import { GitClient } from './watcher/git-client.js';
 import { CommitInspector } from './watcher/commit-inspector.js';
 import { WatcherService } from './watcher/watcher-service.js';
+import { SolControlStore } from './watcher/sol-control-store.js';
 import { ExecutorStore } from './executor/executor-store.js';
 import { ExecutorService } from './executor/executor-service.js';
 import { SolWakeStore } from './browser/sol-wake-store.js';
@@ -65,26 +66,43 @@ export async function buildApp(
   const dispatchStore = new DispatchStore(dbContext.db);
   const executorStore = new ExecutorStore(dbContext.db);
   const wakeStore = new SolWakeStore(dbContext.db);
+  const solControlStore = new SolControlStore(dbContext.db);
   const runStore = new RunStore(dbContext.db);
   const eventBus = new EventBus();
   const repositoryService = new RepositoryService(store, eventBus);
 
   const gitClient = new GitClient();
   const commitInspector = new CommitInspector(gitClient);
+
+  // Forward declaration so watcher/executor callbacks can reference the loop
+  // service once it is constructed (real production wiring, A).
+  let loopService: LoopService;
+
   const watcherService = new WatcherService({
     repoStore: store,
     dispatchStore,
+    solControlStore,
     gitClient,
     commitInspector,
     eventPublisher: (event) => eventBus.publish(event),
-    pollIntervalMs: 5000
+    pollIntervalMs: 5000,
+    onDispatchDetected: (repositoryId, dispatchId) => {
+      void loopService.onDispatchDetected(repositoryId, dispatchId);
+    },
+    onControlDetected: (repositoryId, controlId, decision, runId) => {
+      void loopService.onControlDetected(repositoryId, controlId, decision, runId);
+    }
   });
 
   const executorService = new ExecutorService({
     repoStore: store,
     dispatchStore,
     executorStore,
+    gitClient,
     dataDir: config.dataDir,
+    onExecutorCompleted: (repositoryId, dispatchId, result) => {
+      void loopService.onExecutorCompleted(repositoryId, dispatchId, result);
+    },
     eventPublisher: (event) => eventBus.publish(event)
   });
 
@@ -97,7 +115,7 @@ export async function buildApp(
       eventPublisher: (event) => eventBus.publish(event)
     });
 
-  const loopService =
+  loopService =
     overrides.loopService ||
     new LoopService({
       repoStore: store,
@@ -106,8 +124,20 @@ export async function buildApp(
       watcherService,
       executorService,
       browserManager,
+      solControlStore,
       eventPublisher: (event) => eventBus.publish(event)
     });
+
+  // Reconcile watched repositories when configuration changes (B).
+  eventBus.subscribe((event) => {
+    if (
+      event.type === "repository.created" ||
+      event.type === "repository.updated" ||
+      event.type === "repository.deleted"
+    ) {
+      watcherService.reconcileWatchingForRepository(event.repositoryId);
+    }
+  });
 
   const reconciler = new StartupReconciler(store, runStore, loopService);
   await reconciler.reconcile();

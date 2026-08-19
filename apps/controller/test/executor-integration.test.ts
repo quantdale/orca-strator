@@ -94,9 +94,10 @@ describe("Executor Runtime & Supervision Integration (Task 6)", () => {
     expect(finalRun?.status).toBe("completed");
     expect(finalRun?.exitCode).toBe(0);
 
-    const updatedDispatch = dispatchStore.get(mockDispatch.id);
-    expect(updatedDispatch?.status).toBe("consumed");
-
+    // The real result contract (E) only consumes a dispatch when a valid,
+    // committed result manifest exists. This simulation uses no gitClient, so
+    // consumption is NOT driven here; it is covered by the real qualification
+    // tier (Q). Assert the executor turn + logs instead.
     expect(fs.existsSync(runRecord.logPath!)).toBe(true);
     const logContent = fs.readFileSync(runRecord.logPath!, "utf8");
     expect(logContent).toContain("Verification PASS");

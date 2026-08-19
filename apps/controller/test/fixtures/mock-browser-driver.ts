@@ -40,6 +40,8 @@ export class MockBrowserDriver implements BrowserDriver {
   public headless = false;
   public profileDir = "";
   public pages = new Map<string, MockBrowserPage>();
+  /** Persistent record of pages, retained after close, for test assertions. */
+  public history = new Map<string, MockBrowserPage>();
 
   async launch(profileDir: string, headless: boolean): Promise<void> {
     this.running = true;
@@ -56,6 +58,7 @@ export class MockBrowserDriver implements BrowserDriver {
     if (!page || page.isClosed) {
       page = new MockBrowserPage(repositoryId, url);
       this.pages.set(repositoryId, page);
+      this.history.set(repositoryId, page);
     } else if (page.currentUrl !== url) {
       await page.goto(url);
     }

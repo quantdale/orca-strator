@@ -3,21 +3,32 @@ import type { ExecutorResultStatus } from "./executor-result.js";
 
 export type SolWakeStatus = "pending" | "submitted" | "failed" | "busy";
 
+/**
+ * "INITIAL" is used for the first Sol wake of a run, when no executor result
+ * exists yet. It MUST NOT be reported as "COMPLETED" — doing so would falsely
+ * assert a successful executor turn that never happened.
+ */
+export type SolWakeResultStatus = ExecutorResultStatus | "INITIAL";
+
 export interface SolWakeMessageParams {
   repositoryName: string;
   runId: string;
   iteration: number;
   dispatchId: string;
-  resultStatus: ExecutorResultStatus;
+  resultStatus: SolWakeResultStatus;
 }
 
 export function generateSolWakeMessage(params: SolWakeMessageParams): string {
+  const resultLine =
+    params.resultStatus === "INITIAL"
+      ? "Result status: (initial wake — no prior executor result)"
+      : `Result status: ${params.resultStatus}`;
   return [
-    `Orca-Strator executor turn completed for ${params.repositoryName}.`,
+    `Orca-Strator${params.resultStatus === "INITIAL" ? " initial autonomy wake" : " executor turn completed"} for ${params.repositoryName}.`,
     `Run: ${params.runId}`,
     `Iteration: ${params.iteration}`,
     `Dispatch: ${params.dispatchId}`,
-    `Result status: ${params.resultStatus}`,
+    resultLine,
     ``,
     `Review the latest GitHub main state, the active OpenSpec change, and .orca/results/${params.dispatchId}.json.`,
     `Make any review/spec/code corrections that are useful.`,
@@ -56,6 +67,6 @@ export const solWakeMessageParamsSchema = z
     runId: z.string().trim().min(1, "runId is required"),
     iteration: z.number().int().min(1, "iteration must be >= 1"),
     dispatchId: z.string().trim().min(1, "dispatchId is required"),
-    resultStatus: z.enum(["COMPLETED", "BLOCKED", "NEEDS_HUMAN", "FAILED"])
+    resultStatus: z.enum(["COMPLETED", "BLOCKED", "NEEDS_HUMAN", "FAILED", "INITIAL"])
   })
   .strict();

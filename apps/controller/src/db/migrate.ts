@@ -141,6 +141,40 @@ export const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_runs_repo ON runs(repository_id);
       `);
     }
+  },
+  {
+    version: 6,
+    name: "006_add_repository_enabled",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE repositories ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
+      `);
+    }
+  },
+  {
+    version: 7,
+    name: "007_create_sol_controls",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sol_controls (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL,
+          control_id TEXT NOT NULL,
+          decision TEXT NOT NULL CHECK (decision IN ('GOAL_COMPLETE', 'BLOCKED', 'NEEDS_HUMAN', 'PAUSED')),
+          iteration INTEGER NOT NULL,
+          commit_sha TEXT NOT NULL,
+          related_dispatch_id TEXT,
+          status TEXT NOT NULL CHECK (status IN ('detected', 'consumed', 'rejected')),
+          rejection_reason TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sol_controls_repo ON sol_controls(repository_id);
+        CREATE INDEX IF NOT EXISTS idx_sol_controls_control ON sol_controls(control_id);
+      `);
+    }
   }
 ];
 

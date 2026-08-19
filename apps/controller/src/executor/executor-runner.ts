@@ -75,6 +75,18 @@ export class ExecutorRunner {
         wasPaused: this.isPaused
       });
     });
+
+    // Async spawn failures (e.g., ENOENT for a missing executor CLI) surface as
+    // an 'error' event rather than a thrown exception. Convert them into a
+    // terminal failure so they are not silently lost as unhandled rejections.
+    this.child.on("error", (err) => {
+      this.handleLogLine(`[system] Executor process error: ${err?.message || String(err)}`);
+      this.options.onExit(null, {
+        timedOut: this.isTimedOut,
+        wasKilled: this.isKilled && !this.isPaused,
+        wasPaused: this.isPaused
+      });
+    });
   }
 
   private handleLogLine(line: string): void {

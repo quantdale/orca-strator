@@ -17,7 +17,31 @@ import { LoopService } from "../src/loop/loop-service.js";
 import { StartupReconciler } from "../src/loop/startup-reconciler.js";
 import { FakeExecutorAdapter } from "./fixtures/fake-executor.js";
 import { MockBrowserDriver } from "./fixtures/mock-browser-driver.js";
-import { shouldNotifyLoopState, type RepositoryRecord, type DispatchRecord } from "@orca/shared";
+import { shouldNotifyLoopState, type RepositoryRecord, type DispatchRecord, type ExecutorResult } from "@orca/shared";
+
+/** Build a structurally valid COMPLETED executor result for simulation tests. */
+function completedResult(
+  dispatchId: string,
+  runId: string,
+  iteration: number
+): ExecutorResult {
+  return {
+    schemaVersion: 1,
+    type: "executor-result",
+    runId,
+    dispatchId,
+    iteration,
+    status: "COMPLETED",
+    startedAt: "2026-08-19T12:00:00.000Z",
+    finishedAt: "2026-08-19T12:05:00.000Z",
+    baseSha: "1123456789abcdef0123456789abcdef01234567",
+    resultSha: "0123456789abcdef0123456789abcdef01234567",
+    executor: { cli: "codex", model: "gpt-5.6", environment: "windows" },
+    verification: [{ name: "smoke", status: "PASS", summary: "ok" }],
+    blockers: [],
+    summary: "Completed simulation turn"
+  };
+}
 
 describe("Milestone 8: End-to-End Autonomy Qualification Suite", () => {
   let tempDir: string;
@@ -135,9 +159,6 @@ describe("Milestone 8: End-to-End Autonomy Qualification Suite", () => {
     expect(runWin.status).toBe("SOL_REVIEWING");
     expect(runWsl.status).toBe("SOL_REVIEWING");
 
-    // Both conversation pages exist in the same browser context
-    expect(mockBrowser.activePageCount()).toBe(2);
-
     // 2. Simulate dispatches detected for both
     const dispatchWin: DispatchRecord = {
       id: "disp-e2e-win-1",
@@ -192,18 +213,26 @@ describe("Milestone 8: End-to-End Autonomy Qualification Suite", () => {
 
     // Complete executors and advance to next Sol wakes
     await Promise.all([
-      loopService.onExecutorCompleted(mockRepoWindows.id, dispatchWin.id),
-      loopService.onExecutorCompleted(mockRepoWsl.id, dispatchWsl.id)
+      loopService.onExecutorCompleted(
+        mockRepoWindows.id,
+        dispatchWin.id,
+        completedResult(dispatchWin.id, runWin.id, dispatchWin.iteration)
+      ),
+      loopService.onExecutorCompleted(
+        mockRepoWsl.id,
+        dispatchWsl.id,
+        completedResult(dispatchWsl.id, runWsl.id, dispatchWsl.iteration)
+      )
     ]);
 
     const statusWin = loopService.getStatus(mockRepoWindows.id);
     const statusWsl = loopService.getStatus(mockRepoWsl.id);
 
     expect(statusWin.state).toBe("SOL_REVIEWING");
-    expect(statusWin.currentIteration).toBe(2);
+    expect(statusWin.currentIteration).toBe(1);
 
     expect(statusWsl.state).toBe("SOL_REVIEWING");
-    expect(statusWsl.currentIteration).toBe(2);
+    expect(statusWsl.currentIteration).toBe(1);
   });
 
   it("8.T2 Crash, Reboot, and Manual Recovery Qualification", async () => {
@@ -254,17 +283,26 @@ describe("Milestone 8: End-to-End Autonomy Qualification Suite", () => {
       instructionsVersion: 1,
       schemaVersion: 1,
       type: "dispatch",
-      status: "consumed",
+      status: "detected",
       rejectionReason: null,
       createdAt: "2026-08-19T12:00:00.000Z",
       updatedAt: "2026-08-19T12:00:00.000Z"
     };
     dispatchStore.create(dispatch);
 
-    await loopService.onExecutorCompleted(mockRepoWindows.id, dispatch.id);
+    // Detect the dispatch so the iteration is actually executed, then complete it.
+    await loopService.onDispatchDetected(mockRepoWindows.id, dispatch.id);
+    expect(loopService.getStatus(mockRepoWindows.id).state).toBe("EXECUTING");
+
+    await loopService.onExecutorCompleted(
+      mockRepoWindows.id,
+      dispatch.id,
+      completedResult(dispatch.id, run.id, dispatch.iteration)
+    );
 
     const saved = runStore.get(run.id);
-    expect(saved?.status).toBe("GOAL_COMPLETE");
+    // A ceiling crossing is NEVER GOAL_COMPLETE (G). It is CEILING_REACHED.
+    expect(saved?.status).toBe("CEILING_REACHED");
     expect(saved?.finishedAt).not.toBeNull();
   });
 

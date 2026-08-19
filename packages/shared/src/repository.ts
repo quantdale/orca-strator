@@ -12,6 +12,7 @@ export interface RepositoryRecord {
   solConversationUrl: string;
   maxIterations: number;
   maxRuntimeMinutes: number;
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -27,6 +28,7 @@ export interface CreateRepositoryInput {
   solConversationUrl: string;
   maxIterations?: number;
   maxRuntimeMinutes?: number;
+  enabled?: boolean;
 }
 
 export interface UpdateRepositoryInput {
@@ -40,6 +42,7 @@ export interface UpdateRepositoryInput {
   solConversationUrl?: string;
   maxIterations?: number;
   maxRuntimeMinutes?: number;
+  enabled?: boolean;
 }
 
 export const DEFAULT_MAX_ITERATIONS = 20;
