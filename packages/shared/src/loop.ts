@@ -92,6 +92,19 @@ export interface TailscaleGuidance {
   loopbackPort: number;
   loopbackUrl: string;
   command: string;
-  status: "configured" | "unconfigured";
+  /**
+   * Honest Tailscale status (Finding P). Orca must NOT report "configured" merely
+   * because it knows a command string. The controller stays loopback-only and never
+   * enables Funnel/public exposure.
+   */
+  status:
+    | "not_installed"
+    | "not_running"
+    | "not_authenticated"
+    | "serve_not_configured"
+    | "configured"
+    | "unknown";
+  /** Human-readable detail about why the status is what it is. */
+  details?: string;
   instructions: string[];
 }
