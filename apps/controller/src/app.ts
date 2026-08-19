@@ -24,6 +24,7 @@ import { SolWakeStore } from './browser/sol-wake-store.js';
 import { BrowserManager } from './browser/browser-manager.js';
 import { RunStore } from './loop/run-store.js';
 import { LoopService } from './loop/loop-service.js';
+import { StartupReconciler } from './loop/startup-reconciler.js';
 
 import type { BrowserDriver } from './browser/browser-driver.js';
 
@@ -106,6 +107,9 @@ export async function buildApp(
       browserManager,
       eventPublisher: (event) => eventBus.publish(event)
     });
+
+  const reconciler = new StartupReconciler(store, runStore, loopService);
+  await reconciler.reconcile();
 
   fastify.addHook('onClose', async () => {
     watcherService.stop();

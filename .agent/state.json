@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 6,
-  "activeChange": "006-runtime-recovery-hardening",
-  "completedMilestones": [0, 1, 2, 3, 4, 5],
-  "planningBaseSha": "7069182",
+  "activeMilestone": 7,
+  "activeChange": "007-remote-phone-experience",
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6],
+  "planningBaseSha": "bc732a7",
   "checkpoint": {
-    "summary": "Milestone 5 (autonomous loop and multi-repository concurrency) is fully implemented, verified (122 tests passing across all workspaces, per-repository state machine loop from SOL_PENDING -> SOL_REVIEWING -> EXECUTOR_PENDING -> EXECUTING -> SOL_PENDING, RunStore SQLite persistence, multi-repo concurrency without global limits, iteration ceilings, Pause/Resume/Stop controls, and REST endpoints), and folded into canonical openspec/specs/autonomous-loop-engine/. Milestone 6 (runtime ceilings, recovery, and hardening) is now active.",
-    "updatedAt": "2026-08-19T22:42:00+08:00",
-    "lastCompletedTask": "Complete Milestone 5 autonomous loop engine, fold into canonical spec, and activate Milestone 6 OpenSpec",
-    "lastVerification": "Full workspace typecheck passed with 0 errors, all 122 Vitest tests passed, build and lint succeeded."
+    "summary": "Milestone 6 (runtime ceilings, recovery, and hardening) is fully implemented, verified (128 tests passing across all workspaces, wall-clock budget checking with graceful DRAINING at handoff boundaries, StartupReconciler for controller crash and restart recovery, RECOVERY_REQUIRED workflow with POST /api/repositories/:id/runs/recover retry/stop/complete controls, and LogRotator for bounded executor log file retention), and folded into canonical openspec/specs/runtime-recovery-hardening/. Milestone 7 (private phone access and notifications) is now active.",
+    "updatedAt": "2026-08-19T22:45:00+08:00",
+    "lastCompletedTask": "Complete Milestone 6 runtime recovery and hardening, fold into canonical spec, and activate Milestone 7 OpenSpec",
+    "lastVerification": "Full workspace typecheck passed with 0 errors, all 128 Vitest tests passed, build and lint succeeded."
   },
-  "nextAction": "Implement Milestone 6 (openspec/changes/006-runtime-recovery-hardening): wall-clock runtime budget checking and DRAINING transition, StartupReconciler for crash/restart recovery, RECOVERY_REQUIRED handling and POST /api/repositories/:id/runs/recover endpoint, LogRotator for executor logs, and fault-injection qualification tests.",
+  "nextAction": "Implement Milestone 7 (openspec/changes/007-remote-phone-experience): shouldNotifyEvent helper in @orca/shared, GET /api/system/tailscale endpoint, responsive mobile cards with live run controls in apps/ui, web notification routing for problem and terminal states, and mobile integration tests.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

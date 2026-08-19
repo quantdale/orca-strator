@@ -290,9 +290,9 @@ Prove one repository completes several Sol -> executor -> Sol cycles without cop
 
 ## Milestone 6 — Runtime ceilings, recovery, and hardening
 
-OpenSpec: `006-runtime-recovery-hardening`
+OpenSpec: `006-runtime-recovery-hardening` (folded into `openspec/specs/runtime-recovery-hardening/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
@@ -318,17 +318,13 @@ Make autonomous loop safe to leave running for hours and recoverable after failu
 
 Demonstrate deliberately interrupted/restarted Orca can explain what happened, preserve work, and resume or require explicit recovery without duplicate execution or silent data loss.
 
-### Review checkpoint
-
-Security/reliability review before remote phone controls.
-
 ---
 
 ## Milestone 7 — Private phone access and notifications
 
-Planned OpenSpec: `007-phone-control`
+OpenSpec: `007-remote-phone-experience`
 
-Status: **planned**
+Status: **active**
 
 ### Purpose
 

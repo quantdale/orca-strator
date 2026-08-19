@@ -116,8 +116,16 @@ export class LoopService {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
 
-    if (activeRun.currentIteration >= activeRun.maxIterations) {
-      // Reached iteration ceiling
+    const repo = this.repoStore.get(repositoryId);
+    const maxRuntimeMinutes = repo?.maxRuntimeMinutes || 480;
+    const elapsedMinutes = (Date.now() - Date.parse(activeRun.startedAt)) / (60 * 1000);
+
+    if (
+      activeRun.status === "DRAINING" ||
+      activeRun.currentIteration >= activeRun.maxIterations ||
+      elapsedMinutes >= maxRuntimeMinutes
+    ) {
+      // Reached iteration ceiling, wall-clock budget, or completed draining
       this.runStore.updateStatus(activeRun.id, "GOAL_COMPLETE", {
         finishedAt: new Date().toISOString()
       });
@@ -136,6 +144,52 @@ export class LoopService {
       ...activeRun,
       currentIteration: nextIteration
     });
+  }
+
+  async drainRun(repositoryId: string): Promise<void> {
+    const activeRun = this.runStore.getActiveRun(repositoryId);
+    if (!activeRun) return;
+
+    this.runStore.updateStatus(activeRun.id, "DRAINING");
+    this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
+  }
+
+  async recoverRun(
+    repositoryId: string,
+    action: "retry" | "stop" | "complete"
+  ): Promise<RunRecord> {
+    const activeRun = this.runStore.getActiveRun(repositoryId);
+    if (!activeRun) {
+      throw new ValidationError(`No active run for repository ${repositoryId}`);
+    }
+
+    if (
+      activeRun.status !== "RECOVERY_REQUIRED" &&
+      activeRun.status !== "BLOCKED" &&
+      activeRun.status !== "NEEDS_HUMAN"
+    ) {
+      throw new ValidationError(
+        `Run ${activeRun.id} is in status ${activeRun.status}, recovery not applicable`
+      );
+    }
+
+    if (action === "stop") {
+      this.runStore.updateStatus(activeRun.id, "STOPPED", {
+        finishedAt: new Date().toISOString()
+      });
+      this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
+    } else if (action === "complete") {
+      this.runStore.updateStatus(activeRun.id, "GOAL_COMPLETE", {
+        finishedAt: new Date().toISOString()
+      });
+      this.publishStateChange(repositoryId, activeRun.id, "GOAL_COMPLETE");
+    } else if (action === "retry") {
+      this.runStore.updateStatus(activeRun.id, "SOL_PENDING");
+      this.publishStateChange(repositoryId, activeRun.id, "SOL_PENDING");
+      await this.submitSolWakeForRun(repositoryId, activeRun);
+    }
+
+    return this.runStore.get(activeRun.id)!;
   }
 
   private async submitSolWakeForRun(repositoryId: string, run: RunRecord): Promise<void> {

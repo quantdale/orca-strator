@@ -57,5 +57,19 @@ export const runRoutes = (
         return { status: "stopped" };
       }
     );
+
+    fastify.post<{
+      Params: { id: string };
+      Body: { action: "retry" | "stop" | "complete" };
+      Reply: { run: RunRecord };
+    }>(
+      "/api/repositories/:id/runs/recover",
+      async (request, reply) => {
+        repositoryService.getRepository(request.params.id);
+        const action = request.body?.action || "retry";
+        const run = await loopService.recoverRun(request.params.id, action);
+        return reply.status(200).send({ run });
+      }
+    );
   };
 };

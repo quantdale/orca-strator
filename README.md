@@ -107,20 +107,21 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 5 — Autonomous loop and multi-repository concurrency** is complete and folded (`openspec/specs/autonomous-loop-engine/`).
 
-**Milestone 6 — Runtime ceilings, recovery, and hardening** is active:
+**Milestone 6 — Runtime ceilings, recovery, and hardening** is complete and folded (`openspec/specs/runtime-recovery-hardening/`).
+
+**Milestone 7 — Private phone access and notifications** is active:
 
 Active OpenSpec:
 
 ```text
-openspec/changes/006-runtime-recovery-hardening/
+openspec/changes/007-remote-phone-experience/
 ```
 
-Milestone 6 builds:
-- runtime wall-clock ceiling and graceful handoff draining;
-- controller restart recovery and state reconstruction from SQLite and remote Git;
-- `RECOVERY_REQUIRED` workflow for interrupted executor work;
-- bounded executor log retention;
-- fault-injection testing for process interruption, stale locks, and network recovery.
+Milestone 7 builds:
+- private phone access via Tailscale Serve reverse-proxied to loopback controller;
+- relative `/api` and same-origin WebSocket events across desktop and phone views;
+- phone-responsive repository timeline and control cards;
+- problem and terminal state notification routing (Goal Complete, Needs Human, Blocked, Sol Stalled, Recovery Required).
 
 ## Durable development workflow
 
