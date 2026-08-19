@@ -1,0 +1,285 @@
+# Orca-Strator V1 Data Model
+
+Status: **normative for Change 001 unless implementation evidence forces revision**
+
+This document defines the first persistent data model and separates repository configuration from later runtime/run state.
+
+## 1. Persistence principles
+
+1. SQLite is local machine runtime persistence.
+2. Git/GitHub remains the durable cross-agent handoff/source of truth for repository work.
+3. Change 001 persists configuration only; later milestones add watcher/run/executor/Sol tables.
+4. Secrets, API keys, browser cookies, and auth tokens do not belong in normal relational repository records.
+5. Schema evolution happens only through ordered migrations.
+6. Tests use isolated temporary databases.
+
+## 2. Migration metadata
+
+Recommended minimal metadata table:
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+```
+
+Migration rules:
+
+- migration versions are monotonically increasing integers;
+- each migration runs at most once;
+- migration + metadata insertion should be one transaction where supported;
+- failure must not record the migration as applied;
+- reopening a current DB is idempotent;
+- application startup fails clearly if required migrations cannot complete.
+
+## 3. `repositories` table
+
+Baseline SQL shape:
+
+```sql
+CREATE TABLE repositories (
+  id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  github_remote TEXT NOT NULL,
+  local_path TEXT NOT NULL,
+  branch TEXT NOT NULL DEFAULT 'main',
+  environment TEXT NOT NULL CHECK (environment IN ('windows', 'wsl')),
+  wsl_distribution TEXT,
+  executor_cli TEXT NOT NULL,
+  executor_model TEXT NOT NULL,
+  sol_conversation_url TEXT NOT NULL,
+  max_iterations INTEGER NOT NULL DEFAULT 20 CHECK (max_iterations > 0),
+  max_runtime_minutes INTEGER NOT NULL DEFAULT 480 CHECK (max_runtime_minutes > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (environment = 'wsl' AND wsl_distribution IS NOT NULL AND length(trim(wsl_distribution)) > 0)
+    OR environment = 'windows'
+  )
+);
+```
+
+The exact SQLite syntax may be adjusted for the selected driver/runtime, but the invariants must remain.
+
+## 4. Field semantics
+
+### `id`
+
+Stable Orca-local repository identifier.
+
+Requirements:
+
+- generated once on create;
+- never changed by PATCH;
+- safe for URL path use;
+- not derived solely from display name because names may change/collide.
+
+UUID is acceptable and simple.
+
+### `display_name`
+
+Human-facing label such as `Nightwatch`.
+
+- trimmed;
+- non-empty;
+- does not need to equal GitHub repository name.
+
+### `github_remote`
+
+GitHub remote identity/URL used later by watcher/Git operations.
+
+Change 001 should validate presence and basic form, not make network availability a hard create-time dependency unless the implementation explicitly adds a separate connectivity check.
+
+### `local_path`
+
+Repository working directory in the configured execution environment.
+
+- Windows environment: native Windows path semantics.
+- WSL environment: Linux path semantics inside selected distribution.
+
+Change 001 stores configuration; later milestones verify/operate on the path.
+
+### `branch`
+
+Watched/integration branch.
+
+- default `main`;
+- trimmed/non-empty;
+- configurable per repository.
+
+### `environment`
+
+Exactly:
+
+```text
+windows
+wsl
+```
+
+### `wsl_distribution`
+
+Required for `wsl`.
+
+Examples:
+
+```text
+Ubuntu
+Ubuntu-24.04
+```
+
+For `windows`, normalized persisted value should preferably be `NULL`.
+
+### `executor_cli`
+
+User-owned executor harness identifier/config string.
+
+Examples may later include:
+
+```text
+kimi
+codex
+claude
+opencode
+```
+
+Change 001 should not hardcode a closed enum unless the UI deliberately provides presets with an advanced/custom option. Future executor adapters will normalize this field.
+
+### `executor_model`
+
+User-selected model/configuration string.
+
+This must remain user-owned; Sol must not modify it autonomously during a run.
+
+### `sol_conversation_url`
+
+Exact dedicated ChatGPT conversation URL for this repository.
+
+Requirements:
+
+- HTTPS;
+- ChatGPT host accepted by current product configuration;
+- identifies a conversation path rather than generic homepage when possible;
+- stored as configuration only; no auth token embedded.
+
+### `max_iterations`
+
+Default `20`.
+
+Positive integer.
+
+Later run state copies/snapshots the effective value so changing repository defaults does not ambiguously mutate an already-running session.
+
+### `max_runtime_minutes`
+
+Default `480` (8 hours).
+
+Positive integer.
+
+Same snapshot principle as iteration ceiling later.
+
+### timestamps
+
+Use UTC ISO-8601 strings consistently.
+
+`created_at` never changes.
+
+`updated_at` advances on successful mutation.
+
+## 5. Domain models
+
+Recommended logical distinction:
+
+```ts
+interface RepositoryRecord {
+  id: string;
+  displayName: string;
+  githubRemote: string;
+  localPath: string;
+  branch: string;
+  environment: "windows" | "wsl";
+  wslDistribution: string | null;
+  executorCli: string;
+  executorModel: string;
+  solConversationUrl: string;
+  maxIterations: number;
+  maxRuntimeMinutes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+Create input omits:
+
+- `id`;
+- timestamps;
+- fields that can be defaulted such as branch/ceilings may be optional.
+
+Patch input:
+
+- all mutable configuration fields optional;
+- `id`, `createdAt`, `updatedAt` not client writable;
+- merged result is validated as a complete repository configuration before persistence.
+
+## 6. Normalization rules
+
+Before persistence:
+
+- trim human/config strings where whitespace is not meaningful;
+- apply default branch/ceilings;
+- normalize empty Windows `wslDistribution` to null;
+- reject WSL config without a non-empty distribution;
+- reject non-positive/non-integer ceilings;
+- reject empty required fields;
+- validate Sol conversation URL.
+
+Do not silently normalize obviously contradictory data into a different semantic configuration.
+
+## 7. Uniqueness policy
+
+V1 does not require display-name uniqueness.
+
+The application should avoid accidental duplicate repository entries where practical, but do not introduce a brittle uniqueness constraint on `github_remote` or `local_path` until the product semantics are proven. The same remote might intentionally exist in separate local execution locations later.
+
+Stable identity is the `id`.
+
+## 8. Delete semantics
+
+Change 001 repository deletion is hard delete of the configuration record.
+
+Later runtime milestones must prevent unsafe deletion of a repository with an active run or dependent runtime records.
+
+Change 001 UI should use explicit confirmation.
+
+## 9. Future tables — reserved conceptually, not implemented in Change 001
+
+Later milestones are expected to add separate tables roughly along these responsibility boundaries:
+
+```text
+runs
+runtime_state / repository_runtime
+consumed_dispatches
+executor_attempts
+sol_wake_attempts
+events / activity_log (if durable history is required)
+```
+
+Do not pre-create them merely because they are anticipated.
+
+## 10. Persistence tests
+
+Minimum tests:
+
+1. fresh migration;
+2. migration reopening/idempotency;
+3. valid Windows row round-trip;
+4. valid WSL row round-trip;
+5. invalid WSL row blocked before/at storage boundary;
+6. multiple records list independently;
+7. patch preserves ID/created time;
+8. patch advances updated time;
+9. invalid patch does not partially corrupt existing row;
+10. delete works;
+11. controller restart/reopen preserves records;
+12. test DB never touches real `%LOCALAPPDATA%` data.
