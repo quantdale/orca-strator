@@ -6,15 +6,54 @@ The controller API is the sole UI-facing boundary for repository configuration/s
 
 ## 1. General rules
 
-- Bind to loopback by default.
+- Controller binds to loopback by default.
 - JSON request/response bodies use UTF-8.
 - Successful responses use stable JSON shapes.
 - Client-visible errors use one machine-readable envelope.
 - Raw stack traces, SQL, tokens, cookies, and secrets must not appear in normal API payloads.
 - API versioning is not required for Change 001; keep routes under `/api/` so a future versioning seam exists.
 - V1 does not expose a configurable branch field; managed repository Git operations target `main`.
+- Application code uses **same-origin relative routes** for API/WebSocket access in normal built/runtime mode.
 
-## 2. Health
+## 2. Client-origin contract
+
+The UI must not hard-code the Windows controller as `http://127.0.0.1:47100` in production application code.
+
+Canonical routes are relative to the page origin:
+
+```text
+/api/health
+/api/repositories
+/api/events
+```
+
+Why this matters:
+
+- Electron/local built UI can load from the Orca loopback web origin;
+- a phone can load the same UI through Tailscale Serve and relative requests remain on the Tailscale HTTPS origin;
+- no separate phone API client is needed;
+- V1 does not require permissive cross-origin access for remote control.
+
+### Development mode
+
+Vite may serve the UI on a separate local port. Its dev server should proxy `/api/*` and the WebSocket endpoint to the controller. UI source code still uses relative routes.
+
+### Built/production-like mode
+
+The controller serves the built UI from the same HTTP origin as `/api/*` and `/api/events`.
+
+### WebSocket URL construction
+
+The client derives WebSocket scheme/host from the page origin:
+
+```text
+http page  -> ws://<same-host>/api/events
+https page -> wss://<same-host>/api/events
+```
+
+Do not hard-code `ws://127.0.0.1` in the shared UI.
+
+## 3. Health
 
 ### `GET /api/health`
 
@@ -33,7 +72,7 @@ Semantics:
 - `200` means controller startup completed far enough that required persistence is ready.
 - Do not return healthy before migrations/database initialization succeeds.
 
-## 3. List repositories
+## 4. List repositories
 
 ### `GET /api/repositories`
 
@@ -63,7 +102,7 @@ Success `200`:
 
 An empty registry returns `200` with `repositories: []`.
 
-## 4. Get repository
+## 5. Get repository
 
 ### `GET /api/repositories/:id`
 
@@ -81,7 +120,7 @@ Unknown ID:
 404 REPOSITORY_NOT_FOUND
 ```
 
-## 5. Create repository
+## 6. Create repository
 
 ### `POST /api/repositories`
 
@@ -135,7 +174,7 @@ Success:
 }
 ```
 
-## 6. Update repository
+## 7. Update repository
 
 ### `PATCH /api/repositories/:id`
 
@@ -173,11 +212,11 @@ Success `200`:
 }
 ```
 
-## 7. Delete repository
+## 8. Delete repository
 
 ### `DELETE /api/repositories/:id`
 
-Change 001 success may use either `204 No Content` or a documented `200` envelope; choose one and keep tests/clients consistent. Preferred:
+Preferred Change 001 success:
 
 ```text
 204 No Content
@@ -185,11 +224,11 @@ Change 001 success may use either `204 No Content` or a documented `200` envelop
 
 Unknown ID -> `404 REPOSITORY_NOT_FOUND`.
 
-Later milestones will add active-run deletion guards.
+Later milestones add active-run deletion guards.
 
-## 8. Error envelope
+## 9. Error envelope
 
-All normal JSON errors should use:
+All normal JSON errors use:
 
 ```json
 {
@@ -218,19 +257,17 @@ INTERNAL_ERROR
 DATABASE_ERROR
 ```
 
-Do not create dozens of codes before real callers need them.
-
 Recommended status mapping:
 
 ```text
 400 BAD_REQUEST            malformed request/body/path semantics
-422 VALIDATION_ERROR       structurally readable but invalid domain configuration
+422 VALIDATION_ERROR       readable but invalid domain configuration
 404 REPOSITORY_NOT_FOUND
 500 INTERNAL_ERROR
-500 DATABASE_ERROR         if exposing this distinction is useful; otherwise map to INTERNAL_ERROR
+500 DATABASE_ERROR         optional distinction; otherwise INTERNAL_ERROR
 ```
 
-## 9. Validation examples
+## 10. Validation examples
 
 Reject:
 
@@ -246,9 +283,9 @@ Reject:
 
 Do not mutate persistent data when validation fails.
 
-## 10. Event endpoint
+## 11. Event endpoint
 
-Exact route may be:
+Canonical endpoint:
 
 ```text
 GET /api/events
@@ -281,7 +318,7 @@ repository.deleted
 
 Delete event may include only repository ID if the full deleted record is not useful.
 
-## 11. Event guarantees
+## 12. Event guarantees
 
 Events are **best-effort live synchronization hints**.
 
@@ -304,9 +341,31 @@ publish event
 
 Never publish `repository.created` and then discover the insert failed.
 
-## 12. UI client behavior
+## 13. Built UI serving contract
 
-The UI should distinguish:
+In production-like/built mode the controller serves the SPA shell/static assets from `/` while reserving `/api/*` for API/WebSocket behavior.
+
+Requirements:
+
+- API routes win over SPA fallback;
+- static assets are served with normal safe content types/cache behavior;
+- client-side deep links such as `/repositories/<id>` resolve to the SPA shell when they are not API/static-asset paths;
+- no arbitrary filesystem directory browsing;
+- the server must not expose the local data directory/browser profile/logs as static content.
+
+Change 001 only needs a small reliable static-serving arrangement. Do not build a general reverse proxy or web server framework around it.
+
+## 14. CORS/origin policy
+
+The preferred production/phone topology is same-origin and therefore does not require wildcard CORS.
+
+During development, Vite's proxy avoids broad CORS configuration.
+
+If an implementation needs a narrowly scoped development exception, document it and restrict it to known local origins. Do not ship `Access-Control-Allow-Origin: *` as the solution for phone access.
+
+## 15. UI client behavior
+
+The UI distinguishes:
 
 ```text
 controller connecting
@@ -319,13 +378,13 @@ An empty repository list is not equivalent to controller unavailable.
 On mutation event:
 
 - update local data when safe, or
-- invalidate/refetch the affected repository/list.
+- invalidate/refetch affected repository/list.
 
 On WebSocket reconnect:
 
 - refetch authoritative state.
 
-## 13. API tests
+## 16. API/network tests
 
 Required coverage:
 
@@ -343,4 +402,9 @@ Required coverage:
 - no stack trace leakage;
 - event after successful mutation;
 - no success event after failed mutation;
-- reconnect + refetch behavior at client boundary.
+- reconnect + refetch behavior;
+- built SPA served by controller;
+- deep-link SPA fallback does not shadow `/api`;
+- UI source/client uses relative API paths rather than production `localhost` hard-coding;
+- same-origin WebSocket URL is correct for HTTP and HTTPS page origins;
+- no wildcard CORS required by normal built topology.
