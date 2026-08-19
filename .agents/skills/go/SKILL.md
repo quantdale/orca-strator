@@ -1,112 +1,101 @@
 ---
 name: go
-description: Recover Orca-Strator from durable repository state and continue the active OpenSpec roadmap work autonomously.
+description: Recover Orca-Strator from durable repository state and continuously advance the roadmap autonomously.
 type: prompt
 whenToUse: When the user types /go or asks to continue working on Orca-Strator.
 disableModelInvocation: true
 ---
 
-Continue development of Orca-Strator from its durable repository state. Do not rely on prior conversation context.
+Continue development of Orca-Strator from durable repository state. Do not rely on prior conversation context.
 
-## Phase 1 — Recover reality before editing
+## 1. Recover reality
 
 1. Read `AGENTS.md` fully.
-2. Read `docs/DEVELOPMENT.md` when this is a fresh session or when recovery/exit behavior is uncertain.
-3. Inspect Git before modifying files:
-   - current branch;
-   - `git status`;
-   - current HEAD;
-   - remote `main` HEAD after fetch;
-   - local commits not on remote;
-   - whether merge/rebase/cherry-pick/revert state is already active.
-4. Preserve all existing local work. Do not reset/discard/stash-and-forget a dirty tree merely to simplify startup.
-5. Fetch `origin` and reconcile ordinary divergence safely. Never force-push by default.
-6. Read `.agent/state.json` and ensure it remains compatible with `.agent/state.schema.json`.
-7. Read `docs/ROADMAP.md`.
-8. Read the active OpenSpec change referenced by `.agent/state.json` in artifact order:
-   - `proposal.md`;
-   - every delta `spec.md`;
-   - `design.md`;
-   - `tasks.md`.
-9. Inspect implementation files and recent commits relevant to the first incomplete task.
-10. When practical, run a cheap baseline check before broad edits so pre-existing failures are distinguishable from new regressions.
+2. Read `.agent/state.json`, `docs/ROADMAP.md`, and the active OpenSpec proposal/spec/design/tasks.
+3. Inspect Git: branch, status, current/local/remote `main`, local-only commits, and in-progress merge/rebase/cherry-pick/revert state.
+4. Preserve all existing local work. Never hard-reset/clean/stash-and-forget merely to simplify startup.
+5. Fetch/reconcile ordinary remote-main divergence safely; never force-push by default.
+6. Load only focused normative docs required by the first incomplete requirement.
+7. Inspect relevant implementation/recent commits.
+8. **Skip broad baseline testing at startup.** Do not burn the beginning of the run proving the old baseline. Start implementation; use targeted checks when useful and broader verification at meaningful checkpoints.
 
-## Phase 2 — Select the next coherent slice
+## 2. Implement continuously
 
-Determine the smallest coherent implementation slice that advances the active OpenSpec change.
+Select the next coherent incomplete requirement and implement it with the simplest architecture consistent with durable contracts.
 
-- Prefer the first incomplete task whose prerequisites are satisfied.
-- Do not redo completed work unless evidence shows it is incomplete or incorrect.
-- If `$ARGUMENTS` narrows/prioritizes work, follow it when compatible with the durable contract.
-- Do not silently expand scope into later roadmap milestones.
-- Do not ask the user what to do next unless durable artifacts are genuinely contradictory or a material decision cannot be inferred safely.
+- Do not redo completed work unless evidence shows it is wrong.
+- Fix review findings/regressions that are part of the active change.
+- Add/update focused tests for changed behavior.
+- If implementation disproves a spec/design assumption, update the OpenSpec artifact rather than silently deviating.
+- Check tasks only when acceptance intent is genuinely satisfied.
+- Commit/push coherent checkpoints to `main` during long work.
 
-Before coding, be able to state internally:
+## 3. Route around blockers
 
-- which OpenSpec requirement/task this slice satisfies;
-- which packages/files are expected to change;
-- what verification will prove the slice useful.
+A blocker on one task is not normally a blocker for the entire run.
 
-## Phase 3 — Implement
+When a task/test/tool/environment path is blocked:
 
-1. Implement the selected slice with the simplest architecture consistent with `docs/ARCHITECTURE.md`.
-2. Preserve controller/UI/process boundaries already locked by the architecture.
-3. Keep the repository runnable/type-consistent whenever practical.
-4. Add or update focused tests for behavior introduced by the slice.
-5. If implementation reveals a material spec/design error, update the relevant OpenSpec artifact instead of silently deviating.
-6. If additional required work is discovered inside the active change, add a clear task rather than hiding it in prose.
+1. preserve useful work;
+2. record concise evidence if material;
+3. continue the next independent safe task in the active change or roadmap;
+4. revisit the blocker later when new context may help.
 
-## Phase 4 — Verify
+Do **not** stop merely because:
 
-1. Run the narrowest relevant checks first.
-2. Run broader typecheck/test/build checks at meaningful checkpoints.
-3. Never report a check as passing unless it actually ran successfully.
-4. Record persistent/pre-existing failures accurately instead of looping indefinitely merely to make all output green.
-5. Fix regressions introduced by the current slice when feasible before checkpointing.
+- a test remains failing;
+- an optional tool is unavailable;
+- one subtask is blocked;
+- a particular implementation approach failed;
+- a review checkpoint was reached;
+- the current OpenSpec finished.
 
-## Phase 5 — Durable checkpoint
+Only treat the overall run as blocked when no safe useful roadmap work remains without external credentials/infrastructure, explicit user input, a destructive approval, or a truly unresolved product decision.
 
-After a coherent slice:
+## 4. Verification
 
-1. Update `tasks.md` checkboxes only for acceptance intent that is genuinely complete.
-2. Update `.agent/state.json` with:
-   - accurate development status;
-   - concise checkpoint summary;
-   - last completed task/verification when useful;
-   - precise next action;
-   - structured blockers if any.
-3. Keep the waypoint concise; detailed reasoning stays in OpenSpec/Git/tests.
-4. Inspect the final diff/status for accidental files or secrets.
-5. Commit intended work with a descriptive message.
-6. Fetch/rebase if remote `main` moved and resolve ordinary conflicts safely.
-7. Push to `main`.
+- Run narrow checks around changed code while implementing.
+- Run broader typecheck/test/build/lint at meaningful checkpoints and before folding major changes when useful.
+- Never claim checks that did not run.
+- Fix introduced regressions where practical, but do not loop indefinitely solely to make all baseline output green before progressing elsewhere.
+- Record persistent failures truthfully and continue independent work.
 
-## Phase 6 — Continue or stop
+## 5. Durable checkpoints
 
-Continue to the next coherent slice when the session remains productive and safe.
+After coherent progress:
 
-Stop cleanly when:
+1. update task checkboxes accurately;
+2. update `.agent/state.json` with concise status/checkpoint/next action/blockers;
+3. inspect diff/status for accidental files/secrets;
+4. commit with a descriptive message;
+5. fetch/rebase ordinary remote movement safely;
+6. push to `main`.
 
-- the active OpenSpec change is complete;
-- the session is genuinely blocked;
-- the user asked to limit the session;
-- continuing would require a material product/architecture decision not resolved by durable state.
+Do this periodically during a long goal-mode run, not only at process exit.
 
-Before stopping voluntarily, follow the exit protocol in `docs/DEVELOPMENT.md`. Do not leave knowingly useful completed work only in the local checkout.
+## 6. Change completion means advance, not stop
 
-If blocked, preserve safe work, capture concise evidence, update the waypoint, commit/push where possible, and stop rather than thrashing.
+When the active OpenSpec is complete:
 
-## Change completion
+1. run meaningful completion verification;
+2. reconcile implementation against the final delta spec;
+3. fold/archive the completed change into canonical `openspec/specs/` where appropriate;
+4. update roadmap/waypoint;
+5. determine the next planned roadmap change;
+6. create its proposal/spec/design/tasks when they do not already exist;
+7. commit/push the transition;
+8. **continue implementing the next change immediately**.
 
-When all Change requirements/tasks are satisfied:
+External review checkpoints are advisory/non-blocking unless the user explicitly instructed you to stop for review.
 
-1. run the defined completion verification;
-2. ensure the final delta spec matches implemented behavior;
-3. fold/archive the completed delta into canonical `openspec/specs/` as appropriate;
-4. update `docs/ROADMAP.md` status;
-5. advance `.agent/state.json` to the next OpenSpec change or review waypoint;
-6. commit and push the completed checkpoint.
+## 7. Goal mode
 
-Keep V1 simple. Do not implement deferred multi-session-per-repository, dynamic model routing, public control-plane exposure, or other future features unless a current requirement truly depends on a small compatibility seam.
+If this session is running under Kimi `/goal`, treat the goal as completing the Orca-Strator V1 roadmap from durable state, not merely completing the current change.
+
+The goal should remain active while safe useful roadmap work exists. Do not voluntarily declare completion after 001a or any intermediate milestone.
+
+If a session is not already in goal mode, `/go` still follows the same continuous-roadmap semantics for as long as the session remains active.
+
+Keep V1 simple. Do not implement explicitly deferred multi-session-per-repository, dynamic model routing by Sol, public control-plane exposure, or unrelated future architecture unless a current roadmap requirement needs a small compatibility seam.
 
 $ARGUMENTS
