@@ -2,214 +2,183 @@
 
 ## 1. Summary
 
-Change 001 creates Orca-Strator's first runnable application boundary without implementing autonomous orchestration yet.
+Change 001 creates Orca-Strator's first runnable application boundary without implementing autonomous orchestration.
 
-The design uses a TypeScript monorepo where:
+The implementation is a small TypeScript workspace where:
 
-- a standalone Node.js controller owns persistence and local API state;
-- `packages/shared` owns serializable domain/API contracts and runtime validation;
-- one React/Vite SPA renders the desktop and future phone control UI;
-- Electron is only the Windows desktop shell around that SPA;
-- SQLite is accessed only by the controller/storage layer;
-- future watcher/executor/Playwright components attach to the controller, not Electron renderer state.
+- standalone Node.js controller owns persistence and HTTP/WebSocket state;
+- `packages/shared` owns runtime-safe serializable contracts;
+- React/Vite supplies one responsive UI;
+- controller serves the built SPA in production-like mode so UI + REST + WebSocket share one origin;
+- Vite proxies those same relative routes in development;
+- Electron is only the Windows shell/client around that UI;
+- SQLite is controller-only persistence;
+- later watcher/executor/Playwright systems attach to controller services, not renderer state.
 
-The overriding design goal is **simple boundaries that survive later autonomy work**, not framework completeness.
+The overriding goal is **simple durable boundaries**, not framework completeness.
 
-This design is subordinate to the active delta spec and the locked decision ledger. Focused normative details live in:
+For detailed normative shapes, use focused documents via `docs/INDEX.md`. This design records the Change 001 composition and tradeoffs; it should not duplicate every API/data/UI field already governed elsewhere.
 
-- `docs/TECH-BASELINE.md`;
-- `docs/IMPLEMENTATION-BLUEPRINT.md`;
-- `docs/DATA-MODEL.md`;
-- `docs/API-CONTRACT.md`;
-- `docs/UI-UX-SPEC.md`;
-- `docs/SECURITY.md`;
-- `docs/TEST-STRATEGY.md`.
+## 2. Locked design choices carried into Change 001
 
-## 2. Explicit V1 simplifications
-
-Change 001 MUST preserve these simplifications:
-
-1. V1 Git integration is always `main`; repository configuration has no branch field.
-2. Repository configuration is static setup data, not active-run state.
-3. Run goal/current actor/iteration/PIDs are deferred to later runtime tables.
-4. Electron is not a backend.
-5. The controller is localhost-only.
-6. No watcher, executor process, Playwright browser, Tailscale, or notification implementation exists yet.
-7. Multiple repository records are supported, but Change 001 does not run them.
+1. Windows-only application; Windows and WSL repository targets.
+2. Multiple repository records supported independently.
+3. V1 Git integration fixed to `main`; no branch config field.
+4. Static repository configuration does not contain run goal/current actor/iteration/PID.
+5. Controller owns data/runtime truth; Electron does not.
+6. Built UI and controller API/event endpoint share one loopback origin.
+7. Shared UI uses relative `/api` paths; no production hard-coded localhost API host.
+8. Tailscale is not implemented yet; Change 001 only creates the same-origin seam it will later proxy.
+9. No watcher/executor/Playwright/run-state pseudo-implementation in this change.
+10. Seeded hygiene/security files remain intact.
 
 ## 3. Workspace topology
-
-Use npm workspaces:
 
 ```text
 orca-strator/
 ├── apps/
 │   ├── controller/
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   ├── app.ts
-│   │   │   ├── config/
-│   │   │   ├── db/
-│   │   │   ├── repositories/
-│   │   │   ├── http/
-│   │   │   ├── events/
-│   │   │   └── logging/
-│   │   └── package.json
+│   │   └── src/
+│   │       ├── index.ts
+│   │       ├── app.ts
+│   │       ├── config/
+│   │       ├── db/
+│   │       ├── repositories/
+│   │       ├── http/
+│   │       ├── events/
+│   │       └── logging/
 │   ├── ui/
-│   │   ├── src/
-│   │   │   ├── main.tsx
-│   │   │   ├── app/
-│   │   │   ├── api/
-│   │   │   ├── features/repositories/
-│   │   │   ├── components/
-│   │   │   └── styles/
-│   │   └── package.json
+│   │   └── src/
+│   │       ├── main.tsx
+│   │       ├── app/
+│   │       ├── api/
+│   │       ├── features/repositories/
+│   │       ├── components/
+│   │       └── styles/
 │   └── desktop/
-│       ├── src/
-│       │   ├── main.ts
-│       │   ├── window.ts
-│       │   └── config.ts
-│       └── package.json
+│       └── src/
 ├── packages/
 │   └── shared/
-│       ├── src/
-│       │   ├── repository.ts
-│       │   ├── api.ts
-│       │   ├── events.ts
-│       │   ├── errors.ts
-│       │   ├── validation.ts
-│       │   └── index.ts
-│       └── package.json
-├── schemas/
-│   └── protocol/             # future runtime protocol schemas; not implemented in Change 001
-├── .agent/
-├── .agents/
+│       └── src/
+├── schemas/protocol/       # future protocol schemas; runtime use comes later
 ├── docs/
 ├── openspec/
-├── package.json
-├── tsconfig.base.json
-├── .editorconfig
-├── .gitattributes
-└── .gitignore
+└── root tooling
 ```
 
-Exact file names may vary when implementation finds a simpler layout. Do not create empty modules just to match the diagram.
+Do not create empty placeholder modules just to satisfy this shape.
 
-## 4. Dependency rules
+## 4. Dependency direction
 
 Allowed:
 
 ```text
 controller -> shared
 ui         -> shared
-desktop    -> UI build/URL contract
+desktop    -> UI delivery contract
 ```
 
 Forbidden:
 
 ```text
-shared -> any app
-ui -> controller source/db
+shared -> app package
+ui -> controller internals
 renderer -> SQLite
-renderer -> arbitrary filesystem/process APIs
+renderer -> arbitrary process/filesystem primitives
 controller -> Electron renderer/window state
 ```
 
-The controller may later be supervised by desktop/Windows service tooling, but supervision is not ownership of runtime/domain state.
+Serving compiled UI assets from controller does not make controller owner of React/UI state.
 
 ## 5. Technology baseline
 
-Use the locked baseline in `docs/TECH-BASELINE.md`:
+Use `docs/TECH-BASELINE.md` as authority. Current baseline is Node 24 LTS, npm workspaces, strict TypeScript, Fastify 5, `node:sqlite` behind storage boundary, React 19.2, Vite 8.1, Tailwind 4.3, selective shadcn/ui, Vitest 4.1+, and Electron 43 stable-line baseline.
 
-- Node 24 LTS;
-- npm workspaces;
-- TypeScript strict mode;
-- Fastify 5;
-- `node:sqlite` behind a small storage abstraction;
-- React 19.2;
-- Vite 8.1;
-- Tailwind CSS 4.3;
-- selective shadcn/ui primitives;
-- Vitest 4.1+;
-- Electron 43 stable-line baseline.
+Patch versions belong in `package-lock.json`.
 
-Patch versions belong in `package-lock.json`, not duplicated throughout prose.
+Avoid Turborepo/Nx, ORM, DI container, Redux, plugin system, or other architecture layers absent concrete need.
 
-If `node:sqlite` creates a concrete runtime/packaging blocker, preserve the storage interface and document the smallest compatible replacement before broad implementation depends on it.
+## 6. Controller topology
 
-## 6. Runtime topology in Change 001
-
-### Development
+Startup sequence:
 
 ```text
-root dev command
-   |
-   +--> controller  http://127.0.0.1:<controller-port>
-   +--> Vite UI     http://127.0.0.1:<vite-port>
-   +--> Electron    loads trusted Vite UI
+load config
+ -> resolve data dir
+ -> logger
+ -> SQLite open
+ -> migrations
+ -> stores/services/event bus
+ -> API + WebSocket
+ -> optional built-SPA serving
+ -> loopback listen
+ -> ready
 ```
 
-The practical dev command may supervise all three processes. This is development convenience only; the controller must still be startable independently.
+Readiness is false until required persistence startup succeeds.
 
-### Later packaged seam
+Suggested defaults:
 
 ```text
-Windows controller process
-       |
-       +--> localhost REST/WebSocket
-       +--> SQLite
-
-Electron BrowserWindow ------> shared built UI ------> controller API
-Phone browser (later) --------> same UI ------------> controller API
+ORCA_HOST = 127.0.0.1
+ORCA_PORT = 47100
+production data root = %LOCALAPPDATA%\Orca-Strator\
 ```
 
-Do not solve Windows service installation or Tailscale exposure in Change 001.
+Support `ORCA_DATA_DIR` for tests/development. Tests never touch user's normal DB.
 
-## 7. Shared repository contract
+## 7. One-origin web delivery
 
-Conceptual persisted record:
+This is a foundation decision, not a Milestone-7 implementation.
 
-```ts
-interface RepositoryRecord {
-  id: string;
-  displayName: string;
-  githubRemote: string;
-  localPath: string;
-  environment: "windows" | "wsl";
-  wslDistribution: string | null;
-  executorCli: string;
-  executorModel: string;
-  solConversationUrl: string;
-  maxIterations: number;
-  maxRuntimeMinutes: number;
-  createdAt: string;
-  updatedAt: string;
-}
+### Built/local mode
+
+```text
+http://127.0.0.1:47100/
+├── /                 React SPA
+├── /assets/*          static assets
+├── /api/*             REST
+└── /api/events        WebSocket
 ```
 
-There is deliberately **no `branch` field**. V1 always uses `main`.
+Controller serves only known UI build assets. SPA fallback handles client routes but MUST NOT shadow `/api` or static asset failures.
 
-There is deliberately **no run goal/current state field**. Those belong to later run/runtime state.
+### Development mode
 
-Create/update DTOs may differ from the read model:
+Vite runs separately and proxies:
 
-- create omits ID/timestamps and may omit defaulted ceilings;
-- patch exposes only mutable configuration fields;
-- immutable fields cannot be overwritten by client input;
-- merged patch results are fully revalidated before persistence.
+```text
+/api/*       -> controller
+/api/events  -> controller WebSocket
+```
 
-## 8. Validation invariants
+React source uses the same relative routes in both modes.
 
-All repository configs require after trimming/normalization:
+### Future phone mode
 
-- display name;
-- GitHub remote;
-- local path;
-- executor CLI;
-- executor model/configuration string;
-- exact supported ChatGPT Sol conversation URL;
-- positive integer max iterations;
-- positive integer max runtime minutes.
+Tailscale Serve will proxy the one controller web origin. Phone gets a Tailscale HTTPS page origin and the same relative `/api`/WebSocket client continues working. No second client and no wildcard CORS needed.
+
+## 8. Repository contract
+
+Static repository record includes only:
+
+```text
+id
+displayName
+githubRemote
+localPath
+environment (windows|wsl)
+wslDistribution|null
+executorCli
+executorModel
+solConversationUrl
+maxIterations
+maxRuntimeMinutes
+createdAt
+updatedAt
+```
+
+No branch field. No run goal/current runtime fields.
 
 Defaults:
 
@@ -218,376 +187,151 @@ maxIterations = 20
 maxRuntimeMinutes = 480
 ```
 
-Environment rules:
+WSL requires distro and stores Linux path as canonical path. Windows normalizes WSL distro to null.
 
-### Windows
+Controller is authoritative validator. UI may reuse shared schemas for immediate feedback.
 
-- `environment = windows`;
-- `localPath` is a native Windows path supplied by the user;
-- persisted WSL distribution is null.
+## 9. Persistence
 
-### WSL
+Initial SQLite schema contains only migration metadata and `repositories`.
 
-- `environment = wsl`;
-- `wslDistribution` is non-empty and required;
-- `localPath` is the Linux path inside that distro;
-- do not convert the canonical stored path into `C:\...` or `\\wsl$...`.
+Use direct SQL with ordered migrations and a small store abstraction. No ORM.
 
-Change 001 validates configuration shape. It does not make filesystem/network/executor reachability a hard create-time requirement.
+Migration invariants:
 
-## 9. Secret boundary
+- monotonically ordered versions;
+- each applied once;
+- transaction + metadata record atomic where practical;
+- failed migration not marked applied;
+- reopen idempotent.
 
-Repository configuration MUST NOT store:
+Repository SQL details are governed by `docs/DATA-MODEL.md`.
 
-- API keys;
-- OAuth/GitHub tokens;
-- ChatGPT cookies/session storage;
-- passwords;
-- Playwright profile content;
-- arbitrary environment-secret blobs.
-
-Browser profile/auth data is machine-local runtime state and is already excluded by repository ignore policy.
-
-## 10. Controller configuration
-
-Suggested controller defaults:
+## 10. Controller service/API/event layering
 
 ```text
-host: 127.0.0.1
-port: 47100
-production data root: %LOCALAPPDATA%\Orca-Strator\
-DB file: <data-root>/orca-strator.sqlite
+HTTP request
+ -> parse/runtime validate
+ -> repository service
+ -> repository store
+ -> SQLite
 ```
 
-Environment overrides should include at minimum:
+After successful mutation:
 
 ```text
-ORCA_HOST
-ORCA_PORT
-ORCA_DATA_DIR
-ORCA_LOG_LEVEL
-NODE_ENV
+persist
+ -> publish repository.created|updated|deleted
 ```
 
-Tests MUST override the data directory and must never touch the normal user DB.
+Never publish success before persistence.
 
-Change 001 binds loopback only.
+API/error/event details are governed by `docs/API-CONTRACT.md`.
 
-## 11. Controller startup sequence
+## 11. UI behavior
 
-```text
-process start
-  -> parse config
-  -> resolve/create data directory
-  -> initialize logging
-  -> open SQLite
-  -> run ordered migrations
-  -> initialize stores/services/event bus
-  -> build Fastify app/routes/WebSocket endpoint
-  -> listen on loopback
-  -> report ready
-```
+Initial UI includes:
 
-If required migration/startup fails, do not advertise healthy readiness.
+- app shell/navigation;
+- controller connectivity state;
+- repository dashboard;
+- add/edit repository form;
+- repository detail foundation;
+- delete confirmation;
+- responsive layout.
 
-## 12. SQLite design
+Repository form has no branch field.
 
-Use direct SQL and a small migration mechanism; do not add an ORM solely for the initial schema.
+Controller offline must be distinct from empty repository list.
 
-Minimum migration behavior:
+Do not fake current executor/Sol states.
 
-1. migrations have ordered integer versions;
-2. each is applied at most once;
-3. migration + migration-record insertion are atomic where practical;
-4. failed migration is not recorded as applied;
-5. reopening a current DB is idempotent.
+Network client uses relative REST paths and derives WebSocket protocol/host from current page origin.
 
-Initial table is `repositories` only.
+## 12. Electron shell
 
-Target columns:
+In development Electron loads trusted Vite UI.
 
-```text
-id
-display_name
-github_remote
-local_path
-environment
-wsl_distribution
-executor_cli
-executor_model
-sol_conversation_url
-max_iterations
-max_runtime_minutes
-created_at
-updated_at
-```
+In built/local mode prefer loading controller-served Orca origin. This makes desktop exercise the same delivery path future phone access uses.
 
-No branch column. No run-state columns.
+Electron baseline:
 
-SQL stays behind a focused store/repository module.
+- `contextIsolation: true`;
+- no broad renderer Node integration;
+- no SQLite access;
+- no repository process launching in Change 001;
+- no repository persistence ownership;
+- external links remain normal browser content.
 
-## 13. Repository service boundary
+No custom IPC is needed for CRUD because HTTP/WebSocket are shared boundary.
 
-The service layer sits between HTTP and storage.
+## 13. Static serving security
 
-Responsibilities:
+Controller's UI-serving layer MUST:
 
-- parse/validate create/patch models;
-- apply ceiling defaults;
-- generate stable ID/timestamps;
-- normalize safe strings;
-- map not-found/domain failures to stable errors;
-- call storage;
-- publish mutation events only after persistence succeeds.
+- serve only configured build output;
+- never expose data directory, SQLite, logs, browser profile, environment files, or arbitrary local paths;
+- reserve `/api/*` before SPA fallback;
+- avoid directory listing;
+- avoid wildcard CORS as normal runtime solution.
 
-Routes remain thin. SQL does not live in handlers.
+## 14. Repository hygiene
 
-## 14. REST contract
+Preserve existing:
 
-Change 001 implements:
+- `.gitattributes` (LF-normalized cross Windows/WSL, CRLF for `.bat`/`.cmd`);
+- `.editorconfig`;
+- `.gitignore` excluding local DB/browser/auth/log/secrets/build output while not globally ignoring `.orca/`.
 
-```text
-GET    /api/health
-GET    /api/repositories
-POST   /api/repositories
-GET    /api/repositories/:id
-PATCH  /api/repositories/:id
-DELETE /api/repositories/:id
-```
+Scaffold generators must not silently replace these with weaker defaults.
 
-Use `docs/API-CONTRACT.md` for exact payload/error semantics.
+## 15. Testing
 
-Important properties:
+Required test layers for Change 001:
 
-- health means DB/controller ready;
-- invalid config never reaches SQL writes;
-- unknown IDs produce stable 404 behavior;
-- delete is explicit;
-- no raw stack traces in normal API payloads;
-- V1 API has no branch configuration field.
+- shared config validation/defaults;
+- branch/run-state absence;
+- SQLite migrations/CRUD/reopen;
+- REST/error/event behavior;
+- built-SPA serving and route precedence;
+- Vite relative API/WebSocket proxy behavior;
+- UI offline/empty/form/narrow behavior;
+- Electron launch + controller independence;
+- hygiene/static-serving security checks.
 
-## 15. Event contract
+Use `docs/TEST-STRATEGY.md` for detailed matrix.
 
-Expose one WebSocket/event channel.
+## 16. Deliberate non-goals
 
-Initial event types:
+Change 001 does not implement:
 
-```text
-repository.created
-repository.updated
-repository.deleted
-```
-
-Event rule:
-
-```text
-persist successfully
-  -> publish event
-```
-
-Events are synchronization hints, not event sourcing. Reconnecting clients refetch authoritative REST state.
-
-## 16. UI architecture
-
-Use one responsive React application.
-
-Create a focused typed API client for:
-
-```text
-getHealth
-listRepositories
-getRepository
-createRepository
-updateRepository
-deleteRepository
-subscribeEvents
-```
-
-No component imports SQLite/controller internals.
-
-Controller connectivity must distinguish:
-
-```text
-connecting
-connected
-error/disconnected
-```
-
-Empty repository list is not the same as controller unavailable.
-
-## 17. Repository UI behavior
-
-Dashboard initially shows real configuration only:
-
-- display name;
-- Windows/WSL environment and distro;
-- local path;
-- executor CLI/model;
-- configuration/connectivity placeholder status.
-
-Do not fake autonomous runtime progress.
-
-Add/Edit fields:
-
-- display name;
-- GitHub remote;
-- environment;
-- local path;
-- conditional WSL distribution;
-- executor CLI;
-- executor model/config string;
-- Sol conversation URL;
-- max iterations;
-- max runtime.
-
-Do not render a branch input. If helpful, detail/start UI may later state `Git: main` as a fixed invariant.
-
-At narrow widths (~360–430px), primary forms/cards/details must remain usable without mandatory horizontal scrolling.
-
-## 18. Electron shell
-
-Electron V1 responsibilities:
-
-- create the BrowserWindow;
-- load trusted Vite URL in dev;
-- load built shared UI in production-like local mode;
-- use `contextIsolation: true`;
-- avoid broad renderer Node integration;
-- tolerate controller-unavailable state.
-
-Electron MUST NOT:
-
-- open the SQLite DB;
-- own repository configuration;
-- launch executors in Change 001;
-- become the only process that can preserve controller state.
-
-No custom IPC is required for repository CRUD because REST/WebSocket is the intended shared boundary.
-
-## 19. Repository hygiene
-
-The repository already contains:
-
-- `.gitattributes` for LF normalization across Windows/WSL with CRLF for `.bat`/`.cmd`;
-- `.editorconfig` for basic editor consistency;
-- `.gitignore` for dependencies/build output/local DB/browser/auth/log/secret artifacts.
-
-Change 001 should verify/extend these if implementation generates additional local artifacts; it should not overwrite them with weaker defaults.
-
-`.orca/` must not be globally ignored because future managed repositories intentionally commit cross-agent coordination files.
-
-## 20. Testing design
-
-### Shared contracts
-
-Test:
-
-- valid Windows config;
-- valid WSL config;
-- missing distro;
-- empty required strings;
-- invalid ceilings;
-- defaults;
-- invalid Sol conversation URL;
-- immutable patch behavior;
-- absence/rejection of configurable branch field.
-
-### SQLite/storage
-
-Use isolated temporary data roots.
-
-Test:
-
-- fresh migration;
-- idempotent reopen;
-- CRUD;
-- multiple records;
-- timestamps/identity stability;
-- failed/invalid mutation does not corrupt existing data;
-- restart persistence;
-- schema has no unnecessary branch/run-state columns.
-
-### API/events
-
-Test:
-
-- health readiness;
-- CRUD and 404s;
-- structured validation errors;
-- no raw stack leakage;
-- mutation event after successful persistence;
-- no false success event after failed persistence;
-- reconnect/refetch behavior.
-
-### UI
-
-Test behavior, not snapshot volume:
-
-- multiple repository rendering;
-- empty vs disconnected state;
-- Windows/WSL form behavior;
-- server validation without losing useful input;
-- create/edit/delete through API client;
-- no branch form control;
-- narrow viewport smoke.
-
-### Electron/integration
-
-Verify on Windows:
-
-- Electron launches shared UI;
-- UI CRUD reaches controller;
-- controller can run independently;
-- Electron close/reopen does not erase data.
-
-## 21. Development commands
-
-Root command contract should converge on:
-
-```text
-npm install
-npm run dev
-npm run build
-npm run typecheck
-npm test
-npm run lint
-```
-
-Focused workspace commands may exist, but normal local development must not rely on undocumented multi-terminal choreography.
-
-## 22. Change 001 non-goals enforced by structure
-
-Do not implement:
-
-- remote Git polling;
-- dispatch processing;
-- protocol parser/runtime despite schemas already existing;
-- process launch adapters;
+- Git polling/watcher;
+- `.orca` runtime parser despite schemas existing;
+- executor process launch;
 - Playwright/ChatGPT setup;
-- run state machine;
-- pause/stop behavior;
-- Tailscale;
+- autonomous run state;
+- Pause/Stop/Emergency Kill runtime behavior;
+- Tailscale Serve config;
 - notifications;
-- Windows service packaging.
+- Windows service/auto-start.
 
-The protocol schemas are durable design artifacts only in this milestone.
+## 17. Exit gate
 
-## 23. Completion gate
+Change 001 reaches `READY_FOR_REVIEW` only when:
 
-Change 001 is ready for deep review only when:
-
-1. fresh install succeeds on supported Windows development setup;
-2. root typecheck/test/build/lint commands are real and documented;
-3. controller starts independently on loopback;
-4. SQLite migration + repository CRUD are tested;
-5. Windows and WSL repository configuration work;
-6. repository config/data/API/UI contain no mutable branch field and assume `main`;
-7. no run-state data leaked into the static repository table;
-8. WebSocket mutation events work;
-9. responsive browser UI exercises real controller CRUD;
-10. Electron hosts the same UI without persistence ownership;
-11. controller data survives restart and Electron closure;
-12. seeded hygiene/security files are preserved;
-13. no later autonomous subsystem was prematurely implemented;
-14. `tasks.md` and `.agent/state.json` accurately reflect verification and completion;
-15. everything intended is committed/pushed to `main` for a deep Sol/ChatGPT review before Change 002.
+1. workspace installs/builds/typechecks/tests/lints;
+2. controller independently starts loopback and health means DB ready;
+3. Windows + WSL repository CRUD persists through restart;
+4. repository config/API/UI are main-only and run-state-free;
+5. mutation WebSocket works;
+6. shared client uses relative same-origin routes;
+7. Vite proxies those routes in dev;
+8. controller serves built SPA + REST + WebSocket from one origin;
+9. SPA deep-link fallback is correct and does not shadow API;
+10. built static server cannot expose Orca runtime data;
+11. narrow UI usable;
+12. Electron uses same UI/controller boundary and does not own data;
+13. seeded hygiene/security files remain intact;
+14. no later autonomous subsystem leaked in;
+15. tasks/state are accurate, all intended work committed/pushed to `main`;
+16. development stops for deep Sol/ChatGPT review before Change 002.
