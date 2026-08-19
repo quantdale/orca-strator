@@ -128,7 +128,6 @@ Each repository SHALL include at least:
 - display name;
 - GitHub remote identity/URL;
 - local working-directory path;
-- watched/integration branch, default `main`;
 - execution environment (`windows` or `wsl`);
 - WSL distribution when applicable;
 - executor CLI identifier/config string;
@@ -137,6 +136,8 @@ Each repository SHALL include at least:
 - maximum iteration ceiling, default 20;
 - maximum wall-clock runtime ceiling, default 480 minutes;
 - created/updated timestamps.
+
+V1 SHALL NOT persist a configurable branch field. Runtime Git operations are fixed to `main`.
 
 #### Scenario: Create Windows repository
 - GIVEN a valid Windows repository configuration
@@ -185,9 +186,14 @@ The controller SHALL validate repository create/update inputs before persistence
 - THEN it is rejected
 
 #### Scenario: Defaults are applied
-- GIVEN optional branch/ceiling values are omitted from a create request where the API contract allows omission
+- GIVEN optional ceiling values are omitted from a create request where the API contract allows omission
 - WHEN the repository is created
-- THEN branch defaults to `main`, max iterations defaults to 20, and max runtime defaults to 480 minutes
+- THEN max iterations defaults to 20 and max runtime defaults to 480 minutes
+
+#### Scenario: Configurable branch is not accepted in V1
+- GIVEN a create/update payload contains a `branch` field
+- WHEN strict V1 request validation is applied
+- THEN the field is rejected or ignored according to the chosen strict-schema implementation, and no mutable branch value is persisted
 
 #### Scenario: Invalid Sol URL
 - GIVEN a Sol conversation URL does not match a supported ChatGPT conversation URL form
@@ -364,6 +370,8 @@ The UI SHALL list multiple configured repositories independently and expose thei
 
 The UI SHALL provide an add/edit flow for all required repository configuration fields.
 
+The UI SHALL NOT expose a branch selector in V1; `main` is automatic.
+
 #### Scenario: User selects WSL
 - GIVEN the form is in create/edit mode
 - WHEN environment is changed to WSL
@@ -388,7 +396,7 @@ The UI SHALL provide a repository detail view that displays current persisted co
 #### Scenario: View repository
 - GIVEN an existing repository
 - WHEN its detail route/view opens
-- THEN the persisted environment, path, branch, executor/model, Sol URL, and ceilings can be inspected
+- THEN the persisted environment, path, executor/model, Sol URL, and ceilings can be inspected; V1 may show `main` only as a fixed runtime note, not editable configuration
 
 #### Scenario: Future controls are not functional placeholders
 - GIVEN autonomous run behavior is not implemented
@@ -441,6 +449,22 @@ The workspace SHALL expose documented commands for installation, development, ty
 - GIVEN implementation is complete
 - WHEN root typecheck/test/build verification commands run
 - THEN the workspace verifies as documented or any remaining intentional limitation is explicitly captured in durable state before the change is considered complete
+
+---
+
+### Requirement: Cross-platform repository hygiene is preserved
+
+The implementation SHALL preserve the repository's seeded `.gitattributes`, `.editorconfig`, and `.gitignore` baselines so Windows/WSL development does not create avoidable line-ending churn or accidentally commit local runtime/auth artifacts.
+
+#### Scenario: Runtime artifacts are generated
+- GIVEN local SQLite, logs, browser profiles, Playwright auth/output, dependencies, or environment-secret files exist
+- WHEN Git status is inspected
+- THEN those machine-local/generated files are not unintentionally tracked by the seeded ignore rules
+
+#### Scenario: Managed-repository protocol remains committable
+- GIVEN future managed repositories use `.orca/` coordination artifacts
+- WHEN ignore policy is inspected
+- THEN `.orca/` is not globally ignored by Orca-Strator's baseline policy
 
 ---
 
