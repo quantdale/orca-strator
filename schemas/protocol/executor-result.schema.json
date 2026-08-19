@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/quantdale/orca-strator/schemas/protocol/executor-result.schema.json",
+  "title": "Orca Executor Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "type",
+    "runId",
+    "dispatchId",
+    "iteration",
+    "status",
+    "startedAt",
+    "finishedAt",
+    "baseSha",
+    "resultSha",
+    "executor",
+    "verification",
+    "blockers",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "type": { "type": "string", "const": "executor-result" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "dispatchId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "iteration": { "type": "integer", "minimum": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["COMPLETED", "BLOCKED", "NEEDS_HUMAN", "FAILED"]
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "baseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "resultSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "executor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cli", "model", "environment"],
+      "properties": {
+        "cli": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "model": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "environment": { "type": "string", "enum": ["windows", "wsl"] }
+      }
+    },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "summary"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "NOT_RUN"] },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "summary"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "evidence": { "type": ["string", "null"], "maxLength": 4000 }
+        }
+      }
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4000 }
+  }
+}
