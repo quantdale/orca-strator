@@ -2,18 +2,18 @@
   "schemaVersion": 1,
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
-  "highLevelGoal": "Build Orca-Strator into a Windows-first autonomous multi-repository AI development orchestrator according to the locked architecture and roadmap.",
+  "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
   "activeMilestone": 1,
   "activeChange": "001a-control-plane-review-hardening",
   "completedMilestones": [0],
   "planningBaseSha": "e2d1608fab28f29875fa0d8b5d8d738133362d4b",
   "checkpoint": {
-    "summary": "Mandatory deep review of Change 001 completed and the milestone was not accepted. The overall controller/UI/Electron separation is directionally sound, but review found several foundation defects that must be corrected before watcher work: root npm run dev does not launch a controller runtime or Electron; fresh-checkout workspace commands may depend on untracked @orca/shared dist output; committed React/Vite/Tailwind/Vitest/Electron lines drift materially from the locked technology baseline; migration body + schema_migrations record are not transactional; WebSocket reconnect lifecycle is incorrect across disconnect/error/React StrictMode; hash routing does not satisfy the documented pathname deep-link reload contract; Sol conversation URL validation accepts generic ChatGPT paths; and acceptance evidence/documentation overclaimed some behaviors. Focused corrective OpenSpec 001a has been created with regression requirements and tasks.",
-    "updatedAt": "2026-08-19T21:47:00+08:00",
-    "lastCompletedTask": "Deep Sol/ChatGPT review of Change 001 and creation of corrective OpenSpec 001a",
-    "lastVerification": "Repository review was performed against main commit e2d1608fab28f29875fa0d8b5d8d738133362d4b. GitHub reports no commit status checks for that commit. Review inspected package manifests/lockfile, controller migration/static/API code, shared validation, UI routing/API/WebSocket code, desktop shell/dev supervisor, tests, tasks, and waypoint. Change 001 remains unaccepted until 001a is implemented and re-reviewed."
+    "summary": "Change 001 deep review found foundation defects and created corrective OpenSpec 001a. Development policy has now been revised for continuous Kimi goal mode: skip broad baseline testing at startup; resolve all 001a findings with targeted/focused verification; route around local blockers while safe independent work remains; checkpoint/commit/push continuously; and when 001a is complete, fold Milestone 1, create or activate the next roadmap OpenSpec, and continue implementation rather than stopping for a second review by default. AGENTS.md, docs/DEVELOPMENT.md, docs/GOAL-MODE.md, the /go skill, and 001a proposal/design/tasks encode this continuous policy.",
+    "updatedAt": "2026-08-19T22:01:00+08:00",
+    "lastCompletedTask": "Convert Orca-Strator development handoff to continuous goal-mode semantics and update corrective Change 001a accordingly",
+    "lastVerification": "Planning/control-plane update only. The known Change 001 review findings remain to be implemented in 001a. No broad baseline test was run for this policy update."
   },
-  "nextAction": "Start a fresh coding-agent session and run /go. Implement openspec/changes/001a-control-plane-review-hardening from Section 0. Reproduce the findings first, then fix only the Milestone 1 foundation: supported dependency baseline, clean-checkout workspace resolution, actual controller+Vite+Electron dev stack, atomic migrations, resilient WebSocket lifecycle, pathname deep links, strict Sol conversation URL validation, and truthful acceptance evidence. Commit/push coherent checkpoints to main. Do not start Milestone 2. When 001a reaches its exit gate, set READY_FOR_REVIEW for a second deep Sol review.",
+  "nextAction": "Start Kimi Code goal mode using the canonical objective in docs/GOAL-MODE.md. Recover durable state, implement all of openspec/changes/001a-control-plane-review-hardening, use targeted checks while working and broader gates at meaningful checkpoints, then fold Milestone 1 and continue directly into the next focused roadmap OpenSpec. Do not stop at ordinary review checkpoints. If an individual task/test/tool is blocked, record it and continue other independent safe work; only block the overall goal when no safe useful roadmap work remains without external input or infrastructure.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",
