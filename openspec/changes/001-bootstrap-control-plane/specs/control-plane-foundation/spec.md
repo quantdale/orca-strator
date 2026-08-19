@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Establish the runnable Windows control plane that later autonomous repository orchestration features can extend without coupling runtime truth to Electron or duplicating desktop/mobile state paths.
+Establish the runnable Windows control plane that later autonomous repository orchestration features can extend without coupling runtime truth to Electron or duplicating desktop/mobile state/network paths.
 
 ## ADDED Requirements
 
@@ -22,41 +22,41 @@ The baseline logical structure SHALL include:
 - WHEN dependency relationships are inspected
 - THEN `packages/shared` does not depend on controller, UI, or Electron application packages
 
-#### Scenario: UI cannot bypass the controller boundary
+#### Scenario: UI cannot bypass controller boundary
 - GIVEN the UI is built
 - WHEN repository data is read or changed
 - THEN the UI uses controller API/contracts and does not directly import controller storage/SQLite implementation
 
 #### Scenario: Root verification commands are available
 - GIVEN dependencies are installed
-- WHEN the documented root build/typecheck/test commands run
-- THEN each workspace participates through documented scripts without requiring undocumented manual package-by-package steps
+- WHEN documented root build/typecheck/test commands run
+- THEN each workspace participates without undocumented package-by-package steps
 
 ---
 
 ### Requirement: Background controller owns persisted/runtime control-plane state
 
-The system SHALL run repository persistence and controller API state in a standalone Node.js/TypeScript controller process architecturally separate from the Electron window/renderer lifecycle.
+The system SHALL run repository persistence and controller API state in a standalone Node.js/TypeScript controller process architecturally separate from Electron window/renderer lifecycle.
 
 #### Scenario: Controller runs without Electron
 - GIVEN a supported Windows development environment
-- WHEN the controller is started without opening Electron
+- WHEN controller starts without Electron
 - THEN health and repository API operations are available normally
 
 #### Scenario: Desktop UI closes
-- GIVEN the controller is running and repository configuration exists
-- WHEN the Electron window is closed
-- THEN controller-owned repository configuration remains persisted and accessible
+- GIVEN controller is running and repository configuration exists
+- WHEN Electron window is closed
+- THEN controller-owned configuration remains persisted and accessible
 
 #### Scenario: Desktop UI reopens
-- GIVEN the controller remained running after Electron closed
-- WHEN Electron is opened again
-- THEN the UI reconnects to the controller and displays persisted repositories without recreating them
+- GIVEN controller remained running
+- WHEN Electron opens again
+- THEN UI reconnects and displays persisted repositories without recreating them
 
-#### Scenario: Controller is unavailable
-- GIVEN the Electron/shared UI is open
-- WHEN the controller cannot be reached
-- THEN the UI presents a clear disconnected/error state instead of crashing or silently using stale direct database access
+#### Scenario: Controller unavailable
+- GIVEN shared UI is open
+- WHEN controller cannot be reached
+- THEN UI presents disconnected/error state instead of crashing or silently using direct database access
 
 ---
 
@@ -64,31 +64,74 @@ The system SHALL run repository persistence and controller API state in a standa
 
 The controller SHALL bind to a loopback interface by default and SHALL NOT expose a public internet listener in Change 001.
 
-#### Scenario: Normal development startup
+#### Scenario: Normal startup
 - GIVEN default configuration
-- WHEN the controller starts
-- THEN it listens on `127.0.0.1` (or equivalent loopback-only binding) using the documented port
+- WHEN controller starts
+- THEN it listens on `127.0.0.1` or documented equivalent loopback using documented port
 
-#### Scenario: Phone/public networking is not prematurely implemented
+#### Scenario: Public networking not prematurely implemented
 - GIVEN Change 001 is complete
-- WHEN controller networking configuration is inspected
-- THEN Tailscale/public binding is not required for normal operation and no public listener is enabled by default
+- WHEN networking is inspected
+- THEN Tailscale/public binding is not required and no public listener is enabled by default
 
 ---
 
 ### Requirement: Controller health represents readiness
 
-The controller SHALL expose a health endpoint that reports success only after required startup initialization, including persistence initialization, has completed.
+The controller SHALL expose a health endpoint that succeeds only after required startup initialization, including persistence initialization, completes.
 
 #### Scenario: Healthy controller
 - GIVEN SQLite initialization/migrations succeeded
 - WHEN `GET /api/health` is called
-- THEN it returns a successful response containing at least an `ok`/ready status and application version or equivalent identity
+- THEN it returns successful ready status and service/version identity
 
 #### Scenario: Database initialization failed
-- GIVEN the required database cannot initialize
+- GIVEN required DB cannot initialize
 - WHEN controller startup occurs
-- THEN the controller fails clearly or health does not claim ready; it MUST NOT report a false healthy state
+- THEN controller fails clearly or health does not claim ready
+
+---
+
+### Requirement: Shared UI uses one same-origin runtime contract
+
+The system SHALL provide one responsive React UI codebase used by Electron and suitable for later private phone-browser access without a second API client.
+
+The built/runtime contract SHALL expose the SPA, REST API, and WebSocket under one Orca web origin.
+
+#### Scenario: Built local runtime
+- GIVEN the UI build and controller are available
+- WHEN built-mode Orca starts
+- THEN the controller can serve the SPA from `/`, REST from `/api/*`, and WebSocket from `/api/events` on one loopback origin
+
+#### Scenario: Development runtime
+- GIVEN Vite and controller are running on separate development ports
+- WHEN UI requests `/api/*` or `/api/events`
+- THEN Vite proxies those relative routes to the controller so UI source does not need a separate API-host implementation
+
+#### Scenario: Phone-compatible client networking
+- GIVEN the shared UI is loaded from a non-localhost HTTPS origin
+- WHEN it calls REST or opens the event WebSocket
+- THEN requests use that page origin (`/api/*`, `wss://same-origin/api/events`) rather than hard-coded laptop localhost
+
+#### Scenario: No wildcard CORS dependency
+- GIVEN normal built/runtime topology
+- WHEN UI and API communicate
+- THEN same-origin routing works without requiring wildcard CORS
+
+#### Scenario: SPA deep-link refresh
+- GIVEN user navigates directly to a client route such as `/repositories/<id>`
+- WHEN built controller receives a non-API, non-static-asset route
+- THEN it serves SPA shell rather than a 404
+
+#### Scenario: API route precedence
+- GIVEN a request targets `/api/*`
+- WHEN built SPA fallback is active
+- THEN API/WebSocket handling takes precedence and API failures are not replaced with SPA HTML
+
+#### Scenario: Static serving isolation
+- GIVEN controller serves built UI assets
+- WHEN arbitrary filesystem/runtime paths are requested
+- THEN DB, logs, browser profile, and Orca data directory are not exposed as static content
 
 ---
 
@@ -99,22 +142,22 @@ The system SHALL provide one responsive React UI codebase used by Electron and s
 #### Scenario: Desktop rendering
 - GIVEN controller and UI are running
 - WHEN Electron opens
-- THEN Electron displays the shared UI and repository data comes from the controller API
+- THEN Electron displays shared UI and repository data comes from controller API
 
 #### Scenario: Browser rendering
-- GIVEN the UI is opened directly in a browser during development
-- WHEN the controller is reachable
-- THEN the same repository views operate without Electron-specific persistence logic
+- GIVEN UI is opened directly in browser during development or built mode
+- WHEN controller is reachable through configured same-origin/proxy seam
+- THEN repository views operate without Electron-specific persistence logic
 
 #### Scenario: Narrow viewport
-- GIVEN a phone-like narrow viewport
-- WHEN the dashboard, repository form, or repository detail is viewed
-- THEN core content and primary actions remain usable without mandatory horizontal scrolling for the main workflow
+- GIVEN phone-like narrow viewport
+- WHEN dashboard, repository form, or detail is viewed
+- THEN core content/actions remain usable without mandatory horizontal scrolling
 
 #### Scenario: No separate mobile codebase
 - GIVEN Change 001 structure
 - WHEN responsive behavior is inspected
-- THEN phone-like rendering reuses the same UI application rather than a native/separate mobile application
+- THEN phone-like rendering reuses same UI application
 
 ---
 
@@ -140,131 +183,129 @@ Each repository SHALL include at least:
 V1 SHALL NOT persist a configurable branch field. Runtime Git operations are fixed to `main`.
 
 #### Scenario: Create Windows repository
-- GIVEN a valid Windows repository configuration
-- WHEN it is created through the controller
-- THEN it is assigned a stable ID, persisted, and returned through repository APIs
+- GIVEN valid Windows configuration
+- WHEN created through controller
+- THEN stable ID is assigned, persisted, and returned
 
 #### Scenario: Create WSL repository
-- GIVEN a valid WSL repository configuration including distro and Linux working path
-- WHEN it is created
-- THEN WSL-specific fields are persisted without converting the canonical path into a Windows path
+- GIVEN valid WSL config including distro/Linux path
+- WHEN created
+- THEN WSL fields persist without converting canonical path into Windows path
 
 #### Scenario: Restart preserves configuration
-- GIVEN one or more repositories were registered
-- WHEN the controller is stopped and restarted using the same data directory
-- THEN all persisted repository configurations are restored with stable IDs and values
+- GIVEN repositories registered
+- WHEN controller restarts using same data directory
+- THEN configurations restore with stable IDs/values
 
 #### Scenario: Multiple repositories remain independent
-- GIVEN Nightwatch, TabDock, and SuperHabits-like records exist
-- WHEN repository list/detail operations occur
-- THEN each record is represented independently and the model does not impose a single-project global configuration
+- GIVEN several records exist
+- WHEN list/detail operations occur
+- THEN each record is represented independently with no single-project global config
 
 ---
 
 ### Requirement: Repository configuration validation is runtime-safe and environment-aware
 
-The controller SHALL validate repository create/update inputs before persistence.
+The controller SHALL validate create/update inputs before persistence.
 
 #### Scenario: WSL distribution required
 - GIVEN `environment = wsl`
 - WHEN no WSL distribution is provided
-- THEN creation/update is rejected with a structured validation error and no invalid row is written
+- THEN mutation is rejected and invalid row is not written
 
 #### Scenario: Windows does not require WSL distribution
 - GIVEN `environment = windows`
-- WHEN a valid Windows configuration omits WSL distribution
+- WHEN valid Windows config omits WSL distro
 - THEN it is accepted
 
-#### Scenario: Required strings are empty
-- GIVEN required repository fields contain only whitespace or empty values
-- WHEN the payload is submitted
-- THEN it is rejected with a structured client validation error
+#### Scenario: Required strings empty
+- GIVEN required fields empty/whitespace
+- WHEN payload submitted
+- THEN it is rejected with structured validation error
 
 #### Scenario: Invalid ceilings
-- GIVEN `maxIterations <= 0` or `maxRuntimeMinutes <= 0`
-- WHEN the payload is submitted
-- THEN it is rejected
+- GIVEN max iteration/runtime <= 0 or non-integer
+- WHEN submitted
+- THEN rejected
 
-#### Scenario: Defaults are applied
-- GIVEN optional ceiling values are omitted from a create request where the API contract allows omission
-- WHEN the repository is created
-- THEN max iterations defaults to 20 and max runtime defaults to 480 minutes
+#### Scenario: Defaults applied
+- GIVEN optional ceiling values omitted
+- WHEN created
+- THEN defaults 20 and 480 minutes apply
 
-#### Scenario: Configurable branch is not accepted in V1
-- GIVEN a create/update payload contains a `branch` field
-- WHEN strict V1 request validation is applied
-- THEN the field is rejected or ignored according to the chosen strict-schema implementation, and no mutable branch value is persisted
+#### Scenario: Configurable branch not accepted in V1
+- GIVEN payload contains `branch`
+- WHEN strict V1 request validation applies
+- THEN field is rejected or ignored according to documented strict-schema strategy and no mutable branch is persisted
 
 #### Scenario: Invalid Sol URL
-- GIVEN a Sol conversation URL does not match a supported ChatGPT conversation URL form
-- WHEN the payload is submitted
-- THEN the controller rejects it with a useful validation error
+- GIVEN URL does not match supported ChatGPT conversation form
+- WHEN submitted
+- THEN controller rejects with useful validation error
 
 #### Scenario: Update cannot corrupt identity
-- GIVEN an existing repository
-- WHEN a patch/update payload is applied
-- THEN immutable identity fields are not accidentally replaced and the resulting complete configuration is revalidated before persistence
+- GIVEN existing repository
+- WHEN patch applied
+- THEN immutable identity fields are not replaced and complete resulting config is revalidated
 
 ---
 
 ### Requirement: Repository configuration does not store secrets
 
-Repository persistence SHALL NOT require or store credentials such as API keys, passwords, GitHub tokens, ChatGPT cookies, or Playwright profile data.
+Repository persistence SHALL NOT require/store API keys, passwords, GitHub tokens, ChatGPT cookies, or Playwright profile data.
 
-#### Scenario: Repository record is inspected
-- GIVEN a persisted repository
-- WHEN its API/database representation is inspected
-- THEN it contains configuration metadata only and no authentication secret fields are part of the schema
+#### Scenario: Repository record inspected
+- GIVEN persisted repository
+- WHEN API/database representation inspected
+- THEN it contains configuration metadata only and no authentication-secret fields
 
 ---
 
 ### Requirement: SQLite has deterministic migrations
 
-The controller SHALL initialize SQLite through an ordered migration mechanism suitable for future schema growth.
+The controller SHALL initialize SQLite through ordered migrations suitable for future schema growth.
 
 #### Scenario: Fresh database
-- GIVEN an empty new data directory
-- WHEN the controller starts
-- THEN the database and migration metadata are created and all pending migrations run successfully
+- GIVEN empty data directory
+- WHEN controller starts
+- THEN DB/migration metadata are created and pending migrations run
 
-#### Scenario: Restart is idempotent
-- GIVEN the current migrations already ran
-- WHEN the controller restarts
-- THEN previously applied migrations are not re-applied destructively
+#### Scenario: Restart idempotent
+- GIVEN current migrations ran
+- WHEN controller restarts
+- THEN migrations are not destructively re-applied
 
 #### Scenario: Persistence reopen
 - GIVEN repository records exist
-- WHEN the database is closed and reopened by a restarted controller
-- THEN the records remain readable
+- WHEN DB reopened
+- THEN records remain readable
 
 #### Scenario: Migration failure
-- GIVEN a migration fails
+- GIVEN migration fails
 - WHEN startup occurs
-- THEN the failed migration is not silently recorded as applied and controller readiness is not falsely reported
+- THEN migration is not marked applied and readiness is not falsely reported
 
-#### Scenario: Test database isolation
-- GIVEN automated storage/API tests run
-- WHEN databases are created
-- THEN tests use temporary/overridden data paths and do not modify the user's normal Orca runtime database
+#### Scenario: Test DB isolation
+- GIVEN storage/API tests
+- WHEN DBs created
+- THEN temporary/overridden paths are used, not normal user DB
 
 ---
 
 ### Requirement: Local database is not repository source state
 
-The Orca runtime database SHALL be stored in a machine-local application data location or explicit development/test override rather than inside the Git repository as committed project state.
+The Orca runtime database SHALL live in machine-local app data or explicit dev/test override, not as intended tracked source state.
 
-#### Scenario: Git status after normal controller use
-- GIVEN repositories were configured locally
-- WHEN Git status is inspected
-- THEN the runtime SQLite database is not an intended tracked repository file
+#### Scenario: Git status after controller use
+- GIVEN repositories configured locally
+- WHEN Git status inspected
+- THEN runtime SQLite DB is not intended tracked repository file
 
 ---
 
 ### Requirement: Repository CRUD API
 
-The controller SHALL expose repository CRUD endpoints through the localhost API.
-
-The API SHALL support equivalent operations to:
+The controller SHALL expose equivalent operations:
 
 ```text
 GET    /api/repositories
@@ -275,215 +316,216 @@ DELETE /api/repositories/:id
 ```
 
 #### Scenario: Empty list
-- GIVEN no repositories exist
-- WHEN the repository list endpoint is called
-- THEN it returns a successful empty collection
+- GIVEN no repositories
+- WHEN list called
+- THEN successful empty collection returned
 
-#### Scenario: Create and read
-- GIVEN a valid create payload
-- WHEN a repository is created and then fetched by ID
-- THEN the persisted values are returned consistently
+#### Scenario: Create/read
+- GIVEN valid create payload
+- WHEN created then fetched
+- THEN persisted values returned consistently
 
 #### Scenario: Update
-- GIVEN an existing repository
-- WHEN a valid patch is submitted
-- THEN the repository is updated, `updatedAt` advances, and subsequent reads return the new configuration
+- GIVEN existing repository
+- WHEN valid patch submitted
+- THEN updatedAt advances and reads return new config
 
 #### Scenario: Delete
-- GIVEN an existing repository
-- WHEN delete is requested
-- THEN the record is removed and subsequent lookup returns not found
+- GIVEN existing repository
+- WHEN deleted
+- THEN record removed and subsequent lookup not found
 
 #### Scenario: Unknown repository
-- GIVEN an ID that does not exist
-- WHEN a detail/update/delete operation requires the record
-- THEN the controller returns a consistent not-found response rather than an unhandled exception
+- GIVEN unknown ID
+- WHEN detail/update/delete requires record
+- THEN consistent not-found response returned
 
 ---
 
-### Requirement: Controller errors use a stable envelope
+### Requirement: Controller errors use stable envelope
 
-API failures SHALL return a stable machine-readable error code plus a human-readable message.
+API failures SHALL return stable machine-readable code plus human-readable message.
 
 #### Scenario: Validation error
 - GIVEN invalid repository input
-- WHEN the request fails
-- THEN the client receives a structured error indicating invalid configuration and useful field/context details when safe
+- WHEN request fails
+- THEN client receives structured invalid-config error and useful safe field details
 
 #### Scenario: Internal failure
-- GIVEN an unexpected persistence/internal error
-- WHEN the request fails
-- THEN the response does not expose raw internal stack traces as the normal client payload
+- GIVEN unexpected persistence/internal error
+- WHEN request fails
+- THEN normal response does not expose raw stack trace
 
 ---
 
 ### Requirement: Real-time repository mutation events
 
-The controller SHALL expose a real-time event channel suitable for keeping desktop/future phone clients synchronized.
-
-At minimum, successful create/update/delete operations SHALL publish repository mutation events.
+The controller SHALL expose a real-time event channel. Successful create/update/delete operations SHALL publish mutation events.
 
 #### Scenario: Repository created
-- GIVEN a UI event client is connected
-- WHEN a repository is successfully created
-- THEN a `repository.created` or equivalent event is emitted after successful persistence
+- GIVEN connected event client
+- WHEN create succeeds
+- THEN `repository.created` or equivalent is emitted after persistence
 
 #### Scenario: Repository updated
-- GIVEN a UI event client is connected
-- WHEN a repository is successfully updated
-- THEN a repository update event includes enough identity information to refetch/update the correct repository
+- GIVEN connected event client
+- WHEN update succeeds
+- THEN event contains enough identity to update/refetch correct record
 
 #### Scenario: Client reconnects
-- GIVEN a UI missed events while disconnected
-- WHEN it reconnects
-- THEN it can recover authoritative repository state by refetching the API; Change 001 does not require replaying a complete historical event log
+- GIVEN UI missed events
+- WHEN reconnects
+- THEN it can refetch authoritative API state; full durable replay not required
 
 ---
 
 ### Requirement: Repository dashboard foundation
 
-The UI SHALL list multiple configured repositories independently and expose their persisted configuration/status foundation.
+The UI SHALL list multiple configured repositories independently and expose persisted configuration/status foundation.
 
 #### Scenario: Multiple repositories registered
-- GIVEN several repositories exist
-- WHEN the dashboard opens
-- THEN all are represented independently with stable navigation/identity
+- GIVEN several repositories
+- WHEN dashboard opens
+- THEN all represented independently
 
 #### Scenario: Empty state
-- GIVEN no repositories exist
-- WHEN the dashboard opens
-- THEN a useful empty state explains how to add the first repository
+- GIVEN none exist
+- WHEN dashboard opens
+- THEN useful Add Repository empty state appears
 
 #### Scenario: Controller disconnected
-- GIVEN repository data cannot currently be fetched because the controller is offline
-- WHEN the dashboard is displayed
-- THEN the UI shows connection failure/retry state rather than pretending there are zero repositories
+- GIVEN data cannot be fetched
+- WHEN dashboard shown
+- THEN UI shows connection failure/retry, not empty registry
 
 #### Scenario: No fake autonomous status
-- GIVEN Change 001 has not implemented runtime orchestration
-- WHEN a repository is displayed
-- THEN the UI does not falsely claim an executor/Sol autonomous run is active; configuration-only status is clearly represented
+- GIVEN runtime orchestration not implemented
+- WHEN repository shown
+- THEN UI does not falsely claim Sol/executor run active
 
 ---
 
-### Requirement: Repository add/edit flow supports Windows and WSL
+### Requirement: Repository add/edit supports Windows and WSL
 
-The UI SHALL provide an add/edit flow for all required repository configuration fields.
-
-The UI SHALL NOT expose a branch selector in V1; `main` is automatic.
+The UI SHALL provide add/edit flow for required config fields and SHALL NOT expose branch selector in V1.
 
 #### Scenario: User selects WSL
-- GIVEN the form is in create/edit mode
-- WHEN environment is changed to WSL
-- THEN WSL distribution becomes required/visible and the working path is treated/labeled as a Linux path
+- GIVEN form
+- WHEN environment becomes WSL
+- THEN distro becomes required/visible and path is labeled Linux path
 
 #### Scenario: User selects Windows
-- GIVEN the form is configured for WSL
-- WHEN environment is changed to Windows
-- THEN WSL-only validation no longer blocks submission and hidden stale WSL values are not accidentally persisted as required semantics
+- GIVEN form previously WSL
+- WHEN environment becomes Windows
+- THEN WSL validation no longer blocks and stale hidden WSL semantics are not persisted incorrectly
 
 #### Scenario: Server rejects configuration
-- GIVEN a request reaches the controller but fails authoritative validation
-- WHEN the UI receives the error
-- THEN the form retains recoverable user input and presents useful error feedback
+- GIVEN authoritative validation failure
+- WHEN UI receives error
+- THEN recoverable user input remains and useful feedback is shown
 
 ---
 
 ### Requirement: Repository detail foundation
 
-The UI SHALL provide a repository detail view that displays current persisted configuration and leaves clear extension space for later run state/timeline/controls without implementing those features early.
+The UI SHALL provide repository detail view displaying persisted configuration and extension space for later run state/timeline/controls.
 
 #### Scenario: View repository
-- GIVEN an existing repository
-- WHEN its detail route/view opens
-- THEN the persisted environment, path, executor/model, Sol URL, and ceilings can be inspected; V1 may show `main` only as a fixed runtime note, not editable configuration
+- GIVEN existing repository
+- WHEN detail opens
+- THEN environment, path, executor/model, Sol URL, and ceilings can be inspected; `main` may appear only as fixed runtime note
 
-#### Scenario: Future controls are not functional placeholders
-- GIVEN autonomous run behavior is not implemented
-- WHEN detail UI is inspected
-- THEN later runtime controls are absent or clearly disabled/non-functional rather than wired to fake behavior
+#### Scenario: Future controls not fake
+- GIVEN runtime behavior not implemented
+- WHEN detail inspected
+- THEN later controls are absent or clearly disabled/non-functional
 
 ---
 
 ### Requirement: Electron is a shell, not persistence owner
 
-Electron SHALL host the shared UI while keeping repository persistence/orchestration ownership in the standalone controller.
+Electron SHALL host shared UI while persistence/orchestration ownership remains controller.
 
 #### Scenario: Development mode
-- GIVEN the Vite development server is running
+- GIVEN Vite running
 - WHEN Electron launches
-- THEN it loads the shared development UI
+- THEN it loads shared dev UI
 
 #### Scenario: Built/local mode
-- GIVEN the UI has been built
-- WHEN the desktop shell runs in a production-like local mode
-- THEN it can load the shared built UI using the documented approach
+- GIVEN built UI and controller
+- WHEN desktop shell runs production-like local mode
+- THEN it can load controller-served Orca origin and use same-origin REST/WebSocket
 
 #### Scenario: Renderer security baseline
-- GIVEN the Electron BrowserWindow is configured
-- WHEN renderer settings are inspected
-- THEN broad Node integration is not enabled solely to access controller/storage functionality that belongs behind the API
+- GIVEN BrowserWindow config
+- WHEN inspected
+- THEN broad Node integration is not enabled solely for controller/storage access
 
 #### Scenario: No direct DB access
-- GIVEN Electron UI code executes
+- GIVEN Electron UI executes
 - WHEN repository persistence occurs
-- THEN no renderer/Electron UI component opens SQLite directly
+- THEN no renderer/UI component opens SQLite directly
 
 ---
 
 ### Requirement: Development workflow is reproducible
 
-The workspace SHALL expose documented commands for installation, development, type checking, testing, linting, and building.
+The workspace SHALL expose documented commands for install, development, typecheck, test, lint, and build.
 
 #### Scenario: Fresh checkout setup
-- GIVEN a fresh supported Windows checkout
-- WHEN the README setup steps are followed
-- THEN the developer can install dependencies and start the Change 001 stack without undocumented manual steps
+- GIVEN fresh supported Windows checkout
+- WHEN README steps followed
+- THEN developer can install/start stack without undocumented manual steps
 
 #### Scenario: Combined development startup
-- GIVEN dependencies are installed
-- WHEN the documented root development command runs
-- THEN controller, UI, and Electron can be started in a practical coordinated workflow without requiring the developer to manually manage three unrelated terminals
+- GIVEN dependencies installed
+- WHEN documented root dev command runs
+- THEN controller, Vite, Electron start in practical coordinated workflow and Vite proxies relative API/event routes
+
+#### Scenario: Production-like local web smoke
+- GIVEN UI is built
+- WHEN controller starts in built mode
+- THEN browser can load SPA and API/WebSocket from one loopback origin without Vite
 
 #### Scenario: Full verification
-- GIVEN implementation is complete
-- WHEN root typecheck/test/build verification commands run
-- THEN the workspace verifies as documented or any remaining intentional limitation is explicitly captured in durable state before the change is considered complete
+- GIVEN implementation complete
+- WHEN root verification commands run
+- THEN workspace verifies or intentional limitations are durably recorded before completion
 
 ---
 
 ### Requirement: Cross-platform repository hygiene is preserved
 
-The implementation SHALL preserve the repository's seeded `.gitattributes`, `.editorconfig`, and `.gitignore` baselines so Windows/WSL development does not create avoidable line-ending churn or accidentally commit local runtime/auth artifacts.
+The implementation SHALL preserve `.gitattributes`, `.editorconfig`, and `.gitignore` baselines.
 
-#### Scenario: Runtime artifacts are generated
-- GIVEN local SQLite, logs, browser profiles, Playwright auth/output, dependencies, or environment-secret files exist
-- WHEN Git status is inspected
-- THEN those machine-local/generated files are not unintentionally tracked by the seeded ignore rules
+#### Scenario: Runtime artifacts generated
+- GIVEN local SQLite/logs/browser profiles/Playwright output/dependencies/secrets
+- WHEN Git status inspected
+- THEN those generated/machine-local files are not unintentionally tracked
 
-#### Scenario: Managed-repository protocol remains committable
-- GIVEN future managed repositories use `.orca/` coordination artifacts
-- WHEN ignore policy is inspected
-- THEN `.orca/` is not globally ignored by Orca-Strator's baseline policy
+#### Scenario: Managed protocol remains committable
+- GIVEN future managed repos use `.orca/`
+- WHEN ignore policy inspected
+- THEN `.orca/` is not globally ignored
 
 ---
 
 ### Requirement: Change 001 remains within foundation scope
 
-The implementation SHALL NOT introduce functioning autonomous watcher/executor/Playwright behavior as part of this change.
+The implementation SHALL NOT introduce functioning autonomous watcher/executor/Playwright/Tailscale behavior.
 
 #### Scenario: Completion review
-- GIVEN Change 001 is proposed as complete
-- WHEN the codebase is reviewed
-- THEN repository polling, dispatch execution, coding-agent process launch, ChatGPT browser automation, and full run-state orchestration remain unimplemented except for minimal non-functional contracts/placeholders genuinely required by the foundation
+- GIVEN Change 001 proposed complete
+- WHEN code reviewed
+- THEN remote polling, dispatch execution, coding-agent launch, ChatGPT automation, Tailscale configuration, and run-state orchestration remain unimplemented except non-functional contracts/seams required by foundation
 
 ---
 
 ### Requirement: Development handoff remains durable
 
-Change completion SHALL update the repository's development waypoint and OpenSpec/roadmap state so a fresh agent or reviewer can determine what was completed and what follows.
+Change completion SHALL update development waypoint/OpenSpec/roadmap so fresh agent/reviewer can determine completed and next work.
 
 #### Scenario: End of Change 001
-- GIVEN all required implementation and verification is complete
-- WHEN the development session checkpoints the change
-- THEN `tasks.md`, `.agent/state.json`, and roadmap/OpenSpec status reflect the completed foundation and identify the review/Change 002 next action
+- GIVEN implementation/verification complete
+- WHEN checkpointed
+- THEN `tasks.md`, `.agent/state.json`, and roadmap/OpenSpec status reflect completed foundation and review/Change 002 next action
