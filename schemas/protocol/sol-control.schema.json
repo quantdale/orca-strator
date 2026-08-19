@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/quantdale/orca-strator/schemas/protocol/sol-control.schema.json",
+  "title": "Orca Sol Control Marker v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "type",
+    "runId",
+    "controlId",
+    "iteration",
+    "createdAt",
+    "decision",
+    "relatedDispatchId",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "type": { "type": "string", "const": "sol-control" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "controlId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "decision": {
+      "type": "string",
+      "enum": ["GOAL_COMPLETE", "BLOCKED", "NEEDS_HUMAN", "PAUSED"]
+    },
+    "relatedDispatchId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4000 }
+  }
+}
