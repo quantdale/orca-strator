@@ -1,0 +1,16 @@
+# Keep repository text stable across Windows and WSL.
+* text=auto eol=lf
+
+# Windows command scripts are conventionally CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Treat common binary assets as binary.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
