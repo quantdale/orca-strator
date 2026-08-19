@@ -12,16 +12,19 @@ For every configured repository:
     = 1 dedicated ChatGPT Sol conversation
     = 1 configured executor CLI/model
     = max 1 active executor for that repository
+    = max 1 active Sol turn for that repository
 ```
 
 Different repositories are independent and may run simultaneously with no global executor cap.
 
-A repository can execute through:
+A repository executes through either:
 
 - native Windows/PowerShell; or
 - a configured WSL distribution and Linux working directory.
 
-The user chooses the executor and model for the run. Sol does not dynamically change that executor/model in V1.
+The user chooses executor and model. Sol does not dynamically change them in V1.
+
+V1 Git orchestration is intentionally simple: **every managed repository uses `main`**. There is no per-repository branch configuration until future multi-session/branch work is explicitly designed.
 
 ## Intended autonomous loop
 
@@ -32,7 +35,7 @@ high-level goal
 Browser ChatGPT Sol
 architect/reviewer
       |
-planning/spec/code commits
+planning/spec/code commits to main
       |
 final isolated dispatch commit
       |
@@ -43,9 +46,9 @@ local Orca remote-Git watcher
 configured headless executor
 (Windows or WSL)
       |
-implement/test/reconcile Git
+implement/test/reconcile main
       |
-commit + result manifest + push
+commit + isolated result manifest + push
       |
       v
 Playwright wakes exact Sol conversation
@@ -58,7 +61,7 @@ Sol reviews GitHub
       +----> GOAL_COMPLETE / BLOCKED / NEEDS_HUMAN
 ```
 
-Git/GitHub is the durable cross-agent handoff layer. Local SQLite stores machine-local orchestration/runtime state.
+Git/GitHub is durable cross-agent truth. Local SQLite stores machine-local orchestration/runtime state.
 
 ## Application architecture
 
@@ -67,73 +70,87 @@ V1 stack baseline:
 - **Runtime/tooling:** Node.js 24 LTS + npm workspaces + TypeScript
 - **controller HTTP:** Fastify 5
 - **local database:** Node `node:sqlite` behind a small storage boundary
-- **Windows desktop shell:** Electron stable 43 line baseline
+- **Windows desktop shell:** Electron stable 43-line baseline
 - **shared UI:** React 19.2 + Vite 8.1
 - **styling/components:** Tailwind CSS 4.3 + selective shadcn/ui
 - **tests:** Vitest 4.1+ plus focused React/controller/storage tests
 - **background controller:** standalone Node.js/TypeScript process
-- **controller boundary:** localhost HTTP + WebSocket events
+- **controller web boundary:** loopback SPA + REST + WebSocket on one origin
 - **Sol browser automation later:** Playwright
 - **repository/executor integration later:** Git + PowerShell/`wsl.exe` + configured coding-agent CLIs
-- **private phone access later:** same responsive UI through Tailscale Serve
+- **private phone access later:** Tailscale Serve reverse-proxying the same loopback Orca origin
 
-Electron is not the orchestration owner. The controller remains the runtime source of truth so active work does not conceptually depend on a desktop window staying open.
+Electron is not the orchestration owner. The controller remains runtime source of truth when desktop window closes.
+
+### Same-origin web seam
+
+Change 001 establishes this runtime shape:
+
+```text
+http://127.0.0.1:47100/
+├── /                 shared built React UI
+├── /api/*             controller REST
+└── /api/events        controller WebSocket
+```
+
+The UI uses relative `/api` routes. In development, Vite proxies them to controller. Later, a phone loads a private Tailscale HTTPS URL that reverse-proxies this single loopback origin, so the same client keeps working without pointing phone-local `localhost` at the laptop or requiring a second mobile networking layer.
 
 ## Current development status
 
 **Milestone 1 — Bootstrap control plane** is ready for implementation.
 
-The active OpenSpec is:
+Active OpenSpec:
 
 ```text
 openspec/changes/001-bootstrap-control-plane/
 ```
 
-It builds only the application/control-plane foundation: workspace, controller, SQLite, repository configuration/API/events, responsive UI, and Electron shell.
+It builds only the application/control-plane foundation:
 
-It intentionally does **not** yet implement repository watching, executor launching, Playwright, or the autonomous loop.
+- workspace/tooling;
+- controller;
+- SQLite static repository configuration;
+- REST/WebSocket;
+- same-origin built-UI delivery seam;
+- responsive repository UI;
+- Electron shell.
+
+It intentionally does **not** yet implement Git watcher, executor launch, Playwright, Tailscale configuration, or autonomous loop.
 
 ## Durable development workflow
 
-Orca-Strator is itself designed to be developed through disposable coding-agent sessions.
-
-The repository must always contain enough state for a fresh agent to recover without prior conversation history.
+Orca-Strator is itself developed through disposable coding-agent sessions. The repository must always contain enough durable state for a fresh agent to recover without prior chat history.
 
 ### Normal session
 
-1. Open/clone/pull the repository.
-2. Start the coding agent.
+1. Open/clone/pull repository.
+2. Start coding agent.
 3. Run:
 
 ```text
 /go
 ```
 
-4. The agent recovers Git + durable state, reads the active OpenSpec, and continues the next coherent unfinished slice.
-5. It verifies its work, updates task checkboxes and `.agent/state.json`, commits, rebases/reconciles remote changes when needed, and pushes to `main`.
+4. Agent recovers Git + durable state, reads active OpenSpec, and continues next coherent unfinished slice.
+5. It verifies work, updates task checkboxes and `.agent/state.json`, reconciles remote `main`, commits, and pushes.
 6. Exit whenever appropriate.
-7. A completely fresh later session can run `/go` again and continue.
+7. A completely fresh later session can run `/go` again.
 
-If the current agent does not support the repository-local `/go` skill, use a short fallback instruction such as:
+Fallback for agents without repository-local skill support:
 
 ```text
 Continue this repository according to AGENTS.md and its durable state.
 ```
 
-### What `/go` recovers
-
-The canonical recovery order is:
+### Canonical recovery order
 
 ```text
 AGENTS.md
-   -> Git working/local/remote state
+   -> Git working/local/remote main state
    -> .agent/state.json
    -> docs/ROADMAP.md
-   -> active OpenSpec proposal
-   -> delta specs
-   -> design
-   -> tasks
-   -> focused normative docs required by the task
+   -> active OpenSpec proposal/spec/design/tasks
+   -> focused normative docs required by task
    -> relevant implementation
 ```
 
@@ -141,63 +158,78 @@ Dirty local work is preserved/reconciled, not automatically discarded.
 
 ### Review workflow
 
-After a significant amount of implementation:
+After significant implementation:
 
-1. ensure the coding agent checkpoints/commits/pushes current work;
-2. ask Sol/ChatGPT to deeply review the actual GitHub repository;
-3. have the reviewer update architecture/OpenSpec/state artifacts when corrections or the next change are required;
-4. start a fresh coding-agent session;
-5. `/go` pulls/reconciles those durable changes and continues.
+1. coding agent checkpoints/commits/pushes;
+2. Sol/ChatGPT deeply reviews actual GitHub repository;
+3. reviewer updates architecture/OpenSpec/state where needed;
+4. fresh coding-agent session starts;
+5. `/go` pulls/reconciles durable changes and continues.
 
-This keeps mega-prompts out of the executor workflow. The repository is the detailed work contract.
+The repository—not a mega-prompt—is the detailed work contract.
 
 ## Documentation map
 
-Start with [`docs/INDEX.md`](docs/INDEX.md) for the authority map.
+Start with [`docs/INDEX.md`](docs/INDEX.md).
 
 ### Development continuity
 
-- [`AGENTS.md`](AGENTS.md) — non-negotiable coding-agent contract and recovery rules
-- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — detailed `/go`, checkpoint, OpenSpec, Git, blocked, and session-exit procedure
-- [`.agent/state.json`](.agent/state.json) — current concise machine-readable development waypoint
+- [`AGENTS.md`](AGENTS.md) — non-negotiable agent/recovery contract
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — `/go`, checkpoint, OpenSpec, Git, blocked, exit procedure
+- [`.agent/state.json`](.agent/state.json) — current waypoint
 - [`.agent/state.schema.json`](.agent/state.schema.json) — waypoint schema
-- [`.agents/skills/go/SKILL.md`](.agents/skills/go/SKILL.md) — repository-local `/go` recovery skill
+- [`.agents/skills/go/SKILL.md`](.agents/skills/go/SKILL.md) — repository-local `/go`
 
 ### Product/runtime architecture
 
-- [`docs/DECISIONS.md`](docs/DECISIONS.md) — locked V1 decision ledger
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — locked V1 product architecture
-- [`docs/RUNTIME-MODEL.md`](docs/RUNTIME-MODEL.md) — runtime states, actor/concurrency, Pause/Stop/drain/recovery semantics
-- [`docs/CROSS-AGENT-PROTOCOL.md`](docs/CROSS-AGENT-PROTOCOL.md) — exact Sol/executor Git mailbox protocol
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged milestones with explicit exit/review gates
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) — locked V1 decisions
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system/network architecture
+- [`docs/RUNTIME-MODEL.md`](docs/RUNTIME-MODEL.md) — runtime states/concurrency/controls
+- [`docs/CROSS-AGENT-PROTOCOL.md`](docs/CROSS-AGENT-PROTOCOL.md) — Git mailbox semantics
+- [`schemas/protocol/`](schemas/protocol/) — machine-readable dispatch/result/control schemas
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestone sequence/gates
 
 ### Implementation contracts
 
-- [`docs/TECH-BASELINE.md`](docs/TECH-BASELINE.md) — selected supported technology lines
-- [`docs/IMPLEMENTATION-BLUEPRINT.md`](docs/IMPLEMENTATION-BLUEPRINT.md) — target workspace/modules/dependency boundaries
-- [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md) — SQLite repository/config persistence contract
-- [`docs/API-CONTRACT.md`](docs/API-CONTRACT.md) — controller REST/WebSocket/error/event contract
-- [`docs/UI-UX-SPEC.md`](docs/UI-UX-SPEC.md) — desktop and phone UI behavior/control semantics
-- [`docs/SECURITY.md`](docs/SECURITY.md) — trust/security boundaries
-- [`docs/OBSERVABILITY-AND-FAILURES.md`](docs/OBSERVABILITY-AND-FAILURES.md) — failure taxonomy, logs, retry semantics
-- [`docs/TEST-STRATEGY.md`](docs/TEST-STRATEGY.md) — layered verification and milestone qualification
+- [`docs/TECH-BASELINE.md`](docs/TECH-BASELINE.md)
+- [`docs/IMPLEMENTATION-BLUEPRINT.md`](docs/IMPLEMENTATION-BLUEPRINT.md)
+- [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md)
+- [`docs/API-CONTRACT.md`](docs/API-CONTRACT.md)
+- [`docs/UI-UX-SPEC.md`](docs/UI-UX-SPEC.md)
+- [`docs/SECURITY.md`](docs/SECURITY.md)
+- [`docs/OBSERVABILITY-AND-FAILURES.md`](docs/OBSERVABILITY-AND-FAILURES.md)
+- [`docs/TEST-STRATEGY.md`](docs/TEST-STRATEGY.md)
 
 ### Active implementation plan
 
-- [`openspec/changes/001-bootstrap-control-plane/`](openspec/changes/001-bootstrap-control-plane/) — current implementation-grade proposal/spec/design/tasks
+- [`openspec/changes/001-bootstrap-control-plane/`](openspec/changes/001-bootstrap-control-plane/)
+
+## Repository hygiene
+
+The repo intentionally seeds:
+
+- `.gitattributes` for stable Windows/WSL line endings;
+- `.editorconfig` for basic editor consistency;
+- `.gitignore` protecting local DB/browser/auth/log/secret/build artifacts;
+- versioned protocol JSON Schemas.
+
+`.orca/` is intentionally **not** globally ignored because managed repositories later commit Orca coordination artifacts.
 
 ## Development principles
 
 1. Keep V1 simple despite detailed specs.
 2. One repository is the concurrency unit.
-3. Different repositories may run concurrently; work within one repository is serialized in V1.
+3. Different repositories may run concurrently; one repo is serialized in V1.
 4. GitHub is durable inter-agent truth; SQLite is local runtime truth.
-5. State transitions and dispatches must be explicit/idempotent.
-6. The user owns executor/model selection.
-7. Sol is primarily architect/reviewer but may make code fixes when useful.
-8. Playwright is a narrow input/wake transport, not the source of truth.
-9. Never silently discard dirty repository work.
-10. Never force-push automatically by default.
-11. Every meaningful development session leaves a durable waypoint.
-12. Significant work goes through focused OpenSpec changes and review gates rather than giant prompts.
-13. Detailed documentation reduces ambiguity; it does not authorize premature framework complexity or future-milestone implementation.
+5. V1 uses `main` only.
+6. Static repository config is separate from active-run state.
+7. State transitions/dispatches are explicit and idempotent.
+8. User owns executor/model selection.
+9. Sol is primarily architect/reviewer but may make code fixes.
+10. Playwright is narrow wake transport, not source of truth.
+11. Never silently discard dirty repository work or auto-force-push.
+12. One persistent browser profile has one browser-process owner at a time, while that process may host multiple repository pages.
+13. Desktop and phone share one same-origin UI/API contract.
+14. Every meaningful development session leaves a durable waypoint.
+15. Significant work uses focused OpenSpec changes/review gates, not giant prompts.
+16. Detailed documentation reduces ambiguity; it does not authorize premature complexity.
