@@ -31,8 +31,8 @@ export function useRepositories() {
     // Initial fetch
     fetchRepositories();
 
-    // Connect WebSocket
-    eventsClient.connect();
+    // Retain WebSocket connection
+    const releaseEvents = eventsClient.retain();
 
     // Subscribe to connection status changes
     const unsubStatus = eventsClient.onStatusChange((newStatus) => {
@@ -62,7 +62,7 @@ export function useRepositories() {
     return () => {
       unsubStatus();
       unsubEvents();
-      eventsClient.disconnect();
+      releaseEvents();
     };
   }, [fetchRepositories]);
 

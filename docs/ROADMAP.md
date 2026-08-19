@@ -46,9 +46,9 @@ A fresh coding-agent session can determine active work from repository state wit
 
 ## Milestone 1 — Bootstrap control plane
 
-OpenSpec: `001-bootstrap-control-plane`
+OpenSpec: `001-bootstrap-control-plane` (hardened in `001a`, folded into `openspec/specs/control-plane-foundation/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
@@ -63,7 +63,7 @@ Create the smallest real application foundation that later watcher, executor, br
 - loopback HTTP + WebSocket controller boundary;
 - controller-served built SPA so built UI + REST + WebSocket share one origin;
 - Vite development proxy so shared UI always uses relative `/api` and event routes;
-- SQLite migration/persistence foundation;
+- SQLite migration/persistence foundation with atomic transactions;
 - static repository registry/configuration model;
 - V1 main-only contract with no branch config field;
 - native Windows vs WSL configuration validation;
@@ -101,17 +101,13 @@ From fresh Windows checkout:
 14. closing/reopening Electron does not erase controller persistence;
 15. root typecheck/test/build/lint pass or any intentional limitation is durably documented.
 
-### Review checkpoint
-
-Perform deep repository review before Change 002. Verify process/package boundaries, SQLite migrations, API/event contracts, same-origin delivery seam, Windows/WSL model, and UI/controller ownership.
-
 ---
 
 ## Milestone 2 — Repository watcher and transactional dispatch
 
-Planned OpenSpec: `002-repository-watch-dispatch`
+OpenSpec: `002-repository-watch-dispatch`
 
-Status: **planned**
+Status: **active**
 
 ### Purpose
 

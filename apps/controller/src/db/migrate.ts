@@ -36,7 +36,7 @@ export const migrations: Migration[] = [
   }
 ];
 
-export function runMigrations(db: DatabaseSync): void {
+export function runMigrations(db: DatabaseSync, migrationList: Migration[] = migrations): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -50,14 +50,20 @@ export function runMigrations(db: DatabaseSync): void {
   }[];
   const appliedSet = new Set(appliedRows.map((r) => r.version));
 
-  for (const migration of migrations) {
+  for (const migration of migrationList) {
     if (!appliedSet.has(migration.version)) {
-      migration.up(db);
-
-      const stmt = db.prepare(
-        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)"
-      );
-      stmt.run(migration.version, migration.name, new Date().toISOString());
+      db.exec("BEGIN");
+      try {
+        migration.up(db);
+        const stmt = db.prepare(
+          "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)"
+        );
+        stmt.run(migration.version, migration.name, new Date().toISOString());
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
     }
   }
 }

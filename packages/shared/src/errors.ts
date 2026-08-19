@@ -1,6 +1,7 @@
 export type ErrorCode =
   | "VALIDATION_ERROR"
   | "REPOSITORY_NOT_FOUND"
+  | "ROUTE_NOT_FOUND"
   | "BAD_REQUEST"
   | "INTERNAL_ERROR"
   | "DATABASE_ERROR";
@@ -53,6 +54,13 @@ export class RepositoryNotFoundError extends DomainError {
   constructor(id: string) {
     super("REPOSITORY_NOT_FOUND", `Repository with ID "${id}" not found.`, 404);
     this.name = "RepositoryNotFoundError";
+  }
+}
+
+export class RouteNotFoundError extends DomainError {
+  constructor(method: string, url: string) {
+    super("ROUTE_NOT_FOUND", `API route ${method} ${url} not found.`, 404);
+    this.name = "RouteNotFoundError";
   }
 }
 

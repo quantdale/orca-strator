@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { initDatabase, type DatabaseContext } from '../src/db/database.js';
+import { runMigrations } from '../src/db/migrate.js';
 import { RepositoryStore } from '../src/repositories/repository-store.js';
 import type { RepositoryRecord } from '@orca/shared';
 
@@ -177,5 +178,34 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
     expect(columnNames).not.toContain('current_iteration');
     expect(columnNames).not.toContain('run_goal');
     expect(columnNames).not.toContain('status');
+  });
+
+  it('4.T9 migration body failure rolls back and records no migration metadata', () => {
+    const testDbPath = path.join(tempDir, 'fail_body.sqlite');
+    const db = new (dbCtx.db.constructor as any)(testDbPath);
+    try {
+      const failingMigrations = [
+        {
+          version: 1,
+          name: 'failing_migration',
+          up: (d: any) => {
+            d.exec('CREATE TABLE test_partial (id TEXT PRIMARY KEY);');
+            throw new Error('Injected migration failure');
+          }
+        }
+      ];
+
+      expect(() => {
+        runMigrations(db, failingMigrations);
+      }).toThrow('Injected migration failure');
+
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='test_partial'").all();
+      expect(tables).toHaveLength(0);
+
+      const migrationsApplied = db.prepare('SELECT * FROM schema_migrations').all();
+      expect(migrationsApplied).toHaveLength(0);
+    } finally {
+      db.close();
+    }
   });
 });

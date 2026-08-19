@@ -172,4 +172,60 @@ describe("Repository UI & UX (Tests 8)", () => {
     expect(screen.getByText("(Automatic invariant)")).toBeDefined();
     expect(screen.getByText(/480/)).toBeDefined();
   });
+
+  it("8.T8 App renders list route by default at /", async () => {
+    const { App } = await import("../src/App.js");
+    const { apiClient } = await import("../src/lib/api-client.js");
+    vi.spyOn(apiClient, "listRepositories").mockResolvedValue({ repositories: mockRepos });
+
+    window.history.pushState(null, "", "/");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("TabDock")).toBeDefined();
+      expect(screen.getByText("Nightwatch")).toBeDefined();
+    });
+  });
+
+  it("8.T9 App deep links directly to /repositories/new", async () => {
+    const { App } = await import("../src/App.js");
+    const { apiClient } = await import("../src/lib/api-client.js");
+    vi.spyOn(apiClient, "listRepositories").mockResolvedValue({ repositories: mockRepos });
+
+    window.history.pushState(null, "", "/repositories/new");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repository-form")).toBeDefined();
+      expect(screen.getByText("Add New Repository")).toBeDefined();
+    });
+  });
+
+  it("8.T10 App deep links directly to /repositories/:id", async () => {
+    const { App } = await import("../src/App.js");
+    const { apiClient } = await import("../src/lib/api-client.js");
+    vi.spyOn(apiClient, "listRepositories").mockResolvedValue({ repositories: mockRepos });
+
+    window.history.pushState(null, "", "/repositories/repo-1");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repo-detail-view")).toBeDefined();
+      expect(screen.getByText("TabDock")).toBeDefined();
+    });
+  });
+
+  it("8.T11 App deep links directly to /repositories/:id/edit", async () => {
+    const { App } = await import("../src/App.js");
+    const { apiClient } = await import("../src/lib/api-client.js");
+    vi.spyOn(apiClient, "listRepositories").mockResolvedValue({ repositories: mockRepos });
+
+    window.history.pushState(null, "", "/repositories/repo-1/edit");
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repository-form")).toBeDefined();
+      expect(screen.getByText("Edit TabDock")).toBeDefined();
+    });
+  });
 });

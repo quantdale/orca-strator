@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 1,
-  "activeChange": "001a-control-plane-review-hardening",
-  "completedMilestones": [0],
-  "planningBaseSha": "e2d1608fab28f29875fa0d8b5d8d738133362d4b",
+  "activeMilestone": 2,
+  "activeChange": "002-repository-watch-dispatch",
+  "completedMilestones": [0, 1],
+  "planningBaseSha": "b791aca22a6133be421919ba5ae02a8335f60bf5",
   "checkpoint": {
-    "summary": "Change 001 deep review found foundation defects and created corrective OpenSpec 001a. Development policy has now been revised for continuous Kimi goal mode: skip broad baseline testing at startup; resolve all 001a findings with targeted/focused verification; route around local blockers while safe independent work remains; checkpoint/commit/push continuously; and when 001a is complete, fold Milestone 1, create or activate the next roadmap OpenSpec, and continue implementation rather than stopping for a second review by default. AGENTS.md, docs/DEVELOPMENT.md, docs/GOAL-MODE.md, the /go skill, and 001a proposal/design/tasks encode this continuous policy.",
-    "updatedAt": "2026-08-19T22:01:00+08:00",
-    "lastCompletedTask": "Convert Orca-Strator development handoff to continuous goal-mode semantics and update corrective Change 001a accordingly",
-    "lastVerification": "Planning/control-plane update only. The known Change 001 review findings remain to be implemented in 001a. No broad baseline test was run for this policy update."
+    "summary": "Milestone 1 control plane foundation and corrective hardening (001 and 001a) are completely implemented, verified (57 tests passing across shared/controller/desktop/ui, atomic migrations, robust WebSocket reconnect, browser deep-link history routing, tech baseline alignment with React 19.2/Vite 8.1/Tailwind 4.3/Vitest 4.1/Electron 43/Node 24, and clean-output builds), and folded into canonical openspec/specs/control-plane-foundation/. Milestone 2 (repository watcher and transactional dispatch) is now active.",
+    "updatedAt": "2026-08-19T22:20:00+08:00",
+    "lastCompletedTask": "Fold Milestone 1 control plane foundation into canonical specs and activate Milestone 2 OpenSpec",
+    "lastVerification": "Full workspace clean typecheck, 57 vitest tests, production SPA/API smoke, and dev supervisor smoke verified successfully."
   },
-  "nextAction": "Start Kimi Code goal mode using the canonical objective in docs/GOAL-MODE.md. Recover durable state, implement all of openspec/changes/001a-control-plane-review-hardening, use targeted checks while working and broader gates at meaningful checkpoints, then fold Milestone 1 and continue directly into the next focused roadmap OpenSpec. Do not stop at ordinary review checkpoints. If an individual task/test/tool is blocked, record it and continue other independent safe work; only block the overall goal when no safe useful roadmap work remains without external input or infrastructure.",
+  "nextAction": "Implement Milestone 2 (openspec/changes/002-repository-watch-dispatch): DispatchMarker protocol types/schemas in @orca/shared, SQLite migration 002 for dispatches and watcher_state, GitClient and CommitInspector in @orca/controller, WatcherService with remote main polling, REST/WebSocket watcher observability, and temporary bare Git remote integration tests.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

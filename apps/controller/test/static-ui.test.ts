@@ -94,7 +94,8 @@ describe("Controller-Served Built SPA (Tests 9)", () => {
     expect(res.headers["content-type"]).toContain("application/json");
     const body = JSON.parse(res.body);
     expect(body.error).toBeDefined();
-    expect(body.error.code).toBe("REPOSITORY_NOT_FOUND");
+    expect(body.error.code).toBe("ROUTE_NOT_FOUND");
+    expect(body.error.message).toContain("API route GET /api/unknown-endpoint not found.");
   });
 
   it("9.T6 runtime database file cannot be accessed via static serving", async () => {

@@ -8,34 +8,43 @@ export async function registerStaticUi(
   fastify: FastifyInstance,
   uiDistDir: string | null
 ): Promise<void> {
-  if (!uiDistDir || !fs.existsSync(uiDistDir)) {
-    return;
+  const hasUi = Boolean(
+    uiDistDir &&
+      fs.existsSync(uiDistDir) &&
+      fs.existsSync(path.join(uiDistDir, "index.html"))
+  );
+
+  if (hasUi && uiDistDir) {
+    await fastify.register(fastifyStatic, {
+      root: uiDistDir,
+      prefix: "/",
+      wildcard: false,
+      index: "index.html"
+    });
   }
 
-  const indexPath = path.join(uiDistDir, "index.html");
-  if (!fs.existsSync(indexPath)) {
-    return;
-  }
-
-  await fastify.register(fastifyStatic, {
-    root: uiDistDir,
-    prefix: "/",
-    wildcard: false,
-    index: "index.html"
-  });
-
-  // SPA fallback for non-API routes
+  // SPA fallback for non-API routes, structured JSON for unknown /api/* routes
   fastify.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith("/api")) {
       const errResponse: ApiErrorEnvelope = {
         error: {
-          code: "REPOSITORY_NOT_FOUND",
+          code: "ROUTE_NOT_FOUND",
           message: `API route ${request.method} ${request.url} not found.`
         }
       };
       return reply.status(404).send(errResponse);
     }
 
-    return reply.sendFile("index.html");
+    if (hasUi) {
+      return reply.sendFile("index.html");
+    }
+
+    const errResponse: ApiErrorEnvelope = {
+      error: {
+        code: "ROUTE_NOT_FOUND",
+        message: `Route ${request.method} ${request.url} not found.`
+      }
+    };
+    return reply.status(404).send(errResponse);
   });
 }

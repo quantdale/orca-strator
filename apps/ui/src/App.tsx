@@ -22,16 +22,29 @@ export const App: React.FC = () => {
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
 
-  // Sync state with URL hash
+  // Sync state with URL pathname (and hash fallback)
   useEffect(() => {
-    const handleHashChange = () => {
+    const handleLocationChange = () => {
+      const pathname = window.location.pathname;
       const hash = window.location.hash.replace(/^#\/?/, "");
-      if (!hash || hash === "list" || hash === "") {
-        setCurrentView("list");
-        setSelectedRepoId(null);
-      } else if (hash === "add") {
+
+      if (pathname === "/repositories/new" || pathname === "/add" || hash === "add") {
         setCurrentView("add");
         setSelectedRepoId(null);
+      } else if (pathname.startsWith("/repositories/") && pathname.endsWith("/edit")) {
+        const match = pathname.match(/^\/repositories\/([^/]+)\/edit$/);
+        if (match && match[1]) {
+          setSelectedRepoId(match[1]);
+          setCurrentView("edit");
+        }
+      } else if (pathname.startsWith("/edit/")) {
+        const id = pathname.replace("/edit/", "");
+        setSelectedRepoId(id);
+        setCurrentView("edit");
+      } else if (pathname.startsWith("/repositories/")) {
+        const id = pathname.replace("/repositories/", "");
+        setSelectedRepoId(id);
+        setCurrentView("detail");
       } else if (hash.startsWith("repositories/")) {
         const id = hash.replace("repositories/", "");
         setSelectedRepoId(id);
@@ -40,23 +53,47 @@ export const App: React.FC = () => {
         const id = hash.replace("edit/", "");
         setSelectedRepoId(id);
         setCurrentView("edit");
+      } else {
+        setCurrentView("list");
+        setSelectedRepoId(null);
       }
     };
 
-    handleHashChange();
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
+    handleLocationChange();
+    window.addEventListener("popstate", handleLocationChange);
+    window.addEventListener("hashchange", handleLocationChange);
+    return () => {
+      window.removeEventListener("popstate", handleLocationChange);
+      window.removeEventListener("hashchange", handleLocationChange);
+    };
   }, []);
 
   const navigateTo = (view: "list" | "add" | "detail" | "edit", repoId?: string) => {
-    if (view === "list") {
-      window.location.hash = "#/";
-    } else if (view === "add") {
-      window.location.hash = "#/add";
+    let targetPath = "/";
+    if (view === "add") {
+      targetPath = "/repositories/new";
     } else if (view === "detail" && repoId) {
-      window.location.hash = `#/repositories/${repoId}`;
+      targetPath = `/repositories/${repoId}`;
     } else if (view === "edit" && repoId) {
-      window.location.hash = `#/edit/${repoId}`;
+      targetPath = `/repositories/${repoId}/edit`;
+    }
+
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(null, "", targetPath);
+    }
+
+    if (view === "list") {
+      setCurrentView("list");
+      setSelectedRepoId(null);
+    } else if (view === "add") {
+      setCurrentView("add");
+      setSelectedRepoId(null);
+    } else if (view === "detail" && repoId) {
+      setCurrentView("detail");
+      setSelectedRepoId(repoId);
+    } else if (view === "edit" && repoId) {
+      setCurrentView("edit");
+      setSelectedRepoId(repoId);
     }
   };
 

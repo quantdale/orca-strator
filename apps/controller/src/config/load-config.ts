@@ -14,8 +14,18 @@ export interface ControllerConfig {
 
 export function loadConfig(overrides?: Partial<ControllerConfig>): ControllerConfig {
   const host = overrides?.host ?? process.env.ORCA_HOST ?? '127.0.0.1';
-  const port = overrides?.port ?? Number(process.env.ORCA_PORT || '47100');
+  const rawPort = overrides?.port !== undefined ? overrides.port : (process.env.ORCA_PORT ? Number(process.env.ORCA_PORT) : 47100);
   const nodeEnv = overrides?.nodeEnv ?? process.env.NODE_ENV ?? 'development';
+
+  if (typeof host !== 'string' || host.trim().length === 0) {
+    throw new Error(`Invalid configuration: host must be a non-empty string, got "${host}".`);
+  }
+
+  if (typeof rawPort !== 'number' || !Number.isInteger(rawPort) || rawPort < 1 || rawPort > 65535) {
+    throw new Error(`Invalid configuration: port must be an integer between 1 and 65535, got ${rawPort}.`);
+  }
+
+  const port = rawPort;
 
   const defaultDataDir =
     process.env.LOCALAPPDATA

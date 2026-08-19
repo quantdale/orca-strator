@@ -137,6 +137,55 @@ describe("Shared Repository Contracts & Validation", () => {
         solConversationUrl: "https://example.com/c/123"
       })
     ).toThrow(ValidationError);
+
+    // Negative tests for generic non-conversation ChatGPT pages
+    expect(() =>
+      validateCreateRepository({
+        ...validWindowsPayload,
+        solConversationUrl: "https://chatgpt.com/pricing"
+      })
+    ).toThrow(ValidationError);
+
+    expect(() =>
+      validateCreateRepository({
+        ...validWindowsPayload,
+        solConversationUrl: "https://chatgpt.com/settings"
+      })
+    ).toThrow(ValidationError);
+
+    expect(() =>
+      validateCreateRepository({
+        ...validWindowsPayload,
+        solConversationUrl: "https://chatgpt.com"
+      })
+    ).toThrow(ValidationError);
+
+    expect(() =>
+      validateCreateRepository({
+        ...validWindowsPayload,
+        solConversationUrl: "https://chatgpt.com/"
+      })
+    ).toThrow(ValidationError);
+  });
+
+  it("2.T7b accepts supported ChatGPT conversation URL forms", () => {
+    const res1 = validateCreateRepository({
+      ...validWindowsPayload,
+      solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab"
+    });
+    expect(res1.solConversationUrl).toBe("https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab");
+
+    const res2 = validateCreateRepository({
+      ...validWindowsPayload,
+      solConversationUrl: "https://chat.openai.com/c/abc-123_xyz"
+    });
+    expect(res2.solConversationUrl).toBe("https://chat.openai.com/c/abc-123_xyz");
+
+    const res3 = validateCreateRepository({
+      ...validWindowsPayload,
+      solConversationUrl: "https://chatgpt.com/g/g-abc123/c/def-456"
+    });
+    expect(res3.solConversationUrl).toBe("https://chatgpt.com/g/g-abc123/c/def-456");
   });
 
   it("2.T8 revalidates merged result on patch", () => {

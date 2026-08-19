@@ -8,7 +8,7 @@ import {
 } from "./repository.js";
 import { ValidationError, type FieldError } from "./errors.js";
 
-export const CHATGPT_CONVERSATION_URL_REGEX = /^https:\/\/(?:chatgpt\.com|chat\.openai\.com)\/(?:c\/[a-zA-Z0-9_-]+|g\/[a-zA-Z0-9_-]+\/c\/[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)(?:\?.*)?$/;
+export const CHATGPT_CONVERSATION_URL_REGEX = /^https:\/\/(?:chatgpt\.com|chat\.openai\.com)\/(?:c\/[a-zA-Z0-9_-]+|g\/[a-zA-Z0-9_-]+\/c\/[a-zA-Z0-9_-]+)(?:\?.*)?$/;
 
 export const createRepositorySchema = z
   .object({

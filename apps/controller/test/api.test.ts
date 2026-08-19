@@ -220,4 +220,22 @@ describe("Controller REST API (Tests 5)", () => {
     const body = JSON.parse(res.body);
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
+
+  it("5.T10 loadConfig validates port and host", () => {
+    expect(() =>
+      loadConfig({ port: -1 })
+    ).toThrow(/Invalid configuration: port must be an integer between 1 and 65535/);
+
+    expect(() =>
+      loadConfig({ port: 70000 })
+    ).toThrow(/Invalid configuration: port must be an integer between 1 and 65535/);
+
+    expect(() =>
+      loadConfig({ port: NaN as any })
+    ).toThrow(/Invalid configuration: port must be an integer between 1 and 65535/);
+
+    expect(() =>
+      loadConfig({ host: "" })
+    ).toThrow(/Invalid configuration: host must be a non-empty string/);
+  });
 });

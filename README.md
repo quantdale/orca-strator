@@ -97,25 +97,23 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 ## Current development status
 
-**Milestone 1 — Bootstrap control plane** is ready for implementation.
+**Milestone 1 — Bootstrap control plane** is complete and folded (`openspec/specs/control-plane-foundation/`).
+
+**Milestone 2 — Repository watcher and transactional dispatch** is active:
 
 Active OpenSpec:
 
 ```text
-openspec/changes/001-bootstrap-control-plane/
+openspec/changes/002-repository-watch-dispatch/
 ```
 
-It builds only the application/control-plane foundation:
-
-- workspace/tooling;
-- controller;
-- SQLite static repository configuration;
-- REST/WebSocket;
-- same-origin built-UI delivery seam;
-- responsive repository UI;
-- Electron shell.
-
-It intentionally does **not** yet implement Git watcher, executor launch, Playwright, Tailscale configuration, or autonomous loop.
+Milestone 2 builds:
+- lightweight remote Git watcher per active repository;
+- remote `main` only monitoring;
+- protocol schema validation (`schemas/protocol/dispatch.schema.json`);
+- transactional `.orca/dispatch/<id>.json` commit isolation and validation;
+- SQLite consumed dispatch tracking;
+- duplicate/idempotency protection.
 
 ## Durable development workflow
 
