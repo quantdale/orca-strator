@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/quantdale/orca-strator/.agent/state.schema.json",
+  "title": "Orca-Strator Development Waypoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "project",
+    "developmentStatus",
+    "highLevelGoal",
+    "activeMilestone",
+    "activeChange",
+    "completedMilestones",
+    "checkpoint",
+    "nextAction",
+    "blockers",
+    "developmentPolicies"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "project": {
+      "type": "string",
+      "const": "orca-strator"
+    },
+    "developmentStatus": {
+      "type": "string",
+      "enum": [
+        "READY_TO_IMPLEMENT",
+        "IMPLEMENTING",
+        "BLOCKED",
+        "READY_FOR_REVIEW",
+        "CHANGE_COMPLETE",
+        "ROADMAP_COMPLETE"
+      ]
+    },
+    "highLevelGoal": {
+      "type": "string",
+      "minLength": 1
+    },
+    "activeMilestone": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "activeChange": {
+      "type": ["string", "null"]
+    },
+    "completedMilestones": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "uniqueItems": true
+    },
+    "planningBaseSha": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "updatedAt"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastCompletedTask": {
+          "type": ["string", "null"]
+        },
+        "lastVerification": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "nextAction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "summary"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": ["string", "null"]
+          },
+          "nextAction": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "developmentPolicies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch",
+        "commitAndPush",
+        "preserveDirtyWork",
+        "forcePush",
+        "significantWorkUsesOpenSpec",
+        "sessionExitRequiresWaypointUpdate"
+      ],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "const": "main"
+        },
+        "commitAndPush": {
+          "type": "boolean",
+          "const": true
+        },
+        "preserveDirtyWork": {
+          "type": "boolean",
+          "const": true
+        },
+        "forcePush": {
+          "type": "boolean",
+          "const": false
+        },
+        "significantWorkUsesOpenSpec": {
+          "type": "boolean",
+          "const": true
+        },
+        "sessionExitRequiresWaypointUpdate": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    }
+  }
+}
