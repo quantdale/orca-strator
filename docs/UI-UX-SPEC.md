@@ -39,7 +39,6 @@ Each repository card/row should eventually answer at a glance:
 
 - display name;
 - execution environment (`Windows` / `WSL` + distro);
-- branch;
 - configured executor/model;
 - high-level run state;
 - current actor (`Sol`, `Executor`, `None`);
@@ -49,6 +48,8 @@ Each repository card/row should eventually answer at a glance:
 - warning/error indicator;
 - primary control/action appropriate to state.
 
+V1 always integrates through `main`; this is not a per-repository setting that needs dashboard prominence.
+
 Change 001 only has configuration/status placeholders and must not fake autonomous states that are not implemented.
 
 ## 4. Dashboard visual hierarchy
@@ -57,7 +58,7 @@ Recommended card hierarchy later:
 
 ```text
 Nightwatch                                      EXECUTING
-WSL · Ubuntu-24.04 · main
+WSL · Ubuntu-24.04
 Kimi · DeepSeek V4 Flash
 
 Iteration 7 / 20               3h 14m / 8h
@@ -102,7 +103,8 @@ Sections:
 
 - Display name
 - GitHub remote
-- Branch (default `main`)
+
+V1 uses `main` automatically. Do not show a branch selector/input.
 
 ### Local execution
 
@@ -180,6 +182,8 @@ Sol
 Safety
 ```
 
+A small non-editable note may state `Integration branch: main (V1)` if useful, but this is not stored repository configuration.
+
 Later milestones add:
 
 ```text
@@ -244,7 +248,6 @@ Manual recovery action; disabled without valid work/dispatch unless explicit rec
 While repository run is active, fields that would mutate execution identity should be read-only:
 
 - local path;
-- branch;
 - environment/distro;
 - executor CLI/model;
 - Sol conversation URL;
@@ -268,6 +271,7 @@ Show effective configuration before Start:
 ```text
 Executor: Kimi / DeepSeek V4 Flash
 Environment: WSL / Ubuntu-24.04
+Git: main
 Sol: configured ✓
 Limits: 20 iterations / 8 hours
 ```
@@ -338,10 +342,13 @@ Last setup verification: timestamp or unknown
 
 Open Setup Browser:
 
-- starts headed Playwright Chromium using dedicated profile;
+- acquires exclusive access to the dedicated automation profile;
+- starts headed Playwright Chromium using that profile;
 - user logs in/visually checks account;
-- closing preserves profile;
+- closing preserves profile and releases the lock;
 - normal automation remains headless.
+
+If the automated browser is already using the profile, the UI must not launch a second competing browser process. It should wait, explain the conflict, or cleanly stop the idle automation browser first.
 
 Do not display browser cookies/session tokens.
 
@@ -413,6 +420,7 @@ Do not build:
 - multi-pane IDE/editor;
 - embedded Git client;
 - fake AI chat interface;
+- branch management UI in V1;
 
 until the core autonomous loop is proven.
 
