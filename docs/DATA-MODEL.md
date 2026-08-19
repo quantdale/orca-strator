@@ -12,6 +12,7 @@ This document defines the first persistent data model and separates repository c
 4. Secrets, API keys, browser cookies, and auth tokens do not belong in normal relational repository records.
 5. Schema evolution happens only through ordered migrations.
 6. Tests use isolated temporary databases.
+7. V1 uses `main` as a runtime invariant rather than storing a configurable branch column.
 
 ## 2. Migration metadata
 
@@ -44,7 +45,6 @@ CREATE TABLE repositories (
   display_name TEXT NOT NULL,
   github_remote TEXT NOT NULL,
   local_path TEXT NOT NULL,
-  branch TEXT NOT NULL DEFAULT 'main',
   environment TEXT NOT NULL CHECK (environment IN ('windows', 'wsl')),
   wsl_distribution TEXT,
   executor_cli TEXT NOT NULL,
@@ -62,6 +62,8 @@ CREATE TABLE repositories (
 ```
 
 The exact SQLite syntax may be adjusted for the selected driver/runtime, but the invariants must remain.
+
+Do not add a `branch` column in V1. `main` is fixed by the runtime protocol and becomes schema-worthy only when branch/session orchestration is actually introduced.
 
 ## 4. Field semantics
 
@@ -101,13 +103,11 @@ Repository working directory in the configured execution environment.
 
 Change 001 stores configuration; later milestones verify/operate on the path.
 
-### `branch`
+### Integration branch
 
-Watched/integration branch.
+V1 always uses `main`.
 
-- default `main`;
-- trimmed/non-empty;
-- configurable per repository.
+This is intentionally **not** stored in repository configuration. All watcher/executor/Sol protocol behavior assumes `main` until a future multi-session/branch design explicitly revises the schema.
 
 ### `environment`
 
@@ -197,7 +197,6 @@ interface RepositoryRecord {
   displayName: string;
   githubRemote: string;
   localPath: string;
-  branch: string;
   environment: "windows" | "wsl";
   wslDistribution: string | null;
   executorCli: string;
@@ -214,7 +213,7 @@ Create input omits:
 
 - `id`;
 - timestamps;
-- fields that can be defaulted such as branch/ceilings may be optional.
+- ceiling fields may be optional because they have defaults.
 
 Patch input:
 
@@ -227,7 +226,7 @@ Patch input:
 Before persistence:
 
 - trim human/config strings where whitespace is not meaningful;
-- apply default branch/ceilings;
+- apply default ceilings;
 - normalize empty Windows `wslDistribution` to null;
 - reject WSL config without a non-empty distribution;
 - reject non-positive/non-integer ceilings;
@@ -267,6 +266,8 @@ events / activity_log (if durable history is required)
 
 Do not pre-create them merely because they are anticipated.
 
+A future branch-per-session design may add branch/session-routing fields in a dedicated migration. Do not pre-seed unused branch configuration now.
+
 ## 10. Persistence tests
 
 Minimum tests:
@@ -282,4 +283,5 @@ Minimum tests:
 9. invalid patch does not partially corrupt existing row;
 10. delete works;
 11. controller restart/reopen preserves records;
-12. test DB never touches real `%LOCALAPPDATA%` data.
+12. test DB never touches real `%LOCALAPPDATA%` data;
+13. API/domain model does not accidentally reintroduce a configurable branch field in V1.
