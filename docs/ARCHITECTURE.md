@@ -31,7 +31,7 @@ Use a TypeScript-first stack:
 - **UI styling/components:** Tailwind CSS + shadcn/ui
 - **Client state:** Zustand where local UI state is useful
 - **Controller:** separate Node.js/TypeScript background process
-- **Controller API:** local HTTP + WebSocket event stream
+- **Controller API:** HTTP + WebSocket under the Orca web origin
 - **Durable local runtime state:** SQLite
 - **Browser automation:** Playwright
 - **Git/process integration:** direct child-process invocation of `git`, PowerShell, `wsl.exe`, and configured agent CLIs
@@ -43,9 +43,62 @@ The responsive React UI is shared by:
 1. Electron on Windows; and
 2. a phone browser connected privately through Tailscale Serve.
 
-The controller binds to localhost. Do not expose the control API directly to the public internet.
+The controller listens on loopback only. Do not expose its raw listener directly to the public internet.
 
-## 3. Repository configuration
+## 3. Web/UI network topology
+
+The UI must not hard-code `127.0.0.1` or `localhost` as its production API destination. In a phone browser those addresses refer to the **phone**, not the Windows Orca machine.
+
+V1 therefore uses one same-origin web contract:
+
+```text
+                     Windows machine
+
+             Orca controller/web endpoint
+                 127.0.0.1:47100
+                 /            built SPA
+                 /api/*       REST
+                 /api/events  WebSocket
+                       ^
+                       |
+        +--------------+----------------+
+        |                               |
+Electron/local browser             Tailscale Serve
+loads Orca origin                  HTTPS reverse proxy
+                                        |
+                                        v
+                              phone browser tailnet URL
+```
+
+### Production-like/local built mode
+
+The controller serves the built React application and the API/WebSocket from the same loopback origin.
+
+The UI uses relative URLs:
+
+```text
+/api/health
+/api/repositories
+/api/events
+```
+
+This is the canonical runtime contract.
+
+### Development mode
+
+Vite may run on its own development port. Configure the Vite development server to proxy `/api` and `/api/events` to the loopback controller so application code still uses the same relative URLs.
+
+Do not create separate production and phone API-client implementations.
+
+### Phone mode
+
+Tailscale Serve reverse-proxies the **single Orca loopback web endpoint**. The phone loads that HTTPS tailnet URL; relative `/api` and WebSocket requests therefore return through the same Tailscale origin to the Windows controller.
+
+Milestone 7 configures/operates Tailscale Serve. Change 001 establishes the same-origin application seam but does not manage Tailscale.
+
+Avoid permissive cross-origin exposure merely to make phone access work. Same-origin is the preferred V1 topology.
+
+## 4. Repository configuration
 
 A repository record includes at minimum:
 
@@ -66,7 +119,7 @@ Run goal belongs to run/session state rather than static repository configuratio
 
 Configuration/model/environment changes are locked while that repository has an active run.
 
-## 4. Sol -> executor transport
+## 5. Sol -> executor transport
 
 V1 uses a **local remote-Git watcher**, not GitHub Actions, webhooks, or MCP.
 
@@ -95,7 +148,7 @@ Consumed dispatch IDs are recorded locally in SQLite for idempotency.
 
 Machine-readable protocol schemas live under `schemas/protocol/` in Orca-Strator and define structural validity for dispatch, executor-result, and Sol-control artifacts.
 
-## 5. Executor runtime
+## 6. Executor runtime
 
 The executor is launched headlessly in the repository's configured environment.
 
@@ -121,7 +174,7 @@ Automatic force-push is forbidden by default.
 
 An executor may report `COMPLETED`, `BLOCKED`, `NEEDS_HUMAN`, or `FAILED`. These outcomes normally wake Sol for authoritative review.
 
-## 6. Executor -> Sol transport
+## 7. Executor -> Sol transport
 
 V1 uses **Playwright**.
 
@@ -157,7 +210,7 @@ Do not launch two Chromium processes against the same persistent profile.
 
 If ChatGPT applies concurrent-request backpressure, treat it as a recoverable busy condition. Dismiss safe informational UI when necessary and queue/retry with bounded backoff; do not attempt to defeat a service limit.
 
-## 7. Detecting Sol completion
+## 8. Detecting Sol completion
 
 Playwright does not read Sol's answer to decide completion.
 
@@ -177,7 +230,7 @@ Default stall policy:
 
 Authentication, browser automation, and ChatGPT-busy failures have distinct statuses.
 
-## 8. Run limits and controls
+## 9. Run limits and controls
 
 Each run has configurable safety ceilings, initially defaulting to:
 
@@ -208,7 +261,7 @@ Emergency Kill terminates the selected repository's active executor/browser oper
 
 The UI also provides manual `Wake Sol` and `Run executor` recovery controls where safe.
 
-## 9. Dirty trees and Git divergence
+## 10. Dirty trees and Git divergence
 
 Dirty working trees are supported, including leftovers from an interrupted/paused executor.
 
@@ -216,9 +269,11 @@ Orca itself must never blindly discard them with `git reset --hard`. The executo
 
 When remote `main` moves during execution, the executor should fetch/rebase/pull, resolve ordinary conflicts, and continue. If it cannot safely resolve the divergence, report `BLOCKED` so Sol can review.
 
-## 10. Phone control and notifications
+## 11. Phone control and notifications
 
-V1 phone access uses **Tailscale Serve** to expose the localhost UI privately inside the user's tailnet. Do not use a public Funnel endpoint by default.
+V1 phone access uses **Tailscale Serve** to reverse-proxy Orca's loopback same-origin web endpoint privately inside the user's tailnet. Do not use a public Funnel endpoint by default.
+
+The phone UI never attempts to call the Windows controller through phone-local `localhost`/`127.0.0.1`; it uses relative routes on its Tailscale Serve origin.
 
 Phone UI has full visibility and operational controls. Risky configuration changes remain disabled while the target repository is active.
 
@@ -235,13 +290,13 @@ Notify actively for meaningful terminal/problem states such as:
 
 Normal successful iterations remain quiet.
 
-## 11. Crash/reboot recovery
+## 12. Crash/reboot recovery
 
 The controller persists runtime state in SQLite and rehydrates active repositories on startup.
 
 Safe waiting states may recover automatically. If an executor process was interrupted mid-work by a crash/reboot, preserve the checkout and mark it `RECOVERY_REQUIRED`; V1 requires explicit Resume before another executor process modifies that repository.
 
-## 12. High-level goal loop
+## 13. High-level goal loop
 
 Every autonomous run has a required durable high-level goal.
 
@@ -267,7 +322,7 @@ Sol inspect/review
       +---------------------> repeat / terminal state
 ```
 
-## 13. Design principles
+## 14. Design principles
 
 1. Keep V1 simple.
 2. GitHub is durable inter-agent truth; SQLite is local runtime truth.
@@ -278,3 +333,4 @@ Sol inspect/review
 7. Browser automation is a narrow transport adapter, not the source of truth.
 8. Every failure must be observable and recoverable without silently discarding work.
 9. V1 branch behavior is intentionally fixed to `main`; branch orchestration is deferred until multi-session-per-repository work exists.
+10. Desktop and phone use one same-origin UI/API contract; remote phone access does not require broad CORS or a second backend.
