@@ -10,6 +10,41 @@ Build Orca-Strator into a Windows-first autonomous development orchestrator that
 
 The product should remain simple: one local controller, one responsive UI, one configured Sol conversation and one active executor per repository, with repository-level concurrency across many repositories.
 
+## Normative reference map
+
+Do not read every document on every tiny task. Use this map to load the contract relevant to the work being performed.
+
+### Always read on fresh `/go`
+
+- `AGENTS.md` — invariant agent rules;
+- `.agent/state.json` — current waypoint;
+- `docs/ROADMAP.md` — current milestone/exit gate;
+- active OpenSpec proposal/spec/design/tasks.
+
+### Development/recovery procedure
+
+- `docs/DEVELOPMENT.md` — Git recovery, coherent slices, verification, waypoint updates, review handoff, session exit.
+
+### Locked product/runtime decisions
+
+- `docs/DECISIONS.md` — concise ledger of locked V1 choices; do not casually reopen them;
+- `docs/ARCHITECTURE.md` — system-level architecture;
+- `docs/RUNTIME-MODEL.md` — state machine, concurrency, Pause/Stop/drain/recovery semantics;
+- `docs/CROSS-AGENT-PROTOCOL.md` — `.orca` dispatch/result/control Git protocol.
+
+### Implementation contracts
+
+- `docs/TECH-BASELINE.md` — selected supported technology lines;
+- `docs/IMPLEMENTATION-BLUEPRINT.md` — target modules/package dependency boundaries;
+- `docs/DATA-MODEL.md` — SQLite/config persistence contract;
+- `docs/API-CONTRACT.md` — controller REST/WebSocket contract;
+- `docs/UI-UX-SPEC.md` — desktop/phone UI behavior and controls;
+- `docs/SECURITY.md` — security/trust boundaries;
+- `docs/OBSERVABILITY-AND-FAILURES.md` — error taxonomy/logging/retry semantics;
+- `docs/TEST-STRATEGY.md` — verification layers and milestone qualification.
+
+The active OpenSpec remains the scope authority. These focused docs provide stable cross-milestone contracts and should not be used as an excuse to implement future milestones early.
+
 ## Canonical recovery order
 
 At the start of every fresh session, and whenever the user says `/go` or asks to continue:
@@ -30,7 +65,7 @@ At the start of every fresh session, and whenever the user says `/go` or asks to
    - every delta `spec.md`;
    - `design.md`;
    - `tasks.md`.
-8. Read `docs/ARCHITECTURE.md` when architectural context is relevant.
+8. Read only the focused normative docs required by the next task using the reference map above.
 9. Inspect the implementation files needed for the next unchecked task.
 10. Continue the smallest coherent unfinished slice. Do not ask the user what to do next when durable state already answers it.
 
