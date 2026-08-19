@@ -8,12 +8,12 @@
   "completedMilestones": [0],
   "planningBaseSha": "ac1f204564d1650d3d432466d5761c3f263f6289",
   "checkpoint": {
-    "summary": "V1 architecture and development workflow are locked and hardened. The repository now has a detailed /go recovery protocol, waypoint schema, runtime-state/concurrency contract, milestone exit/review gates, and an implementation-grade Change 001 covering workspace, controller, SQLite, API/events, responsive UI, and Electron boundaries.",
-    "updatedAt": "2026-08-19T19:22:00+08:00",
-    "lastCompletedTask": "Milestone 0 planning/control-plane hardening and detailed OpenSpec Change 001 preparation",
-    "lastVerification": "Planning-only checkpoint: durable artifacts were cross-aligned; no application implementation exists yet, so build/test verification starts in Change 001."
+    "summary": "V1 architecture and development workflow are now implementation-grade. In addition to the detailed /go recovery protocol, roadmap, runtime model, and Change 001, the repository now defines the technology baseline, module/package blueprint, SQLite data model, REST/WebSocket API contract, UI/UX contract, cross-agent Git dispatch/result/control protocol, security boundaries, observability/failure taxonomy, comprehensive test strategy, locked decision ledger, and documentation authority map.",
+    "updatedAt": "2026-08-19T19:43:00+08:00",
+    "lastCompletedTask": "Milestone 0 deep specification hardening and Change 001 implementation-contract preparation",
+    "lastVerification": "Planning-only checkpoint: normative documents were cross-separated by responsibility and made discoverable through AGENTS.md/docs/INDEX.md. Current technology baseline was verified against primary project documentation. No application implementation exists yet, so executable build/test verification starts in Change 001."
   },
-  "nextAction": "Start a fresh coding-agent session and run /go. Implement openspec/changes/001-bootstrap-control-plane beginning at Section 0 preflight, then progress through coherent checkpoints. Update tasks and this waypoint, commit and push to main. When Change 001 reaches its exit gate, stop for a deep Sol/ChatGPT GitHub review before creating Change 002.",
+  "nextAction": "Start a fresh coding-agent session and run /go. Implement openspec/changes/001-bootstrap-control-plane from its first genuinely incomplete preflight/workspace task. Use docs/INDEX.md and the AGENTS.md reference map to load only the focused contracts needed for each task. Update tasks and this waypoint, commit and push coherent checkpoints to main. When Change 001 reaches its exit gate, stop for a deep Sol/ChatGPT GitHub review before creating Change 002.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",
