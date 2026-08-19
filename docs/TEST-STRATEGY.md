@@ -2,18 +2,19 @@
 
 Status: **normative quality strategy**
 
-Orca-Strator coordinates autonomous coding agents, Git, WSL, browsers, and long-lived state. Unit tests alone are insufficient. The project should build confidence in layers and reserve expensive end-to-end qualification for the milestones that need it.
+Orca-Strator coordinates autonomous coding agents, Git, WSL, browsers, and long-lived state. Unit tests alone are insufficient. The project should build confidence in layers and reserve expensive end-to-end qualification for milestones that need it.
 
 ## 1. Testing principles
 
 1. Test state-machine and validation logic deterministically.
 2. Keep most tests fast enough for frequent `/go` checkpoints.
-3. Isolate tests from the user's real repositories, SQLite DB, browser profile, and credentials.
-4. Use real subprocess/Git/WSL/Playwright tests only where mocks cannot prove the behavior.
+3. Isolate tests from user's real repositories, SQLite DB, browser profile, and credentials.
+4. Use real subprocess/Git/WSL/Playwright tests only where mocks cannot prove behavior.
 5. Every bug fix should add the narrowest useful regression test when practical.
 6. Never report a gate as passed unless the relevant command actually ran.
-7. V1 Git behavior is fixed to `main`; branch-routing behavior is not part of the V1 test surface.
+7. V1 Git behavior is fixed to `main`; branch-routing behavior is not part of V1 test surface.
 8. Machine-readable protocol schemas are tested independently from runtime semantics.
+9. Shared UI networking is same-origin by default; phone access must not depend on phone-local `localhost`.
 
 ## 2. Test layers
 
@@ -30,7 +31,8 @@ Targets:
 - timeout/backoff calculations;
 - command construction;
 - path/environment helpers;
-- browser-profile lock state logic.
+- browser-profile lock state logic;
+- same-origin API/WebSocket URL helpers.
 
 Properties:
 
@@ -55,7 +57,7 @@ Targets:
 
 Never touch production/local user DB.
 
-### Layer C — controller/API/event integration tests
+### Layer C — controller/API/web integration tests
 
 Start controller on an ephemeral test port/data directory.
 
@@ -67,6 +69,9 @@ Targets:
 - WebSocket events;
 - reconnect/refetch behavior;
 - health/readiness;
+- built React SPA static serving;
+- SPA history fallback without intercepting `/api`;
+- no static access to data/log/browser-profile directories;
 - later orchestration service integration.
 
 ### Layer D — React UI tests
@@ -77,6 +82,8 @@ Targets:
 - Windows/WSL forms;
 - no branch selector in V1;
 - validation handling;
+- relative REST paths;
+- same-origin WebSocket URL derivation (`ws:` vs `wss:`);
 - control enable/disable rules;
 - runtime status rendering later;
 - responsive critical flows.
@@ -90,6 +97,7 @@ Targets:
 - desktop launches;
 - shared UI loads;
 - controller connectivity works;
+- built/local mode may load controller-served Orca origin;
 - window restart does not own/delete controller state;
 - safe BrowserWindow baseline.
 
@@ -97,7 +105,7 @@ Do not duplicate all UI tests inside Electron.
 
 ### Layer F — local Git sandbox integration
 
-Create temporary bare remote + working clones locally. Use `main` as the only V1 integration branch.
+Create temporary bare remote + working clones locally. Use `main` as only V1 integration branch.
 
 Targets later:
 
@@ -110,13 +118,13 @@ Targets later:
 - dirty worktree preservation;
 - result/control marker isolation.
 
-This should avoid consuming real GitHub for most protocol tests.
+This avoids consuming real GitHub for most protocol tests.
 
 ### Layer G — executor adapter qualification
 
 Use controlled fake executor first.
 
-Fake executor should support scripted behaviors:
+Fake executor supports scripted behaviors:
 
 ```text
 success
@@ -131,7 +139,7 @@ produce result manifest
 produce malformed result manifest
 ```
 
-Then run targeted qualification against actual configured CLIs on the development machine.
+Then run targeted qualification against actual configured CLIs on development machine.
 
 ### Layer H — Playwright bridge qualification
 
@@ -147,9 +155,24 @@ Use a fake local webpage first to test browser-manager mechanics:
 - busy-modal adapter behavior;
 - one-page kill without corrupting unrelated repository pages.
 
-Real ChatGPT E2E is a separate integration qualification because its DOM/service behavior is external and unstable.
+Real ChatGPT E2E is separate integration qualification because its DOM/service behavior is external and unstable.
 
-### Layer I — full autonomy qualification
+### Layer I — Tailscale/phone qualification
+
+Milestone 7.
+
+Prove the **same built UI** through actual Tailscale Serve:
+
+- Serve proxies the single loopback Orca web endpoint;
+- phone loads HTTPS tailnet URL;
+- relative `/api` requests reach Windows controller;
+- WebSocket connects as `wss:` to same Tailscale origin;
+- no client configuration points to phone-local localhost;
+- dashboard/control flows remain usable at phone viewport;
+- tailnet access restrictions apply as configured;
+- public Funnel is not required for normal V1 operation.
+
+### Layer J — full autonomy qualification
 
 Milestone 8 only.
 
@@ -167,23 +190,24 @@ npm run lint
 npm run build
 ```
 
-Exact scripts may vary slightly but the root must expose equivalent documented commands.
+Exact scripts may vary slightly but root exposes equivalent documented commands.
 
 Functional acceptance:
 
 - create Windows repository;
 - create WSL repository;
 - list/edit/delete;
-- verify repository record/API/UI contain no configurable branch field;
+- repository record/API/UI contain no configurable branch field;
 - restart controller and retain data;
 - close/reopen Electron without losing controller state;
-- verify offline/disconnected UI state;
-- verify narrow viewport;
-- verify generated local DB/build/browser/auth/log artifacts remain untracked under the seeded hygiene policy.
+- offline/disconnected UI distinct from empty state;
+- narrow viewport usable;
+- built React app served by controller from same origin as API/WebSocket;
+- Vite proxy lets same relative API client work in development;
+- a production client bundle/config does not require hard-coded localhost API host;
+- local DB/build/browser/auth/log artifacts remain untracked under seeded hygiene policy.
 
 ## 4. Protocol schema test matrix
-
-Even before the watcher is implemented, the versioned protocol schemas themselves should be linted/validated as repository artifacts.
 
 For each schema:
 
@@ -198,7 +222,33 @@ For each schema:
 
 JSON Schema does not replace semantic checks such as repository-root canonicalization, active run matching, immutable ID history, or Git commit isolation.
 
-## 5. Watcher/dispatch test matrix — Milestone 2
+## 5. Change 001 web/network matrix
+
+Development mode:
+
+1. Vite loads UI.
+2. UI calls relative `/api/health` and it reaches controller proxy.
+3. UI opens relative-origin WebSocket and Vite proxies upgrade.
+4. Controller unavailable is shown distinctly.
+
+Built mode:
+
+1. controller starts on loopback;
+2. `/` returns built SPA;
+3. `/assets/*` returns only built assets;
+4. `/api/health` remains API, not SPA fallback;
+5. `/repositories/<id>` returns SPA shell on direct navigation/reload;
+6. `/api/unknown` is not converted into SPA HTML incorrectly;
+7. local data/log/browser-profile paths cannot be fetched as static assets;
+8. WebSocket derives from current origin;
+9. no wildcard CORS is necessary for normal built flow.
+
+Phone seam (without Tailscale implementation yet):
+
+- UI network client has no production assumption that host is localhost;
+- test under a synthetic non-localhost HTTPS origin yields `/api` and `wss:` URLs on that origin.
+
+## 6. Watcher/dispatch test matrix — Milestone 2
 
 Cases:
 
@@ -215,7 +265,7 @@ Cases:
 11. controller restart after consuming marker -> does not relaunch same dispatch;
 12. no branch-routing path exists in V1 watcher configuration/runtime.
 
-## 6. Executor test matrix — Milestone 3
+## 7. Executor test matrix — Milestone 3
 
 Native Windows:
 
@@ -237,7 +287,7 @@ WSL:
 
 Git reconciliation:
 
-- `main` is the fixed target;
+- `main` fixed target;
 - dirty local files preserved;
 - local unpushed commit preserved;
 - remote fast-forward fetched;
@@ -251,7 +301,7 @@ Result publication:
 - implementation commits may precede final isolated result commit;
 - result manifest push failure does not falsely complete executor turn.
 
-## 7. Playwright test matrix — Milestone 4
+## 8. Playwright test matrix — Milestone 4
 
 Browser lifecycle:
 
@@ -296,10 +346,9 @@ Completion:
 Isolation:
 
 - Emergency Kill for Repo A closes/interrupts Repo A page/operation without falsely completing Repo B;
-- browser-process-wide crash marks every affected active Sol operation independently;
-- closing setup browser never closes an unrelated automation browser because the two cannot own the profile simultaneously.
+- browser-process-wide crash marks every affected active Sol operation independently.
 
-## 8. Runtime/control test matrix — Milestones 5/6
+## 9. Runtime/control test matrix — Milestones 5/6
 
 Pause:
 
@@ -312,7 +361,7 @@ Pause while Sol active:
 
 - Sol is not forcibly cancelled solely to save executor credits;
 - later durable Sol transition is recorded;
-- executor dispatch is suppressed until Resume.
+- executor dispatch suppressed until Resume.
 
 Stop:
 
@@ -336,9 +385,9 @@ Crash/reboot:
 - lost executor -> `RECOVERY_REQUIRED`;
 - consumed dispatch remains consumed;
 - no duplicate actors after restart;
-- browser-profile lock state reconciles with actual process ownership.
+- browser-profile lock reconciles with actual process ownership.
 
-## 9. Multi-repository concurrency qualification
+## 10. Multi-repository concurrency qualification
 
 At minimum prove:
 
@@ -350,7 +399,7 @@ Repo C: EXECUTING
 
 simultaneously without global executor serialization.
 
-Then prove per-repository locks still prevent:
+Then prove per-repository locks prevent:
 
 ```text
 Repo A executor #1 + Repo A executor #2
@@ -358,13 +407,11 @@ Repo A Sol turn #1 + Repo A Sol turn #2
 Repo A Sol + Repo A executor simultaneously
 ```
 
-in V1.
+Global browser-profile locking must not become global Sol serialization: one Chromium may host multiple concurrent repository pages after profile is opened.
 
-Global browser-profile locking must not become a global **Sol serialization** mechanism: one Chromium process may host multiple concurrent repository pages after the single profile is opened.
+## 11. Fault injection
 
-## 10. Fault injection
-
-Add controlled ways in tests to simulate:
+Add controlled ways to simulate:
 
 - process launch failure;
 - Git command failure;
@@ -377,13 +424,15 @@ Add controlled ways in tests to simulate:
 - ChatGPT busy response;
 - no Git transition;
 - process death;
-- controller restart.
+- controller restart;
+- static UI directory missing/corrupt;
+- WebSocket proxy disconnect.
 
 Do not require real external outages to test recovery logic.
 
-## 11. Test artifacts/evidence
+## 12. Test artifacts/evidence
 
-For significant milestone review, durable state should record:
+For significant milestone review, durable state records:
 
 - verification commands run;
 - pass/fail summary;
@@ -392,34 +441,37 @@ For significant milestone review, durable state should record:
 
 Detailed raw logs do not belong in `.agent/state.json`; keep concise evidence there and details in commits/log artifacts/docs as appropriate.
 
-## 12. Performance checks
+## 13. Performance checks
 
-V1 does not need elaborate benchmarking, but qualification should ensure:
+V1 does not need elaborate benchmarking, but qualification ensures:
 
-- idle watcher loop is cheap across several repositories;
+- idle watcher loop cheap across several repositories;
 - no browser process remains when no Sol work/setup browser exists;
-- UI remains responsive while executors stream output;
-- log retention does not grow unbounded;
+- UI responsive while executors stream output;
+- log retention bounded;
 - controller does not busy-loop Git polling;
-- multiple Sol pages in one Chromium do not cause avoidable page duplication/leaks after completion.
+- multiple Sol pages do not leak after completion;
+- built static serving does not load huge assets into controller memory unnecessarily.
 
-## 13. Security-oriented tests
+## 14. Security-oriented tests
 
 Include tests/checks for:
 
 - controller binds loopback by default;
 - API does not return secrets/raw stack traces;
-- repository config rejects credential fields and configurable branch fields if strict schemas disallow them;
+- repository config rejects credential and configurable branch fields where strict schemas disallow them;
 - Electron renderer has no unnecessary Node integration;
 - browser profile excluded from Git;
 - database/log/runtime dirs excluded from Git;
-- `.orca/` is not globally ignored;
+- `.orca/` not globally ignored;
 - line-ending policy avoids Windows/WSL churn;
-- command construction does not concatenate untrusted strings into a shell when direct argv execution is possible;
-- protocol path fields cannot escape repository root after semantic canonicalization.
+- command construction avoids untrusted shell concatenation where direct argv is possible;
+- protocol path fields cannot escape repository root after canonicalization;
+- static SPA server cannot expose runtime data directory;
+- normal built/phone topology does not use wildcard CORS.
 
-## 14. Review gate philosophy
+## 15. Review gate philosophy
 
-A milestone exits when its required behaviors are proven—not when code volume is large.
+A milestone exits when required behaviors are proven—not when code volume is large.
 
-If a test cannot currently pass because an external dependency/UI changed, record that accurately and decide whether the milestone can still be reviewed. Never fake a green status to advance the roadmap.
+If a test cannot currently pass because an external dependency/UI changed, record that accurately and decide whether milestone can still be reviewed. Never fake green status to advance roadmap.
