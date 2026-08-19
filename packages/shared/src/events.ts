@@ -7,7 +7,8 @@ export type EventType =
   | "repository.deleted"
   | "watcher.dispatch_detected"
   | "watcher.dispatch_rejected"
-  | "watcher.poll_completed";
+  | "watcher.poll_completed"
+  | "loop.state_changed";
 
 export interface RepositoryMutationEvent {
   type: EventType;
@@ -18,5 +19,7 @@ export interface RepositoryMutationEvent {
     dispatch?: DispatchRecord;
     watcherState?: WatcherState;
     reason?: string;
+    loopState?: string;
+    runId?: string;
   };
 }

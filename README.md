@@ -105,20 +105,22 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 4 — Playwright Sol bridge** is complete and folded (`openspec/specs/playwright-sol-bridge/`).
 
-**Milestone 5 — Autonomous loop and multi-repository concurrency** is active:
+**Milestone 5 — Autonomous loop and multi-repository concurrency** is complete and folded (`openspec/specs/autonomous-loop-engine/`).
+
+**Milestone 6 — Runtime ceilings, recovery, and hardening** is active:
 
 Active OpenSpec:
 
 ```text
-openspec/changes/005-autonomous-loop-engine/
+openspec/changes/006-runtime-recovery-hardening/
 ```
 
-Milestone 5 builds:
-- per-repository autonomous state machine loop (`SOL_PENDING` -> `SOL_REVIEWING` -> `EXECUTOR_PENDING` -> `EXECUTING` -> `SOL_PENDING`);
-- terminal and control states (`GOAL_COMPLETE`, `BLOCKED`, `NEEDS_HUMAN`, `PAUSED`, `STOPPED`, `DRAINING`, `SOL_STALLED`);
-- durable run lifecycle persistence in SQLite;
-- multi-repository concurrent loop orchestration without global executor limits;
-- iteration ceiling and runtime budget enforcement.
+Milestone 6 builds:
+- runtime wall-clock ceiling and graceful handoff draining;
+- controller restart recovery and state reconstruction from SQLite and remote Git;
+- `RECOVERY_REQUIRED` workflow for interrupted executor work;
+- bounded executor log retention;
+- fault-injection testing for process interruption, stale locks, and network recovery.
 
 ## Durable development workflow
 

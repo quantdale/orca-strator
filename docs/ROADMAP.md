@@ -238,9 +238,9 @@ Prove with at least two dedicated conversations:
 
 ## Milestone 5 — Autonomous loop and multi-repository concurrency
 
-OpenSpec: `005-autonomous-loop-engine`
+OpenSpec: `005-autonomous-loop-engine` (folded into `openspec/specs/autonomous-loop-engine/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
@@ -286,17 +286,13 @@ Other requirements:
 
 Prove one repository completes several Sol -> executor -> Sol cycles without copy/paste, then at least two repositories progress independently/concurrently without cross-routing state/conversation URLs.
 
-### Review checkpoint
-
-Full architecture/code review before long-duration recovery/ceilings.
-
 ---
 
 ## Milestone 6 — Runtime ceilings, recovery, and hardening
 
-Planned OpenSpec: `006-runtime-recovery-hardening`
+OpenSpec: `006-runtime-recovery-hardening`
 
-Status: **planned**
+Status: **active**
 
 ### Purpose
 

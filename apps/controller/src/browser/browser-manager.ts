@@ -73,7 +73,7 @@ export class BrowserManager {
     params: {
       runId: string;
       iteration: number;
-      dispatchId: string;
+      dispatchId?: string | null;
       resultStatus: ExecutorResultStatus;
       conversationUrl: string;
       repositoryName: string;
@@ -86,7 +86,7 @@ export class BrowserManager {
       repositoryName: params.repositoryName,
       runId: params.runId,
       iteration: params.iteration,
-      dispatchId: params.dispatchId,
+      dispatchId: params.dispatchId || "none",
       resultStatus: params.resultStatus
     });
 
@@ -94,7 +94,7 @@ export class BrowserManager {
       id: wakeId,
       repositoryId,
       runId: params.runId,
-      dispatchId: params.dispatchId,
+      dispatchId: params.dispatchId ?? null,
       conversationUrl: params.conversationUrl,
       message,
       status: "pending",

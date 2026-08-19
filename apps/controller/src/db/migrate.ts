@@ -103,7 +103,7 @@ export const migrations: Migration[] = [
           id TEXT PRIMARY KEY,
           repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
           run_id TEXT NOT NULL,
-          dispatch_id TEXT NOT NULL REFERENCES dispatches(id) ON DELETE CASCADE,
+          dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
           conversation_url TEXT NOT NULL,
           message TEXT NOT NULL,
           status TEXT NOT NULL CHECK (status IN ('pending', 'submitted', 'failed', 'busy')),
@@ -115,6 +115,30 @@ export const migrations: Migration[] = [
 
         CREATE INDEX IF NOT EXISTS idx_sol_wakes_repo ON sol_wakes(repository_id);
         CREATE INDEX IF NOT EXISTS idx_sol_wakes_dispatch ON sol_wakes(dispatch_id);
+      `);
+    }
+  },
+  {
+    version: 5,
+    name: "005_create_runs",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS runs (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          goal TEXT NOT NULL,
+          status TEXT NOT NULL,
+          current_iteration INTEGER NOT NULL DEFAULT 0,
+          max_iterations INTEGER NOT NULL DEFAULT 20,
+          active_dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
+          last_error TEXT,
+          started_at TEXT NOT NULL,
+          finished_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_runs_repo ON runs(repository_id);
       `);
     }
   }

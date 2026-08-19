@@ -11,6 +11,7 @@ import { repositoryRoutes } from './http/routes/repositories.js';
 import { watcherRoutes } from './http/routes/watcher.js';
 import { executorRoutes } from './http/routes/executor.js';
 import { browserRoutes } from './http/routes/browser.js';
+import { runRoutes } from './http/routes/runs.js';
 import { websocketRoutes } from './events/websocket.js';
 import { registerStaticUi } from './http/static-ui.js';
 import { DispatchStore } from './watcher/dispatch-store.js';
@@ -21,6 +22,8 @@ import { ExecutorStore } from './executor/executor-store.js';
 import { ExecutorService } from './executor/executor-service.js';
 import { SolWakeStore } from './browser/sol-wake-store.js';
 import { BrowserManager } from './browser/browser-manager.js';
+import { RunStore } from './loop/run-store.js';
+import { LoopService } from './loop/loop-service.js';
 
 import type { BrowserDriver } from './browser/browser-driver.js';
 
@@ -35,6 +38,8 @@ export interface AppInstance {
   executorService: ExecutorService;
   wakeStore: SolWakeStore;
   browserManager: BrowserManager;
+  runStore: RunStore;
+  loopService: LoopService;
 }
 
 export async function buildApp(
@@ -42,6 +47,7 @@ export async function buildApp(
   overrides: {
     browserDriver?: BrowserDriver;
     browserManager?: BrowserManager;
+    loopService?: LoopService;
   } = {}
 ): Promise<AppInstance> {
   const fastify = Fastify({
@@ -57,6 +63,7 @@ export async function buildApp(
   const dispatchStore = new DispatchStore(dbContext.db);
   const executorStore = new ExecutorStore(dbContext.db);
   const wakeStore = new SolWakeStore(dbContext.db);
+  const runStore = new RunStore(dbContext.db);
   const eventBus = new EventBus();
   const repositoryService = new RepositoryService(store, eventBus);
 
@@ -88,6 +95,18 @@ export async function buildApp(
       eventPublisher: (event) => eventBus.publish(event)
     });
 
+  const loopService =
+    overrides.loopService ||
+    new LoopService({
+      repoStore: store,
+      dispatchStore,
+      runStore,
+      watcherService,
+      executorService,
+      browserManager,
+      eventPublisher: (event) => eventBus.publish(event)
+    });
+
   fastify.addHook('onClose', async () => {
     watcherService.stop();
     await browserManager.close();
@@ -100,6 +119,7 @@ export async function buildApp(
   await fastify.register(watcherRoutes(watcherService, dispatchStore, repositoryService));
   await fastify.register(executorRoutes(executorService, repositoryService));
   await fastify.register(browserRoutes(browserManager, repositoryService, dispatchStore));
+  await fastify.register(runRoutes(loopService, repositoryService));
   await fastify.register(websocketRoutes(eventBus));
 
   await registerStaticUi(fastify, config.uiDistDir);
@@ -114,6 +134,8 @@ export async function buildApp(
     executorStore,
     executorService,
     wakeStore,
-    browserManager
+    browserManager,
+    runStore,
+    loopService
   };
 }

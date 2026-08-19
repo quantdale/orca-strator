@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 5,
-  "activeChange": "005-autonomous-loop-engine",
-  "completedMilestones": [0, 1, 2, 3, 4],
-  "planningBaseSha": "c12c1c62f22bda43b3eeea94747ebc79659bfa77",
+  "activeMilestone": 6,
+  "activeChange": "006-runtime-recovery-hardening",
+  "completedMilestones": [0, 1, 2, 3, 4, 5],
+  "planningBaseSha": "7069182",
   "checkpoint": {
-    "summary": "Milestone 4 (Playwright Sol bridge) is fully implemented, verified (110 tests passing across all workspaces, Playwright persistent profile management with exclusive PID process locking and stale-lock recovery, interactive setup browser flow, on-demand browser manager with multi-repo page multiplexing, input-only trusted wake submission, and REST APIs), and folded into canonical openspec/specs/playwright-sol-bridge/. Milestone 5 (autonomous loop and multi-repository concurrency) is now active.",
-    "updatedAt": "2026-08-19T22:37:00+08:00",
-    "lastCompletedTask": "Complete Milestone 4 Playwright Sol bridge, fold into canonical spec, and activate Milestone 5 OpenSpec",
-    "lastVerification": "Full workspace typecheck passed with 0 errors, all 110 Vitest tests passed, build and lint succeeded."
+    "summary": "Milestone 5 (autonomous loop and multi-repository concurrency) is fully implemented, verified (122 tests passing across all workspaces, per-repository state machine loop from SOL_PENDING -> SOL_REVIEWING -> EXECUTOR_PENDING -> EXECUTING -> SOL_PENDING, RunStore SQLite persistence, multi-repo concurrency without global limits, iteration ceilings, Pause/Resume/Stop controls, and REST endpoints), and folded into canonical openspec/specs/autonomous-loop-engine/. Milestone 6 (runtime ceilings, recovery, and hardening) is now active.",
+    "updatedAt": "2026-08-19T22:42:00+08:00",
+    "lastCompletedTask": "Complete Milestone 5 autonomous loop engine, fold into canonical spec, and activate Milestone 6 OpenSpec",
+    "lastVerification": "Full workspace typecheck passed with 0 errors, all 122 Vitest tests passed, build and lint succeeded."
   },
-  "nextAction": "Implement Milestone 5 (openspec/changes/005-autonomous-loop-engine): LoopState and RunRecord types in @orca/shared, SQLite migration 005 for runs table, RunStore, RepositoryLoopRunner per-repo state machine, LoopService multi-repo concurrent orchestrator, run control endpoints, and loop qualification integration tests.",
+  "nextAction": "Implement Milestone 6 (openspec/changes/006-runtime-recovery-hardening): wall-clock runtime budget checking and DRAINING transition, StartupReconciler for crash/restart recovery, RECOVERY_REQUIRED handling and POST /api/repositories/:id/runs/recover endpoint, LogRotator for executor logs, and fault-injection qualification tests.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

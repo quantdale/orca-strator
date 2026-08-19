@@ -32,7 +32,7 @@ export interface SolWakeRecord {
   id: string;
   repositoryId: string;
   runId: string;
-  dispatchId: string;
+  dispatchId: string | null;
   conversationUrl: string;
   message: string;
   status: SolWakeStatus;
