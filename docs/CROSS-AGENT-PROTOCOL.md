@@ -6,6 +6,16 @@ This document defines the Git/GitHub coordination artifacts used by Sol, Orca, a
 
 Change 001 does not implement this protocol yet.
 
+Structural validity is defined by the machine-readable schemas under `schemas/protocol/`:
+
+```text
+schemas/protocol/dispatch.schema.json
+schemas/protocol/executor-result.schema.json
+schemas/protocol/sol-control.schema.json
+```
+
+This document defines semantics beyond what JSON Schema can express.
+
 ## 1. Protocol goals
 
 The protocol must be:
@@ -17,6 +27,8 @@ The protocol must be:
 - auditable after the run;
 - small enough that it does not become a second database inside Git;
 - safe against premature dispatch while Sol is still writing specs.
+
+V1 always operates on `main`. Branch routing is deliberately not encoded into the protocol.
 
 ## 2. Coordination directory in managed repositories
 
@@ -75,8 +87,7 @@ Baseline shape:
   "dispatchId": "dispatch-id",
   "iteration": 7,
   "createdAt": "2026-08-19T12:34:56.000Z",
-  "branch": "main",
-  "baseSha": "abcdef123456...",
+  "baseSha": "0123456789abcdef0123456789abcdef01234567",
   "changePath": "openspec/changes/047-fix-widget-state",
   "goal": "Implement the active OpenSpec change and publish a truthful result.",
   "instructionsVersion": 1
@@ -89,9 +100,10 @@ Required semantics:
 - `type = dispatch`;
 - run/dispatch IDs non-empty;
 - iteration positive;
-- branch matches configured branch unless explicit recovery mode allows otherwise;
-- `changePath` is repository-relative and identifies the work contract;
-- `baseSha` records the ordinary repository state Sol intended to dispatch from.
+- all Git operations for the dispatch target `main`;
+- `changePath` is repository-relative, must remain inside the repository, and identifies the work contract;
+- `baseSha` records the ordinary `main` state Sol intended to dispatch from;
+- the artifact validates against `schemas/protocol/dispatch.schema.json`.
 
 The dispatch should not contain a mega-prompt. Detailed instructions live in repository artifacts.
 
@@ -101,7 +113,7 @@ Sol MUST perform ordinary work first:
 
 ```text
 proposal/design/spec/tasks/code fixes
- -> commit/push
+ -> commit/push main
 ```
 
 Then create the dispatch marker in a separate final commit.
@@ -109,7 +121,7 @@ Then create the dispatch marker in a separate final commit.
 Valid final dispatch commit:
 
 ```text
-M/A .orca/dispatch/<new-id>.json
+A .orca/dispatch/<new-id>.json
 ```
 
 and no source/spec/ordinary files.
@@ -121,8 +133,9 @@ Watcher rejection reasons include:
 - mixed ordinary files;
 - marker modified after creation rather than new immutable ID;
 - malformed JSON;
+- JSON Schema validation failure;
 - unsupported schema version;
-- branch/run mismatch;
+- run mismatch;
 - already consumed dispatch;
 - executor already active for that repository;
 - run paused/stopped/draining/terminal.
@@ -131,7 +144,7 @@ Watcher rejection reasons include:
 
 `baseSha` makes Sol's intended planning base explicit.
 
-The watcher/executor may observe newer `main` because of concurrent human/Sol activity or reconciliation. The executor must inspect/reconcile rather than blindly reset to `baseSha`.
+The watcher/executor may observe newer `main` because of concurrent human activity or reconciliation. The executor must inspect/reconcile rather than blindly reset to `baseSha`.
 
 `baseSha` is evidence/context, not an instruction to discard newer work.
 
@@ -147,7 +160,7 @@ Read the referenced OpenSpec/change artifacts.
 Preserve and reconcile existing work and remote main.
 Implement the dispatch as far as safely possible.
 Run relevant verification.
-Commit and push intended work.
+Commit and push intended work to main.
 Write the required result manifest last and push it.
 Exit with truthful status; do not loop forever solely to force green tests.
 ```
@@ -174,8 +187,8 @@ Baseline shape:
   "status": "COMPLETED",
   "startedAt": "2026-08-19T12:40:00.000Z",
   "finishedAt": "2026-08-19T13:10:00.000Z",
-  "baseSha": "abcdef...",
-  "resultSha": "123456...",
+  "baseSha": "0123456789abcdef0123456789abcdef01234567",
+  "resultSha": "89abcdef0123456789abcdef0123456789abcdef",
   "executor": {
     "cli": "kimi",
     "model": "deepseek-v4-flash",
@@ -198,6 +211,8 @@ Baseline shape:
 }
 ```
 
+The artifact must validate against `schemas/protocol/executor-result.schema.json`.
+
 Allowed executor result statuses:
 
 ```text
@@ -211,7 +226,7 @@ These describe the executor turn only. They are not authoritative high-level run
 
 ## 9. Verification item semantics
 
-Each verification item should distinguish:
+Each verification item distinguishes:
 
 ```text
 PASS
@@ -219,14 +234,9 @@ FAIL
 NOT_RUN
 ```
 
-Optional metadata later:
+Keep the Git manifest concise. Raw multi-megabyte logs do not belong in the JSON file.
 
-- command;
-- exit code;
-- whether failure appears pre-existing;
-- log artifact reference.
-
-Keep the Git manifest concise; raw multi-megabyte logs do not belong in the JSON file.
+If richer machine-local diagnostics exist later, reference them through Orca-local observability rather than bloating the durable Git marker.
 
 ## 10. Result publication order
 
@@ -235,10 +245,11 @@ The executor should:
 1. perform implementation/reconciliation;
 2. run verification;
 3. commit/push implementation work as necessary;
-4. determine final current remote-compatible result SHA;
-5. create result manifest;
-6. commit/push result manifest;
-7. exit.
+4. reconcile remote `main` if it moved;
+5. determine final implementation result SHA;
+6. create result manifest;
+7. commit/push result manifest in its final isolated commit;
+8. exit.
 
 The result manifest is the durable signal that the executor turn has concluded enough for Sol review.
 
@@ -249,12 +260,14 @@ If result-manifest push itself fails, Orca must not falsely wake Sol as though a
 V1 should prefer a final result-manifest commit containing only:
 
 ```text
-.orca/results/<dispatchId>.json
+A .orca/results/<dispatchId>.json
 ```
 
 This gives the watcher/controller an unambiguous executor-finished boundary.
 
 Implementation commits may precede it.
+
+A result file is append-only by identity. Do not modify an earlier result file in place to rewrite history.
 
 ## 12. Sol wake trigger
 
@@ -287,7 +300,7 @@ Iteration: <iteration>
 Dispatch: <dispatchId>
 Result status: <validated status>
 
-Review the latest GitHub repository state, the active OpenSpec change, and .orca/results/<dispatchId>.json.
+Review the latest GitHub main state, the active OpenSpec change, and .orca/results/<dispatchId>.json.
 Make any review/spec/code corrections that are useful.
 Then either:
 1. create and push the next focused OpenSpec work and finally an isolated new dispatch marker, or
@@ -322,6 +335,10 @@ Baseline shape:
   "summary": "The high-level goal is satisfied and verified."
 }
 ```
+
+An initial Sol turn may use `iteration: 0` and `relatedDispatchId: null` if it terminates before creating any executor dispatch.
+
+The artifact must validate against `schemas/protocol/sol-control.schema.json`.
 
 Allowed baseline Sol decisions:
 
@@ -402,13 +419,14 @@ If Sol finishes while draining/stopping:
 
 ## 20. Protocol security and robustness
 
-- validate JSON before acting;
-- reject unknown major/schema versions;
-- repository-relative paths must not escape repository root;
+- validate JSON against the matching schema before acting;
+- reject unknown/breaking schema versions;
+- repository-relative paths must not escape repository root after canonicalization;
 - never execute a shell command directly from arbitrary protocol JSON;
 - executor CLI/model are user configuration, not Sol-controlled dispatch fields;
 - watcher treats Git content as input requiring validation;
-- duplicate IDs are idempotent, not repeated work triggers.
+- duplicate IDs are idempotent, not repeated work triggers;
+- protocol files do not carry a branch field in V1; `main` is fixed by the runtime.
 
 ## 21. Future versioning
 
@@ -416,8 +434,9 @@ Each artifact has `schemaVersion`.
 
 V1 uses integer `1`.
 
-If a breaking protocol change is needed later:
+Once a schema version is used by runtime code, its meaning is append-only/stable. If a breaking protocol change is needed later:
 
+- introduce an explicit new schema version/file;
 - add parser support explicitly;
 - migrate/handle old historical artifacts safely;
 - never reinterpret an old v1 file silently as a new incompatible shape.
