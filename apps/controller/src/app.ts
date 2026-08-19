@@ -37,6 +37,7 @@ export interface AppInstance {
   repositoryService: RepositoryService;
   dispatchStore: DispatchStore;
   watcherService: WatcherService;
+  solControlStore: SolControlStore;
   executorStore: ExecutorStore;
   executorService: ExecutorService;
   wakeStore: SolWakeStore;
@@ -187,6 +188,7 @@ export async function buildApp(
     repositoryService,
     dispatchStore,
     watcherService,
+    solControlStore,
     executorStore,
     executorService,
     wakeStore,

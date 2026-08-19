@@ -355,12 +355,13 @@ export class ExecutorService {
     }
 
     // Item #6 hard checks: exact correlation required.
+    // baseSha: dispatch.baseSha is the parent of the dispatch commit; harness captures baseSha
+    // as current HEAD before work (i.e., the dispatch commit SHA itself). Accept either to
+    // enforce dispatch correlation without brittle mismatch while still preventing cross-dispatch reuse.
     if (validated.dispatchId !== dispatch.id) return null;
     if (validated.runId !== dispatch.runId) return null;
     if (validated.iteration !== dispatch.iteration) return null;
-    // Also verify against the most recent active run if available (via caller's repo lookup path)
-    // – caller dispatches under this validation already cover runId/iteration mismatch.
-    if (validated.baseSha !== dispatch.baseSha) return null;
+    if (validated.baseSha !== dispatch.baseSha && validated.baseSha !== dispatch.commitSha) return null;
     if (validated.executor.cli !== repo.executorCli) return null;
     if (validated.executor.model !== repo.executorModel) return null;
     if (validated.executor.environment !== repo.environment) return null;

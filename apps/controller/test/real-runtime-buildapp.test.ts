@@ -239,6 +239,8 @@ describe("Real Runtime Q.APP.1 — buildApp production controller gate", () => {
     }, 20000);
     expect(app.runStore.get(runId)?.status).toBe("GOAL_COMPLETE");
     expect(app.solControlStore.get(controlId)?.status).toBe("consumed");
+    // GOAL_COMPLETE is terminal, so loop getStatus collapses to IDLE by design (N)
+    expect(["IDLE", "GOAL_COMPLETE"]).toContain(app.loopService.getStatus(repoId).state);
 
     await app.fastify.close();
     (app as any).fastify = { close: async () => {} } as any;

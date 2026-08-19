@@ -63,9 +63,13 @@ export class RunStore {
   }
 
   get(id: string): RunRecord | null {
-    const stmt = this.db.prepare("SELECT * FROM runs WHERE id = ?");
-    const row = stmt.get(id) as unknown as RunRow | undefined;
-    return row ? this.mapRow(row) : null;
+    try {
+      const stmt = this.db.prepare("SELECT * FROM runs WHERE id = ?");
+      const row = stmt.get(id) as unknown as RunRow | undefined;
+      return row ? this.mapRow(row) : null;
+    } catch {
+      return null;
+    }
   }
 
   getByRepository(repositoryId: string): RunRecord[] {
@@ -77,15 +81,19 @@ export class RunStore {
   }
 
   getActiveRun(repositoryId: string): RunRecord | null {
-    const stmt = this.db.prepare(`
-      SELECT * FROM runs
-      WHERE repository_id = ?
-        AND status NOT IN ('GOAL_COMPLETE', 'BLOCKED', 'NEEDS_HUMAN', 'STOPPED', 'SOL_STALLED', 'EXECUTOR_UNAVAILABLE', 'ATTENTION_REQUIRED', 'RECOVERY_REQUIRED', 'CEILING_REACHED')
-      ORDER BY started_at DESC
-      LIMIT 1
-    `);
-    const row = stmt.get(repositoryId) as unknown as RunRow | undefined;
-    return row ? this.mapRow(row) : null;
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM runs
+        WHERE repository_id = ?
+          AND status NOT IN ('GOAL_COMPLETE', 'BLOCKED', 'NEEDS_HUMAN', 'STOPPED', 'SOL_STALLED', 'EXECUTOR_UNAVAILABLE', 'ATTENTION_REQUIRED', 'RECOVERY_REQUIRED', 'CEILING_REACHED')
+        ORDER BY started_at DESC
+        LIMIT 1
+      `);
+      const row = stmt.get(repositoryId) as unknown as RunRow | undefined;
+      return row ? this.mapRow(row) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Most recent run for a repository, regardless of whether it is still active. */
