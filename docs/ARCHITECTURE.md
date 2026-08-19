@@ -15,7 +15,7 @@ For each configured repository:
 - at most one executor process is active at a time;
 - the user chooses the executor CLI and model for the run;
 - the repository may execute in native Windows/PowerShell or a configured WSL distribution;
-- `main` is the default watched/integration branch, configurable per repository;
+- V1 always watches, reconciles, commits, and pushes `main`;
 - GitHub is the durable cross-agent handoff layer.
 
 Different repositories are independent and may run concurrently with **no global executor limit**.
@@ -52,15 +52,17 @@ A repository record includes at minimum:
 - display name;
 - GitHub repository identity/remote URL;
 - local working-directory path;
-- watched branch (default `main`);
 - execution environment: `windows` or `wsl`;
 - WSL distribution when applicable;
 - executor CLI;
 - executor model/configuration selected by the user;
 - exact dedicated ChatGPT Sol conversation URL;
-- run goal;
 - maximum iterations;
 - maximum wall-clock runtime.
+
+There is no V1 branch field. `main` is an invariant of the runtime protocol.
+
+Run goal belongs to run/session state rather than static repository configuration.
 
 Configuration/model/environment changes are locked while that repository has an active run.
 
@@ -68,7 +70,7 @@ Configuration/model/environment changes are locked while that repository has an 
 
 V1 uses a **local remote-Git watcher**, not GitHub Actions, webhooks, or MCP.
 
-Each active repository has an inexpensive watcher that detects remote branch movement. A normal Sol planning/spec commit does not dispatch work.
+Each active repository has an inexpensive watcher that detects remote `main` movement. A normal Sol planning/spec commit does not dispatch work.
 
 ### Transactional dispatch protocol
 
@@ -80,9 +82,9 @@ Sol completes and pushes all planning/OpenSpec changes first. It then creates a 
 
 The watcher starts the executor only when all of the following hold:
 
-1. the remote branch advanced;
+1. remote `main` advanced;
 2. a previously unconsumed dispatch marker appeared;
-3. the dispatch marker is valid;
+3. the dispatch marker is valid against the supported protocol schema;
 4. the dispatch commit contains only allowed dispatch/control artifacts;
 5. no executor is already active for that repository;
 6. the run is allowed to accept another handoff.
@@ -90,6 +92,8 @@ The watcher starts the executor only when all of the following hold:
 If Sol mixes ordinary spec/code changes into the final dispatch commit, the watcher rejects the dispatch rather than starting early.
 
 Consumed dispatch IDs are recorded locally in SQLite for idempotency.
+
+Machine-readable protocol schemas live under `schemas/protocol/` in Orca-Strator and define structural validity for dispatch, executor-result, and Sol-control artifacts.
 
 ## 5. Executor runtime
 
@@ -129,26 +133,29 @@ Orca owns one dedicated automation browser profile.
 
 The UI provides **Open ChatGPT Setup Browser**:
 
+- acquire the automation-profile lock;
 - launch the automation profile headed;
 - user logs in manually if needed;
 - existing login can be visually verified;
-- closing the setup browser preserves profile state.
+- closing the setup browser preserves profile state and releases the lock.
 
-Do not automate or reuse the user's ordinary Chrome profile.
+Do not automate login or reuse the user's ordinary Chrome profile.
+
+The headed setup browser and the normal automated Chromium instance MUST NOT use the same profile concurrently. If automation is active, setup either waits or requires the active browser manager to shut down cleanly first.
 
 ### Browser lifetime and concurrency
 
 Chromium is on-demand, not permanently idle.
 
-- first active Sol wake launches one browser using the dedicated profile;
+- first active Sol wake acquires the profile lock and launches one browser using the dedicated profile;
 - each active repository gets its own page/tab with its exact Sol conversation URL;
 - different repositories may have Sol pages active concurrently;
 - one repository has at most one active Sol operation;
-- when active Sol page count reaches zero, Chromium may close.
+- when active Sol page count reaches zero, Chromium may close and release the profile lock.
 
 Do not launch two Chromium processes against the same persistent profile.
 
-If ChatGPT applies concurrent-request backpressure, treat it as a recoverable busy condition. Dismiss safe informational UI when necessary and queue/retry with backoff; do not attempt to defeat a service limit.
+If ChatGPT applies concurrent-request backpressure, treat it as a recoverable busy condition. Dismiss safe informational UI when necessary and queue/retry with bounded backoff; do not attempt to defeat a service limit.
 
 ## 7. Detecting Sol completion
 
@@ -197,7 +204,7 @@ Stop is graceful: let the current Sol/executor actor finish, then stop before th
 
 ### Emergency Kill
 
-Emergency Kill terminates the active executor/browser operation immediately.
+Emergency Kill terminates the selected repository's active executor/browser operation immediately and records interrupted/recovery state.
 
 The UI also provides manual `Wake Sol` and `Run executor` recovery controls where safe.
 
@@ -270,3 +277,4 @@ Sol inspect/review
 6. Sol provides architectural/review intelligence but may make code changes when useful.
 7. Browser automation is a narrow transport adapter, not the source of truth.
 8. Every failure must be observable and recoverable without silently discarding work.
+9. V1 branch behavior is intentionally fixed to `main`; branch orchestration is deferred until multi-session-per-repository work exists.
