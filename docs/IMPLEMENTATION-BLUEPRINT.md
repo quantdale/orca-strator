@@ -72,6 +72,8 @@ orca-strator/
 │       │   ├── errors.ts
 │       │   └── validation.ts
 │       └── test/
+├── schemas/
+│   └── protocol/
 ├── .agent/
 ├── .agents/
 ├── docs/
@@ -79,6 +81,8 @@ orca-strator/
 ├── package.json
 ├── package-lock.json
 ├── tsconfig.base.json
+├── .editorconfig
+├── .gitattributes
 └── .gitignore
 ```
 
@@ -163,6 +167,8 @@ Runtime validation MUST exist at process/API boundaries. It may use a small sche
 
 One contract should not have three subtly different names/shapes in SQL, controller, and UI unless the distinction is intentional (for example persisted record versus create input).
 
+V1 repository contracts MUST NOT include a mutable/configurable branch field. `main` is a runtime invariant.
+
 ## 6. Controller configuration
 
 Initial configuration inputs:
@@ -205,11 +211,12 @@ It contains:
 - GitHub remote;
 - local execution location;
 - Windows/WSL environment selection;
-- branch;
 - executor CLI/model strings selected by user;
 - Sol conversation URL;
 - safety defaults;
 - timestamps.
+
+It does **not** contain a V1 branch field. All runtime Git operations use `main`.
 
 Do not add rapidly changing runtime fields such as `currentIteration`, PID, or `SOL_REVIEWING` to the Change 001 repositories table. Later runtime tables own those.
 
@@ -287,7 +294,6 @@ Required fields:
 
 - display name;
 - GitHub remote;
-- branch;
 - environment;
 - local path;
 - WSL distribution when environment = `wsl`;
@@ -299,7 +305,7 @@ Required fields:
 
 Behavior:
 
-- branch starts as `main`;
+- Git integration is fixed to `main` and is not a form field;
 - limits start as 20 / 480;
 - WSL distribution appears only for WSL;
 - switching WSL -> Windows must not submit stale invalid WSL-only data unless intentionally retained outside the request;
@@ -332,7 +338,19 @@ Use the smallest reliable process coordination dependency or npm script strategy
 
 Controller must remain runnable separately for tests and headless development.
 
-## 15. Test boundaries
+## 15. Cross-platform repository hygiene
+
+Because Orca-Strator itself is developed on Windows and may be inspected/edited from WSL:
+
+- `.gitattributes` normalizes normal text files to LF in Git;
+- Windows `.bat`/`.cmd` scripts remain CRLF;
+- `.editorconfig` provides a basic UTF-8/LF/two-space editor baseline;
+- `.gitignore` excludes local databases, browser-profile/auth state, logs, environment secrets, dependencies, and generated outputs;
+- `.orca/` is **not** globally ignored because managed repositories intentionally commit Orca coordination artifacts.
+
+Implementation must preserve these repository-hygiene files rather than replacing them with narrower defaults.
+
+## 16. Test boundaries
 
 Tests should align with responsibility:
 
@@ -347,7 +365,7 @@ desktop          -> focused launch/integration verification
 
 Avoid testing implementation details that make refactoring expensive without increasing confidence.
 
-## 16. Change 001 definition of done
+## 17. Change 001 definition of done
 
 Change 001 is done only when:
 
@@ -365,4 +383,5 @@ Change 001 is done only when:
 12. closing/reopening Electron does not erase data;
 13. no watcher/executor/Playwright pseudo-implementation has leaked into the milestone;
 14. all OpenSpec tasks and durable waypoint are reconciled to reality;
-15. repository is pushed to `main` and ready for a deep Sol review.
+15. repository is pushed to `main` and ready for a deep Sol review;
+16. repository configuration/API/UI do not expose a configurable branch field in V1.
