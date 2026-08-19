@@ -11,9 +11,40 @@ One responsive React application serves two surfaces:
 1. Windows desktop inside Electron;
 2. phone browser through private Tailscale access later.
 
-The phone experience is not a second app and must not require a separate state model.
+The phone experience is not a second app and must not require a separate state model or a separate API client.
 
-## 2. Navigation model
+## 2. Shared-origin networking model
+
+The UI uses relative controller routes in normal application code:
+
+```text
+/api/health
+/api/repositories
+/api/events
+```
+
+It must **not** hard-code `localhost`/`127.0.0.1` as the production API host. A phone browser's localhost points to the phone itself.
+
+Runtime modes:
+
+```text
+Development:
+Vite origin
+  -> Vite proxies /api and /api/events to controller
+
+Built desktop/local:
+Controller origin
+  -> serves React SPA + /api + /api/events
+
+Phone later:
+Tailscale HTTPS origin
+  -> Serve reverse-proxies single Orca controller/web origin
+  -> same SPA + same /api + same WebSocket
+```
+
+This same-origin design is intentional: phone access should not require wildcard CORS or duplicating environment-specific networking logic across components.
+
+## 3. Navigation model
 
 V1 top-level information architecture:
 
@@ -31,7 +62,7 @@ Diagnostics
 
 Do not create many empty navigation sections before their functionality exists.
 
-## 3. Repository dashboard
+## 4. Repository dashboard
 
 The dashboard is the default home screen.
 
@@ -52,7 +83,7 @@ V1 always integrates through `main`; this is not a per-repository setting that n
 
 Change 001 only has configuration/status placeholders and must not fake autonomous states that are not implemented.
 
-## 4. Dashboard visual hierarchy
+## 5. Dashboard visual hierarchy
 
 Recommended card hierarchy later:
 
@@ -69,7 +100,7 @@ Current: executor implementing CHANGE-047
 
 Use badges/icons consistently but do not communicate critical state through color alone.
 
-## 5. Empty state
+## 6. Empty state
 
 When controller is connected but no repositories exist:
 
@@ -82,20 +113,22 @@ Add a repository to begin setting up Orca-Strator.
 
 This must be visually distinct from controller unavailable.
 
-## 6. Controller unavailable state
+## 7. Controller unavailable state
 
 When UI cannot reach controller:
 
 ```text
 Controller unavailable
-Orca-Strator's local controller is not reachable.
+Orca-Strator's controller is not reachable through this Orca origin.
 
 [ Retry ]
 ```
 
 Do not show an empty repository list as though configuration was deleted.
 
-## 7. Add/Edit Repository form
+The message should work on desktop and phone; avoid telling a phone user to call laptop localhost directly.
+
+## 8. Add/Edit Repository form
 
 Sections:
 
@@ -126,7 +159,7 @@ V1 uses `main` automatically. Do not show a branch selector/input.
 - Max iterations (default 20)
 - Max runtime (prefer user-friendly hours/minutes UI while API stores minutes)
 
-## 8. Form guidance
+## 9. Form guidance
 
 Use contextual labels/examples:
 
@@ -156,9 +189,9 @@ https://chatgpt.com/c/...
 
 Executor/model fields may initially be free-form text with remembered presets later. Do not hardcode a stale provider catalog in Change 001.
 
-## 9. Form validation UX
+## 10. Form validation UX
 
-Validation should happen in two layers:
+Validation happens in two layers:
 
 - immediate obvious client feedback;
 - authoritative controller validation.
@@ -170,7 +203,7 @@ On server validation failure:
 - show concise summary;
 - do not dump raw JSON/stack traces.
 
-## 10. Repository detail screen
+## 11. Repository detail screen
 
 Change 001 detail screen shows persisted configuration:
 
@@ -197,7 +230,7 @@ Diagnostics
 
 Do not put every future panel on screen before it has real data.
 
-## 11. Runtime control semantics in UI
+## 12. Runtime control semantics in UI
 
 Once implemented, controls map exactly to runtime contract.
 
@@ -243,7 +276,7 @@ Manual recovery/diagnostic action; disabled when same repository already has act
 
 Manual recovery action; disabled without valid work/dispatch unless explicit recovery semantics are met.
 
-## 12. Configuration lock while active
+## 13. Configuration lock while active
 
 While repository run is active, fields that would mutate execution identity should be read-only:
 
@@ -255,7 +288,7 @@ While repository run is active, fields that would mutate execution identity shou
 
 Do not rely only on UI disabling; controller enforces this later.
 
-## 13. Start-run goal dialog
+## 14. Start-run goal dialog
 
 A run requires a high-level goal.
 
@@ -278,7 +311,7 @@ Limits: 20 iterations / 8 hours
 
 This makes accidental wrong-repository/model runs less likely.
 
-## 14. Live activity timeline
+## 15. Live activity timeline
 
 Later runtime UI uses structured events, not scraped terminal prose, for the main timeline.
 
@@ -296,7 +329,7 @@ Example:
 
 Raw executor output belongs in a separate console panel.
 
-## 15. Executor console
+## 16. Executor console
 
 Requirements later:
 
@@ -307,7 +340,7 @@ Requirements later:
 - bounded UI memory/log loading;
 - no need for interactive terminal input in V1 unless an executor requires it (headless is the contract).
 
-## 16. Error presentation
+## 17. Error presentation
 
 Repository-level failure card should show:
 
@@ -322,18 +355,21 @@ Next action: inspect ChatGPT/browser or use Wake Sol.
 
 Do not show only generic `Something went wrong`.
 
-## 17. Notifications center/history
+Connection errors should distinguish an Orca controller problem from an empty repository registry.
+
+## 18. Notifications center/history
 
 Full notification center is optional. The core requirement is that current and recent actionable status is visible per repository.
 
 Phone/system notifications later trigger only meaningful terminal/problem states.
 
-## 18. ChatGPT setup UI
+## 19. ChatGPT setup UI
 
 Settings -> ChatGPT Automation:
 
 ```text
 Automation profile: Configured / Not configured
+Profile use: Available / Automation active / Setup active
 Last setup verification: timestamp or unknown
 
 [ Open ChatGPT Setup Browser ]
@@ -352,20 +388,24 @@ If the automated browser is already using the profile, the UI must not launch a 
 
 Do not display browser cookies/session tokens.
 
-## 19. Tailscale/phone setup UI
+## 20. Tailscale/phone setup UI
 
 Later Settings section:
 
 ```text
 Phone access
 Status: Not configured / Available
-Controller remains localhost-only.
-Tailscale Serve exposes the UI privately to your tailnet.
+Controller remains loopback-only.
+Tailscale Serve publishes the Orca web origin privately to your tailnet.
 ```
+
+The expected phone URL is the Tailscale HTTPS origin, not a localhost controller URL.
+
+The phone page and its `/api`/WebSocket traffic remain same-origin through that URL.
 
 Orca can provide setup guidance/status but does not need to become a Tailscale account manager.
 
-## 20. Responsive rules
+## 21. Responsive rules
 
 Primary target narrow widths:
 
@@ -384,7 +424,7 @@ At narrow widths:
 - status/primary action stays near top;
 - raw terminal panel may use horizontal scrolling because terminal text is inherently wide, but navigation/status must not.
 
-## 21. Desktop layout
+## 22. Desktop layout
 
 At wide widths, use space for information density without turning into a monitoring wall.
 
@@ -400,7 +440,7 @@ Potential repository detail layout later:
 └──────────────────────────────────────────────────────────┘
 ```
 
-## 22. Accessibility baseline
+## 23. Accessibility baseline
 
 - semantic buttons/forms/labels;
 - keyboard reachable controls;
@@ -410,7 +450,20 @@ Potential repository detail layout later:
 - adequate contrast;
 - confirmation dialogs focus/escape behavior correct.
 
-## 23. UI simplicity rule
+## 24. Networking UX tests
+
+Change 001 should prove:
+
+- UI uses relative `/api` routes;
+- Vite development proxy makes the same client work in dev;
+- controller-served built SPA uses same-origin REST/WebSocket;
+- no production hard-coded localhost API host appears in client behavior;
+- client-side deep links survive reload in built mode;
+- API failure is presented clearly rather than being mistaken for an empty registry.
+
+Milestone 7 later proves the same build through an actual Tailscale Serve origin on a phone.
+
+## 25. UI simplicity rule
 
 Do not build:
 
@@ -421,6 +474,7 @@ Do not build:
 - embedded Git client;
 - fake AI chat interface;
 - branch management UI in V1;
+- a second mobile-specific API/networking layer;
 
 until the core autonomous loop is proven.
 
