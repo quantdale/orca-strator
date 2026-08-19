@@ -59,6 +59,32 @@ function wslDistroReady(distribution: string): boolean {
   }
 }
 
+/** Commit + push a real isolated dispatch marker to a clone; returns the dispatchId. */
+function pushDispatchMarker(clone: string, runId: string, dispatchId: string): string {
+  const baseSha = git(clone, ["rev-parse", "HEAD"]);
+  const marker = {
+    schemaVersion: 1,
+    type: "dispatch",
+    runId,
+    dispatchId,
+    iteration: 1,
+    createdAt: new Date().toISOString(),
+    baseSha,
+    changePath: "openspec/changes/009-real",
+    goal: "Real multi-repository qualification dispatch",
+    instructionsVersion: 1
+  };
+  fs.mkdirSync(path.join(clone, ".orca", "dispatch"), { recursive: true });
+  fs.writeFileSync(
+    path.join(clone, ".orca", "dispatch", `${dispatchId}.json`),
+    JSON.stringify(marker, null, 2)
+  );
+  git(clone, ["add", "-A"]);
+  git(clone, ["commit", "-m", `chore(sol): dispatch ${dispatchId}`]);
+  git(clone, ["push", "origin", "main"]);
+  return dispatchId;
+}
+
 const HARNESS_PATH = path.resolve(__dirname, "fixtures", "real-executor-harness.mjs");
 
 // Make the real qualification tier self-contained: default the harness path so
@@ -400,4 +426,73 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
 
     watcherService.stop();
   }, 180000);
+
+  it("Q.WIN.3 real multi-repository concurrency: two repos run the full pipeline simultaneously via the assembled controller", async () => {
+    // Second repository with its own independent bare remote + clone (Q.11). Both
+    // repos are watched by the SAME assembled controller; both dispatches must drive
+    // real child-process executors concurrently and be consumed without cross-routing.
+    const tempDir2 = fs.mkdtempSync(path.join(os.tmpdir(), "orca-real-qual-multi-"));
+    const bareDir2 = path.join(tempDir2, "remote.git");
+    const cloneDir2 = path.join(tempDir2, "clone");
+    fs.mkdirSync(bareDir2, { recursive: true });
+    fs.mkdirSync(cloneDir2, { recursive: true });
+    git(bareDir2, ["init", "--bare", "-b", "main"]);
+    git(cloneDir2, ["init", "-b", "main"]);
+    git(cloneDir2, ["config", "user.email", "orca-qual@example.com"]);
+    git(cloneDir2, ["config", "user.name", "Orca Qualification"]);
+    git(cloneDir2, ["config", "commit.gpgsign", "false"]);
+    fs.writeFileSync(path.join(cloneDir2, "README.md"), "# Orca Qualification Fixture 2\n");
+    git(cloneDir2, ["add", "-A"]);
+    git(cloneDir2, ["commit", "-m", "initial"]);
+    git(cloneDir2, ["remote", "add", "origin", bareDir2]);
+    git(cloneDir2, ["push", "-u", "origin", "main"]);
+
+    const repo2: RepositoryRecord = {
+      ...repo,
+      id: "repo-real-multi-2",
+      displayName: "Real Multi Repo 2",
+      githubRemote: bareDir2,
+      localPath: cloneDir2,
+      solConversationUrl: "https://chatgpt.com/c/real-qual-multi-2"
+    };
+    repoStore.create(repo2);
+
+    const run1 = await loopService.startRun(repo.id, { goal: "multi 1", maxIterations: 5 });
+    const run2 = await loopService.startRun(repo2.id, { goal: "multi 2", maxIterations: 5 });
+    expect(["SOL_PENDING", "SOL_REVIEWING"]).toContain(run1.status);
+    expect(["SOL_PENDING", "SOL_REVIEWING"]).toContain(run2.status);
+
+    const d1 = pushDispatchMarker(cloneDir, run1.id, `disp-multi-${crypto.randomUUID().slice(0, 8)}`);
+    const d2 = pushDispatchMarker(cloneDir2, run2.id, `disp-multi-${crypto.randomUUID().slice(0, 8)}`);
+
+    watcherService.start();
+
+    await waitForCondition(
+      () =>
+        dispatchStore.get(d1)?.status === "consumed" &&
+        dispatchStore.get(d2)?.status === "consumed",
+      90000
+    );
+
+    // Both repositories actually ran a real child-process executor to completion.
+    expect(
+      executorStore.getByRepository(repo.id).some((r) => r.status === "completed"),
+      "repo 1 executor should complete as a real child process"
+    ).toBeTruthy();
+    expect(
+      executorStore.getByRepository(repo2.id).some((r) => r.status === "completed"),
+      "repo 2 executor should complete as a real child process"
+    ).toBeTruthy();
+
+    // Each repo's wake carries its own COMPLETED result; no cross-routing.
+    for (const id of [repo.id, repo2.id]) {
+      const page = mockBrowser.history.get(id);
+      expect(page, `sol wake page should exist for ${id}`).toBeTruthy();
+      const wakeText = (page?.typedMessages ?? []).map((m) => m.text).join("\n");
+      expect(wakeText).toMatch(/COMPLETED/);
+    }
+
+    watcherService.stop();
+    fs.rmSync(tempDir2, { recursive: true, force: true });
+  }, 150000);
 });

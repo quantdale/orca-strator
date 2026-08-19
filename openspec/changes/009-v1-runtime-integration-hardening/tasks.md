@@ -129,7 +129,7 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 - [x] Q.6 Real result manifest written/validated/committed/pushed then automatically routed back into the loop (`Q.WIN.1`/`Q.WIN.WSL.1`); `Q.WIN.2` proves honest UNQUALIFIED when harness env missing.
 - [x] Q.10 **Assembled REAL controller services** prove remote Git dispatch → watcher → loop → executor process → durable result → loop → Sol wake, mocking only the external ChatGPT browser driver.
 - [ ] Q.5 Real Kimi Code / Codex adapter qualification — **UNQUALIFIED** (no real CLI auth burn; profile exists, syntax to be verified against installed `--help`).
-- [ ] Q.7 Full-pipeline restart/reconstruction + real Pause/Resume/Stop/Kill + multi-repo concurrency at the executor level — SIMULATION-TESTED / partially covered; not fully machine-qualified.
+- [x] Q.7 Real multi-repository concurrency at the full pipeline level — **MACHINE-QUALIFIED** via `Q.WIN.3` (two repos watched by one assembled controller, each driving a real child-process executor concurrently, both consumed, no cross-routing). Full-pipeline controller-restart reconstruction and real Pause/Resume/Stop/Kill remain SIMULATION-TESTED (deterministic harness exits instantly).
 - [ ] Q.8 Chromium provisioning smoke; headed setup browser smoke + persistent profile reuse — **UNQUALIFIED** on this machine (Chromium not provisioned).
 - [ ] Q.9 Real ChatGPT wake (if auth available) and Tailscale phone-route (if installed) — **UNQUALIFIED** on this machine.
 
