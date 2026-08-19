@@ -4,15 +4,30 @@ import readline from "node:readline";
 import type { ChildProcess } from "node:child_process";
 import type { ExecutorAdapter, ExecutionContext } from "./adapters/executor-adapter.js";
 
+export type ExecutorExitReason =
+  | "NORMAL_EXIT"
+  | "PAUSED"
+  | "EMERGENCY_KILLED"
+  | "WATCHDOG_TIMEOUT"
+  | "SPAWN_FAILURE";
+
 export interface RunnerOptions {
   adapter: ExecutorAdapter;
   context: ExecutionContext;
   logPath: string;
-  timeoutMs: number;
+  /** @deprecated use watchdogMs */
+  timeoutMs?: number;
+  /** Separate executor watchdog; 0/disabled by default (V1). Wall-clock ceiling does NOT kill executor. */
+  watchdogMs?: number;
   onLog: (line: string) => void;
   onExit: (
     exitCode: number | null,
-    details: { timedOut: boolean; wasKilled: boolean; wasPaused: boolean }
+    details: {
+      reason: ExecutorExitReason;
+      timedOut: boolean;
+      wasKilled: boolean;
+      wasPaused: boolean;
+    }
   ) => void;
 }
 
@@ -25,10 +40,17 @@ export class ExecutorRunner {
   private isTimedOut = false;
   private recentLogs: string[] = [];
   private readonly maxBufferedLogs = 200;
+  private completionFired = false;
 
   constructor(private readonly options: RunnerOptions) {}
 
-  start(): void {
+  private get watchdogMs(): number {
+    if (this.options.watchdogMs !== undefined) return this.options.watchdogMs;
+    if (this.options.timeoutMs !== undefined) return this.options.timeoutMs;
+    return 0;
+  }
+
+  async start(): Promise<void> {
     // Ensure log directory exists
     const dir = path.dirname(this.options.logPath);
     fs.mkdirSync(dir, { recursive: true });
@@ -50,17 +72,62 @@ export class ExecutorRunner {
       rlErr.on("line", (line) => this.handleLogLine(`[stderr] ${line}`));
     }
 
-    // Setup timeout enforcement
-    if (this.options.timeoutMs > 0) {
+    // Handshake: resolve only after successful spawn, reject on async spawn error (ENOENT etc.)
+    // This enables genuine launch retries (item #8) – a failure to launch vs a failure after launch.
+    await this.awaitSpawn();
+
+    // Setup watchdog enforcement (separate from wall-clock ceiling; disabled by default)
+    if (this.watchdogMs > 0) {
       this.timer = setTimeout(() => {
         this.isTimedOut = true;
-        this.handleLogLine("[system] Execution timed out. Terminating process tree...");
+        this.handleLogLine("[system] Executor watchdog timeout. Terminating process tree...");
         this.kill();
-      }, this.options.timeoutMs);
+      }, this.watchdogMs);
     }
 
-    // Setup exit handling
-    this.child.on("exit", (code) => {
+    this.setupExitHandling();
+  }
+
+  private awaitSpawn(): Promise<void> {
+    const child = this.child!;
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        child.off("error", onError);
+        child.off("spawn", onSpawn);
+      };
+      const onSpawn = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const onError = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        this.handleLogLine(`[system] Executor spawn error: ${err?.message || String(err)}`);
+        reject(err);
+      };
+      child.once("spawn", onSpawn);
+      child.once("error", onError);
+      // Fake adapters and some harnesses never emit 'spawn'; if no error after a tick, assume success.
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      }, 10);
+    });
+  }
+
+  private setupExitHandling(): void {
+    if (!this.child) return;
+    const child = this.child;
+    // Guard against double firing from error+exit+close combos; fire exactly once.
+    const fire = (code: number | null, reason: ExecutorExitReason) => {
+      if (this.completionFired) return;
+      this.completionFired = true;
       if (this.timer) {
         clearTimeout(this.timer);
         this.timer = null;
@@ -70,22 +137,29 @@ export class ExecutorRunner {
         this.logStream = null;
       }
       this.options.onExit(code, {
+        reason,
         timedOut: this.isTimedOut,
         wasKilled: this.isKilled && !this.isPaused,
         wasPaused: this.isPaused
       });
+    };
+
+    child.on("exit", (code) => {
+      let reason: ExecutorExitReason = "NORMAL_EXIT";
+      if (this.isPaused) reason = "PAUSED";
+      else if (this.isTimedOut) reason = "WATCHDOG_TIMEOUT";
+      else if (this.isKilled) reason = "EMERGENCY_KILLED";
+      fire(code, reason);
     });
 
-    // Async spawn failures (e.g., ENOENT for a missing executor CLI) surface as
-    // an 'error' event rather than a thrown exception. Convert them into a
-    // terminal failure so they are not silently lost as unhandled rejections.
-    this.child.on("error", (err) => {
+    child.on("error", (err) => {
       this.handleLogLine(`[system] Executor process error: ${err?.message || String(err)}`);
-      this.options.onExit(null, {
-        timedOut: this.isTimedOut,
-        wasKilled: this.isKilled && !this.isPaused,
-        wasPaused: this.isPaused
-      });
+      // Post-spawn error is a transport failure; surface as spawn failure if never spawned successfully.
+      let reason: ExecutorExitReason = "SPAWN_FAILURE";
+      if (this.isPaused) reason = "PAUSED";
+      else if (this.isTimedOut) reason = "WATCHDOG_TIMEOUT";
+      else if (this.isKilled) reason = "EMERGENCY_KILLED";
+      fire(null, reason);
     });
   }
 

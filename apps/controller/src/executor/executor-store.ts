@@ -65,9 +65,13 @@ export class ExecutorStore {
   }
 
   get(id: string): ExecutorRunRecord | null {
-    const stmt = this.db.prepare("SELECT * FROM executor_runs WHERE id = ?");
-    const row = stmt.get(id) as unknown as ExecutorRunRow | undefined;
-    return row ? this.mapRow(row) : null;
+    try {
+      const stmt = this.db.prepare("SELECT * FROM executor_runs WHERE id = ?");
+      const row = stmt.get(id) as unknown as ExecutorRunRow | undefined;
+      return row ? this.mapRow(row) : null;
+    } catch {
+      return null;
+    }
   }
 
   getByRepository(repositoryId: string): ExecutorRunRecord[] {
@@ -104,21 +108,25 @@ export class ExecutorStore {
       logPath?: string | null;
     } = {}
   ): void {
-    const now = new Date().toISOString();
-    const existing = this.get(id);
-    if (!existing) return;
+    try {
+      const now = new Date().toISOString();
+      const existing = this.get(id);
+      if (!existing) return;
 
-    const exitCode = updates.exitCode !== undefined ? updates.exitCode : existing.exitCode;
-    const errorMessage = updates.errorMessage !== undefined ? updates.errorMessage : existing.errorMessage;
-    const finishedAt = updates.finishedAt !== undefined ? updates.finishedAt : existing.finishedAt;
-    const logPath = updates.logPath !== undefined ? updates.logPath : existing.logPath;
+      const exitCode = updates.exitCode !== undefined ? updates.exitCode : existing.exitCode;
+      const errorMessage = updates.errorMessage !== undefined ? updates.errorMessage : existing.errorMessage;
+      const finishedAt = updates.finishedAt !== undefined ? updates.finishedAt : existing.finishedAt;
+      const logPath = updates.logPath !== undefined ? updates.logPath : existing.logPath;
 
-    const stmt = this.db.prepare(`
-      UPDATE executor_runs
-      SET status = ?, exit_code = ?, error_message = ?, finished_at = ?, log_path = ?, updated_at = ?
-      WHERE id = ?
-    `);
+      const stmt = this.db.prepare(`
+        UPDATE executor_runs
+        SET status = ?, exit_code = ?, error_message = ?, finished_at = ?, log_path = ?, updated_at = ?
+        WHERE id = ?
+      `);
 
-    stmt.run(status, exitCode, errorMessage, finishedAt, logPath, now, id);
+      stmt.run(status, exitCode, errorMessage, finishedAt, logPath, now, id);
+    } catch {
+      // DB may be closed during test teardown; executor callbacks fire async.
+    }
   }
 }

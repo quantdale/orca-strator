@@ -234,7 +234,7 @@ describe("Autonomous Loop Engine Integration (Task 6)", () => {
     expect(savedRun?.status).toBe("CEILING_REACHED");
   });
 
-  it("6.T3 operational controls: pause, resume (same dispatch), stop", async () => {
+  it("6.T3 operational controls: pause, resume (same dispatch), stop is graceful drain", async () => {
     const run = await loopService.startRun(mockRepo1.id, {
       goal: "Control test",
       maxIterations: 5
@@ -269,9 +269,17 @@ describe("Autonomous Loop Engine Integration (Task 6)", () => {
     await loopService.resumeRun(mockRepo1.id);
     expect(loopService.getStatus(mockRepo1.id).state).toBe("EXECUTING");
 
+    // Stop while executor is active is now graceful: DRAINING until boundary, then STOPPED.
     await loopService.stopRun(mockRepo1.id);
-    expect(loopService.getStatus(mockRepo1.id).state).toBe("IDLE");
+    expect(loopService.getStatus(mockRepo1.id).state).toBe("DRAINING");
 
+    // Executor completes during drain: result persisted, no wake, transition to STOPPED.
+    await loopService.onExecutorCompleted(
+      mockRepo1.id,
+      mockDispatch.id,
+      completedResult(mockDispatch.id, run.id, mockDispatch.iteration)
+    );
+    expect(loopService.getStatus(mockRepo1.id).state).toBe("IDLE");
     const savedRun = runStore.get(run.id);
     expect(savedRun?.status).toBe("STOPPED");
   });

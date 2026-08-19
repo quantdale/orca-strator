@@ -142,6 +142,12 @@ export async function buildApp(
   const reconciler = new StartupReconciler(store, runStore, loopService);
   await reconciler.reconcile();
 
+  // Production watcher lifecycle (Fix #1): every existing enabled repository
+  // must be watched automatically after startup without requiring a user
+  // edit/save. Idempotent; reconcile subscription keeps create/update/delete
+  // in sync thereafter.
+  watcherService.start();
+
   fastify.addHook('onClose', async () => {
     watcherService.stop();
     await browserManager.close();
@@ -155,8 +161,22 @@ export async function buildApp(
   await fastify.register(executorRoutes(executorService, repositoryService));
   await fastify.register(browserRoutes(browserManager, repositoryService, dispatchStore));
   await fastify.register(runRoutes(loopService, repositoryService));
-  await fastify.register(systemRoutes(config.port));
+  await fastify.register(systemRoutes(config.port, browserManager));
   await fastify.register(websocketRoutes(eventBus));
+
+  // FIX #9: Wire BrowserManager SOL_STALLED timeout back to LoopService
+  browserManager.setSolStalledHandler(async (repositoryId, runId, errorMessage) => {
+    const run = runStore.get(runId);
+    if (!run) return;
+    const active = runStore.getActiveRun(repositoryId);
+    if (!active || active.id !== runId) return;
+    if (active.status === "SOL_REVIEWING" || active.status === "SOL_PENDING") {
+      runStore.updateStatus(runId, "SOL_STALLED", { lastError: errorMessage, finishedAt: new Date().toISOString() });
+      try {
+        eventBus.publish({ type: "loop.state_changed", at: new Date().toISOString(), repositoryId, data: { runId, loopState: "SOL_STALLED" } });
+      } catch {}
+    }
+  });
 
   await registerStaticUi(fastify, config.uiDistDir);
 

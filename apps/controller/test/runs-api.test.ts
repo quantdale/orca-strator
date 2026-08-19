@@ -144,6 +144,8 @@ describe("Run REST Endpoints (Task 5)", () => {
       method: "GET",
       url: `/api/repositories/${mockRepo.id}/runs/active`
     });
-    expect(statusRes.json().status.state).toBe("IDLE");
+    // Fix #4: Stop is graceful – while Sol is active, Orca enters DRAINING and
+    // shows it truthfully until the Sol boundary (next dispatch/control) arrives.
+    expect(statusRes.json().status.state).toBe("DRAINING");
   });
 });

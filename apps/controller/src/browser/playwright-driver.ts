@@ -31,6 +31,45 @@ export class PlaywrightPageWrapper implements BrowserPage {
     }
   }
 
+  async hasSelector(selector: string, timeoutMs = 1500): Promise<boolean> {
+    try {
+      await this.page.waitForSelector(selector, { timeout: timeoutMs, state: "visible" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async getText(selector: string): Promise<string | null> {
+    try {
+      const loc = this.page.locator(selector).first();
+      if ((await loc.count()) === 0) return null;
+      return (await loc.textContent())?.trim() ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getBodyText(): Promise<string> {
+    try {
+      return (await this.page.locator("body").textContent()) ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  async dismissIfPresent(selector: string): Promise<boolean> {
+    try {
+      const loc = this.page.locator(selector).first();
+      if ((await loc.count()) === 0) return false;
+      if (!(await loc.isVisible())) return false;
+      await loc.click({ timeout: 1500 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async close(): Promise<void> {
     await this.page.close();
   }

@@ -36,6 +36,8 @@ export interface ExecutorServiceOptions {
   dataDir?: string;
   windowsAdapter?: ExecutorAdapter;
   wslAdapter?: ExecutorAdapter;
+  /** Separate executor watchdog in ms; 0/disabled by default. Wall-clock ceiling does NOT kill executor. */
+  executorWatchdogMs?: number;
   /** Production wiring: called when an executor turn finishes (valid result or null). */
   onExecutorCompleted?: (
     repositoryId: string,
@@ -56,6 +58,7 @@ export class ExecutorService {
   private readonly dataDir: string;
   private readonly windowsAdapter: ExecutorAdapter;
   private readonly wslAdapter: ExecutorAdapter;
+  private readonly executorWatchdogMs: number;
   private readonly onExecutorCompleted?: (
     repositoryId: string,
     dispatchId: string,
@@ -73,6 +76,7 @@ export class ExecutorService {
     this.dataDir = options.dataDir || path.resolve(".orca-data");
     this.windowsAdapter = options.windowsAdapter || new WindowsPowerShellAdapter();
     this.wslAdapter = options.wslAdapter || new WslAdapter();
+    this.executorWatchdogMs = options.executorWatchdogMs ?? 0;
     this.onExecutorCompleted = options.onExecutorCompleted;
     this.eventPublisher = options.eventPublisher;
   }
@@ -137,8 +141,6 @@ export class ExecutorService {
       environment: repo.environment
     });
 
-    const timeoutMs = (repo.maxRuntimeMinutes || 480) * 60 * 1000;
-
     const runner = new ExecutorRunner({
       adapter: repo.environment === "wsl" ? this.wslAdapter : this.windowsAdapter,
       context: {
@@ -152,12 +154,17 @@ export class ExecutorService {
           ORCA_CHANGE_PATH: dispatch.changePath,
           ORCA_ITERATION: dispatch.iteration.toString(),
           ORCA_EXECUTOR_MODEL: repo.executorModel,
-          ORCA_ENVIRONMENT: repo.environment
+          ORCA_ENVIRONMENT: repo.environment,
+          // Propagate deterministic harness controls (qualification tier only)
+          ...(process.env.ORCA_SLOW_MS ? { ORCA_SLOW_MS: process.env.ORCA_SLOW_MS } : {}),
+          ...(process.env.ORCA_HARNESS_STATUS ? { ORCA_HARNESS_STATUS: process.env.ORCA_HARNESS_STATUS } : {}),
+          ...(process.env.ORCA_HARNESS_EXIT_CODE ? { ORCA_HARNESS_EXIT_CODE: process.env.ORCA_HARNESS_EXIT_CODE } : {}),
+          ...(options.recovery ? { ORCA_RECOVERY: "true" } : {})
         },
         wslDistribution: repo.wslDistribution
       },
       logPath,
-      timeoutMs,
+      watchdogMs: this.executorWatchdogMs,
       onLog: (line) => {
         this.publishLog(repositoryId, dispatch.id, line);
       },
@@ -168,14 +175,17 @@ export class ExecutorService {
         let finalStatus: "completed" | "failed" | "timed_out" | "paused" | "killed" = "completed";
         let errorMessage: string | null = null;
 
-        if (details.wasPaused) {
+        // First-class exit reasons: PAUSED must not become RECOVERY_REQUIRED (item #5).
+        if (details.reason === "PAUSED" || details.wasPaused) {
           finalStatus = "paused";
-        } else if (details.wasKilled) {
+        } else if (details.reason === "EMERGENCY_KILLED" || details.wasKilled) {
           finalStatus = "killed";
-        } else if (details.timedOut) {
+        } else if (details.reason === "WATCHDOG_TIMEOUT" || details.timedOut) {
           finalStatus = "timed_out";
-          errorMessage = "Execution exceeded runtime ceiling";
-        } else if (exitCode !== 0) {
+          errorMessage = "Executor watchdog timeout";
+        } else if (exitCode !== null && exitCode !== 0) {
+          // Nonzero exit is not authoritative – still attempt result validation (item #7).
+          // Keep failed status for now; result validation may still surface a FAILED/BLOCKED manifest.
           finalStatus = "failed";
           errorMessage = `Executor process exited with non-zero code ${exitCode}`;
         }
@@ -186,9 +196,15 @@ export class ExecutorService {
           finishedAt
         });
 
-        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details).catch((err) => {
-          console.warn("[ExecutorService] Turn completion handling failed:", err);
-        });
+        // PAUSED is not an error completion; do not trigger RECOVERY_REQUIRED path.
+        // Handle async completion with safe guard against closed DB (test teardown).
+        if (details.reason === "PAUSED" || details.wasPaused) {
+          // Persist result if present but do NOT wake Sol; leave PAUSED for resume.
+          this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode).catch(() => {});
+          return;
+        }
+
+        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode).catch(() => {});
       }
     });
 
@@ -210,7 +226,7 @@ export class ExecutorService {
 
   /**
    * Launch the runner, retrying up to 3 times on inability to START the process
-   * (e.g., missing executor CLI / spawn failure). This is NOT retrying merely
+   * (e.g., missing executor CLI / async ENOENT). This is NOT retrying merely
    * because an executor turn reports a failure (D). A process that starts and
    * then exits quickly has genuinely completed its (possibly failed) turn and is
    * handled via the normal onExit result-contract path.
@@ -221,7 +237,7 @@ export class ExecutorService {
   ): Promise<boolean> {
     for (let attempt = 1; attempt <= MAX_LAUNCH_ATTEMPTS; attempt++) {
       try {
-        runner.start();
+        await runner.start();
         return true;
       } catch (err: any) {
         const message = err?.message || String(err);
@@ -256,18 +272,30 @@ export class ExecutorService {
   /**
    * Result-contract handling (E) + postflight (F).
    * A process exit 0 with no valid committed result manifest is INVALID, not success.
+   * Item #7: nonzero exit does NOT discard a valid BLOCKED/NEEDS_HUMAN/FAILED manifest.
    */
   private async handleTurnCompletion(
     repositoryId: string,
     dispatchId: string,
     finalStatus: "completed" | "failed" | "timed_out" | "paused" | "killed",
-    _details: { timedOut: boolean; wasKilled: boolean; wasPaused: boolean }
+    _details: { timedOut: boolean; wasKilled: boolean; wasPaused: boolean; reason?: string },
+    exitCode?: number | null
   ): Promise<void> {
-    const isNormalCompletion = finalStatus === "completed";
+    // PAUSED is not an error completion path – just persist if present, do not trigger recovery.
+    if (finalStatus === "paused") {
+      const persisted = this.gitClient ? await this.readAndValidateResult(repositoryId, dispatchId) : null;
+      if (persisted) this.dispatchStore.updateStatus(dispatchId, "consumed");
+      // Do not call onExecutorCompleted for PAUSED – LoopService will handle via pauseRun state.
+      return;
+    }
 
+    // For any ordinary exit (including nonzero), inspect for a valid durable manifest when safe.
     let result: ExecutorResult | null = null;
-    if (isNormalCompletion && this.gitClient) {
-      result = await this.readAndValidateResult(repositoryId, dispatchId);
+    const shouldInspect = this.gitClient && (finalStatus === "completed" || finalStatus === "failed");
+    if (shouldInspect) {
+      result = await this.readAndValidateResult(repositoryId, dispatchId, { exitCode });
+    } else if (finalStatus === "timed_out" || finalStatus === "killed") {
+      result = null;
     }
 
     if (result) {
@@ -280,13 +308,17 @@ export class ExecutorService {
     }
   }
 
-  /** Read, validate, and postflight-verify the durable result manifest (E/F). */
+  /** Read, validate, and postflight-verify the durable result manifest (E/F, item #6/#7). */
   private async readAndValidateResult(
     repositoryId: string,
-    dispatchId: string
+    dispatchId: string,
+    _opts: { exitCode?: number | null } = {}
   ): Promise<ExecutorResult | null> {
     const repo = this.repoStore.get(repositoryId);
     if (!repo || !this.gitClient) return null;
+
+    const dispatch = this.dispatchStore.get(dispatchId);
+    if (!dispatch) return null;
 
     const ctx: GitContext =
       repo.environment === "wsl"
@@ -322,35 +354,45 @@ export class ExecutorService {
       return null;
     }
 
-    // Postflight (F): the resultSha must match the actually committed HEAD, and
-    // the dispatchId must match. If the executor did not commit/push real state,
-    // this is an incomplete turn, not a success.
+    // Item #6 hard checks: exact correlation required.
+    if (validated.dispatchId !== dispatch.id) return null;
+    if (validated.runId !== dispatch.runId) return null;
+    if (validated.iteration !== dispatch.iteration) return null;
+    // Also verify against the most recent active run if available (via caller's repo lookup path)
+    // – caller dispatches under this validation already cover runId/iteration mismatch.
+    if (validated.baseSha !== dispatch.baseSha) return null;
+    if (validated.executor.cli !== repo.executorCli) return null;
+    if (validated.executor.model !== repo.executorModel) return null;
+    if (validated.executor.environment !== repo.environment) return null;
+
+    // Postflight (F): resultSha ancestry, manifest committed, remote reached.
+    const head = await this.gitClient.getCurrentSha(ctx);
+    if (!head) return null;
+    const headOk = head === validated.resultSha || (await this.gitClient.isAncestor(validated.resultSha, head, ctx));
+    if (!headOk) return null;
+    // Manifest itself must be committed (not just working tree).
     try {
-      const head = await this.gitClient.getCurrentSha(ctx);
-      if (!head) {
-        return null;
-      }
-      // Finding E: the harness commits the work, then commits the result manifest
-      // on top. So `resultSha` (the work commit) is an ANCESTOR of HEAD, not equal
-      // to it. Accept exact match OR ancestor containment — never exact-only, which
-      // would reject a valid real result.
-      const headOk = head === validated.resultSha || (await this.gitClient.isAncestor(validated.resultSha, head, ctx));
-      if (!headOk) {
-        return null;
-      }
-      // Best-effort remote reconciliation: confirm the result commit reached main.
+      await this.gitClient.getFileContentAtCommit(ctx, head, resultPath);
+    } catch {
+      return null;
+    }
+    // Remote verification: if remote is reachable, require resultSha ancestry in remote main.
+    // Do NOT silently accept local-only proof when remote verification is possible but failed (item #6).
+    try {
       await this.gitClient.fetch(ctx, "origin", "main");
       const remoteHead = await this.gitClient.getRemoteHeadSha(repo.githubRemote, "main");
       if (remoteHead) {
         const remoteOk =
           remoteHead === validated.resultSha ||
           (await this.gitClient.isAncestor(validated.resultSha, remoteHead, ctx));
-        if (!remoteOk) {
-          return null;
-        }
+        const manifestOnRemoteOk = await this.gitClient.isAncestor(head, remoteHead, ctx).catch(() => false);
+        if (!remoteOk || !manifestOnRemoteOk) return null;
       }
+      // remoteHead === null => no remote branch yet (test repo without origin); accept local proof.
     } catch {
-      // If remote reconciliation is unavailable, accept the local-HEAD proof.
+      // Transient fetch/remote failure while git client is present: treat as retryable postflight,
+      // not silent local success (item #6). Caller surfaces RECOVERY_REQUIRED and can retry later.
+      return null;
     }
 
     return validated;

@@ -6,6 +6,10 @@ export class MockBrowserPage implements BrowserPage {
   public clickedSelectors: string[] = [];
   public isClosed = false;
 
+  // UI simulation hooks for busy/auth/captcha detection tests
+  public bodyText: string = "";
+  public visibleSelectors = new Set<string>();
+
   constructor(public readonly repositoryId: string, initialUrl: string) {
     this.currentUrl = initialUrl;
   }
@@ -22,8 +26,34 @@ export class MockBrowserPage implements BrowserPage {
     this.clickedSelectors.push(selector);
   }
 
-  async waitForSelector(_selector: string, _options?: { timeout?: number }): Promise<boolean> {
+  async waitForSelector(selector: string, _options?: { timeout?: number }): Promise<boolean> {
+    if (this.visibleSelectors.size > 0) {
+      return this.visibleSelectors.has(selector);
+    }
     return true;
+  }
+
+  async hasSelector(selector: string, _timeoutMs?: number): Promise<boolean> {
+    if (this.visibleSelectors.size > 0) return this.visibleSelectors.has(selector);
+    return false;
+  }
+
+  async getText(selector: string): Promise<string | null> {
+    if (this.visibleSelectors.has(selector)) return this.bodyText || selector;
+    return null;
+  }
+
+  async getBodyText(): Promise<string> {
+    return this.bodyText;
+  }
+
+  async dismissIfPresent(selector: string): Promise<boolean> {
+    if (this.visibleSelectors.has(selector)) {
+      this.visibleSelectors.delete(selector);
+      this.clickedSelectors.push(selector);
+      return true;
+    }
+    return false;
   }
 
   async close(): Promise<void> {

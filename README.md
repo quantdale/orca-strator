@@ -117,11 +117,11 @@ All nine V1 milestones are **implemented in code**. V1 is currently **NOT YET QU
 
 Honest status (this machine):
 
-- **MACHINE-QUALIFIED** — real autonomous pipeline on Windows and via real `wsl.exe` (Change 009 `Q.WIN.1` / `Q.WIN.WSL.1`); honest Tailscale detection; secret-redacted event stream; startup rehydration.
-- **SIMULATION-TESTED** — B/D/F/G/H/I/J/K/L/N implementations covered by mock/fake tests; not yet proven against real external dependencies here.
-- **UNQUALIFIED** — real Kimi/Codex CLI execution, Chromium/ChatGPT wake, and Tailscale phone-route (external dependencies absent on this machine; explicitly not claimed as done).
+- **MACHINE-QUALIFIED** — real autonomous pipeline via production `buildApp` (Q.APP.1) plus service-graph `Q.WIN.1`/`Q.WIN.WSL.1`; Windows/WSL Git adapters; deterministic harness with slow mode; executor result contract with semantic validation + nonzero-exit preservation; honest Tailscale detection; secret-redacted event stream; startup rehydration; Chromium provisioning (`chromium-1234` present); Kimi 0.34.0 / Codex 0.147.0 invocation syntax verified; Pause/Resume/Stop/Kill + wall-clock ceiling (slow harness).
+- **SIMULATION-TESTED** — B/F/J portions covered by mock/fake tests where real external wiring not yet exercised end-to-end here.
+- **UNQUALIFIED** — real Kimi/Codex execution with auth/inference, real ChatGPT wake (browser auth), and Tailscale phone-route (Tailscale not installed; honestly `not_installed`).
 
-The finish line is a real assembled-controller test proving the pipeline end-to-end, which is **achieved for the Windows and WSL executor paths**. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
+Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
 ## Durable development workflow
 

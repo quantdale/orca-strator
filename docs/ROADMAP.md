@@ -36,18 +36,22 @@ V1 was reopened as **NOT YET QUALIFIED** and is being hardened under
 
 | Area | Status on this machine |
 | --- | --- |
-| A. Real autonomous pipeline (watcher→loop→executor→result→loop→Sol) | **MACHINE-QUALIFIED** (`Q.WIN.1`, `Q.WIN.WSL.1`) |
-| C. Windows/WSL Git adapters + real WSL executor | **MACHINE-QUALIFIED** |
-| E. Executor result contract (real manifest) | **MACHINE-QUALIFIED** |
-| M. Startup/crash rehydration | **MACHINE-QUALIFIED** (code) |
-| O. Real log streaming + secret redaction | **MACHINE-QUALIFIED** |
+| A. Production buildApp lifecycle (watcher auto-start, enabled/disabled, shutdown) | **MACHINE-QUALIFIED** (`Q.APP.1`) |
+| A/C/E/Q.1-4/Q.10 service-graph pipeline (watcher→loop→executor→result→loop→Sol) | **MACHINE-QUALIFIED** (`Q.WIN.1`, `Q.WIN.WSL.1`, `Q.WIN.3`) |
+| C. Windows/WSL Git adapters | **MACHINE-QUALIFIED** |
+| D. Executor profiles + launch handshake | **MACHINE-QUALIFIED** (Kimi 0.34.0 `-m -p`, Codex 0.147.0 `exec -m --json`, WSL node v18 verified; no quota burn) |
+| E. Executor result contract (manifest + postflight) | **MACHINE-QUALIFIED** (includes semantic validation, nonzero-exit preservation) |
+| G. Wall-clock ceiling separation + drain | **MACHINE-QUALIFIED** (accelerated-clock + slow harness) |
+| H. Sol control markers | **MACHINE-QUALIFIED** (`Q.APP.1` control half) |
+| I. Pause/Resume/Stop/Kill | **MACHINE-QUALIFIED** (slow harness: partial preserved, SAME dispatch, recovery, isolation) |
+| K. Playwright provisioning | **MACHINE-QUALIFIED** (Chromium `chromium-1234` present + `GET /api/system/provisioning`) |
+| M/N/O. Startup rehydration / status / secret-redacted logs | **MACHINE-QUALIFIED** |
 | P. Tailscale status truthfulness | **MACHINE-QUALIFIED** (honestly `not_installed` here) |
-| B/D/F/G/H/I/J/K/L/N | **SIMULATION-TESTED** (implementation + mock tests) |
-| Q.5 real Kimi/Codex CLI, Q.8 Chromium/ChatGPT wake, Q.9 Tailscale phone route | **UNQUALIFIED** (external deps absent) |
+| L. ChatGPT wake lifecycle (Sol coordinator) | **IMPLEMENTED** (page-lifecycle coordinator + timeout/retry/busy/auth; transport boundary mocked) |
+| B/F/J | **SIMULATION-TESTED** (thin remaining coverage) |
+| Q.9 Tailscale phone route, ChatGPT auth, real model inference burn | **UNQUALIFIED** (external deps absent; explicitly not faked) |
 
-The finish line is a real assembled-controller test proving the pipeline end-to-end,
-which is **achieved for the Windows and WSL executor paths**. Remaining real-external
-items are explicitly UNQUALIFIED and must not be claimed as done.
+The production buildApp gate (`Q.APP.1`) and the service-graph gate (`Q.WIN.1/WSL.1/3`) together prove the pipeline; neither is conflated with the other. Remaining `UNQUALIFIED` items are the truly external ChatGPT/Tailscale/inference dependencies.
 
 ---
 

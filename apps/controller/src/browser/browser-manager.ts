@@ -13,6 +13,7 @@ import type { BrowserDriver } from "./browser-driver.js";
 import { PlaywrightDriver } from "./playwright-driver.js";
 import { SolWakeSubmitter } from "./sol-wake-submitter.js";
 import type { SolWakeStore } from "./sol-wake-store.js";
+import { getChromiumStatus, type ChromiumStatus } from "./provisioning.js";
 
 export interface BrowserManagerOptions {
   dataDir: string;
@@ -20,11 +21,28 @@ export interface BrowserManagerOptions {
   wakeStore: SolWakeStore;
   submitter?: SolWakeSubmitter;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
+  solTimeoutMs?: number;
+  onSolStalled?: (repositoryId: string, runId: string, errorMessage: string) => void | Promise<void>;
 }
 
 /** Backpressure budget before a wake is reported busy/queued (L). */
 const WAKE_LOCK_RETRIES = 5;
 const WAKE_LOCK_RETRY_MS = 1500;
+export const DEFAULT_SOL_TIMEOUT_MS = 20 * 60 * 1000;
+
+export interface SolOperationRecord {
+  repositoryId: string;
+  runId: string;
+  iteration: number;
+  wakeId: string;
+  submittedAt: string;
+  deadline: number;
+  retryCount: number;
+  conversationUrl: string;
+  repositoryName: string;
+  dispatchId: string | null;
+  resultStatus: SolWakeResultStatus;
+}
 
 export class BrowserManager {
   private readonly profileDir: string;
@@ -34,6 +52,11 @@ export class BrowserManager {
   private readonly submitter: SolWakeSubmitter;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private isSetupOpen = false;
+  private readonly solTimeoutMs: number;
+  private onSolStalled?: (repositoryId: string, runId: string, errorMessage: string) => void | Promise<void>;
+
+  private readonly solOperations = new Map<string, SolOperationRecord>();
+  private readonly solTimeoutHandles = new Map<string, NodeJS.Timeout>();
 
   constructor(options: BrowserManagerOptions) {
     this.profileDir = path.join(options.dataDir, "browser", "profile");
@@ -42,6 +65,12 @@ export class BrowserManager {
     this.wakeStore = options.wakeStore;
     this.submitter = options.submitter || new SolWakeSubmitter();
     this.eventPublisher = options.eventPublisher;
+    this.solTimeoutMs = options.solTimeoutMs ?? DEFAULT_SOL_TIMEOUT_MS;
+    this.onSolStalled = options.onSolStalled;
+  }
+
+  setSolStalledHandler(handler: (repositoryId: string, runId: string, errorMessage: string) => void | Promise<void>): void {
+    this.onSolStalled = handler;
   }
 
   async openSetupBrowser(): Promise<void> {
@@ -80,6 +109,7 @@ export class BrowserManager {
   /**
    * Submit a Sol wake. Returns the durable wake record. Real ChatGPT transport
    * is handled by the driver/submitter; the loop uses the returned status.
+   * Keeps repository page alive until expected Git transition (dispatch or control) arrives.
    */
   async submitSolWake(
     repositoryId: string,
@@ -104,10 +134,6 @@ export class BrowserManager {
     });
 
     // Duplicate wake idempotency (L): do not double-submit the SAME wake intent.
-    // The wake intent is its full generated message (runId + iteration + dispatchId
-    // + resultStatus). The initial wake and a later executor-completed wake for the
-    // same run are DISTINCT intents and BOTH must be delivered; keying dedup on
-    // runId alone would silently swallow the subsequent wake (Q/L defect).
     const existing = this.wakeStore
       .getByRepository(repositoryId)
       .find(
@@ -171,35 +197,145 @@ export class BrowserManager {
         repositoryId
       });
 
-      // Close this repository's page when its Sol operation completes (L).
-      await this.closeRepositoryPage(repositoryId);
+      // FIX #9: Keep repository page alive until expected Git transition arrives.
+      // Record Sol operation for lifecycle tracking, schedule timeout, do NOT close page here.
+      this.registerSolOperation(repositoryId, {
+        runId: params.runId,
+        iteration: params.iteration,
+        wakeId,
+        submittedAt,
+        conversationUrl: params.conversationUrl,
+        repositoryName: params.repositoryName,
+        dispatchId: params.dispatchId ?? null,
+        resultStatus: params.resultStatus
+      });
+
       return this.wakeStore.get(wakeId)!;
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
-      // Cloudflare/CAPTCHA/verification -> ATTENTION_REQUIRED signal for the loop.
+      const isBusy = /BUSY/i.test(errorMessage);
       const needsAttention =
-        /ATTENTION_REQUIRED|verification|cloudflare|captcha|login required/i.test(errorMessage);
+        /ATTENTION_REQUIRED|CHATGPT_AUTH_REQUIRED|verification|cloudflare|captcha|login required/i.test(errorMessage);
+      if (isBusy) {
+        // Bounded backpressure: mark busy, do not treat as hard failure, do not bypass limits
+        this.wakeStore.updateStatus(wakeId, "busy", { errorMessage });
+        // Keep page alive for potential retry after backoff? For now mark busy and return.
+        return this.wakeStore.get(wakeId)!;
+      }
       this.wakeStore.updateStatus(wakeId, "failed", { errorMessage });
       throw new Error(needsAttention ? `ATTENTION_REQUIRED: ${errorMessage}` : errorMessage);
     } finally {
-      // If no active Sol pages remain, close Chromium so it does not idle (L).
-      if (!this.isSetupOpen && this.driver.activePageCount() === 0) {
+      // Do NOT close Chromium here based on activePageCount ==0 check that would race with kept-alive pages.
+      // Only close if driver has no pages and no pending Sol operations and not in setup.
+      if (!this.isSetupOpen && this.driver.activePageCount() === 0 && this.solOperations.size === 0) {
         await this.driver.close().catch(() => {});
       }
-      // Automated lock is released when the full browser closes; release defensively.
       if (!this.driver.isRunning()) {
         this.lockManager.release();
       }
     }
   }
 
-  /** Close the browser page associated with a repository (L). */
+  /** Close the browser page associated with a repository (L). Scoped to that repository only. */
   async closeRepositoryPage(repositoryId: string): Promise<void> {
     try {
       await this.driver.closePage(repositoryId);
     } catch (err) {
       console.warn("[BrowserManager] Failed to close repository page:", err);
     }
+    // Do not affect other repositories' pages
+    if (!this.isSetupOpen && this.driver.activePageCount() === 0 && this.solOperations.size === 0) {
+      await this.driver.close().catch(() => {});
+      this.lockManager.release();
+    }
+  }
+
+  /**
+   * FIX #9: Mark Sol operation complete for a repository when expected Git transition arrives.
+   * Called by LoopService.onDispatchDetected / onControlDetected. Correlated to run/iteration
+   * via the stored SolOperationRecord; if runId mismatches, no-op (stale).
+   * Closes only that repository's page; if no active Sol pages remain, closes Chromium.
+   */
+  async completeSolOperation(repositoryId: string, runId?: string): Promise<void> {
+    const op = this.solOperations.get(repositoryId);
+    if (!op) return;
+    if (runId && op.runId !== runId) return; // correlated to correct run only
+
+    // Clear timeout handle for this repository
+    const handle = this.solTimeoutHandles.get(repositoryId);
+    if (handle) {
+      clearTimeout(handle);
+      this.solTimeoutHandles.delete(repositoryId);
+    }
+    this.solOperations.delete(repositoryId);
+
+    await this.closeRepositoryPage(repositoryId);
+  }
+
+  /**
+   * FIX #9: Check for Sol operation timeouts. Used by fake-clock tests and by real timer callback.
+   * If no expected Git transition before deadline, retry once idempotently; if still no transition, SOL_STALLED.
+   * Scoped per repository; one repo's stall never closes unrelated pages.
+   */
+  async checkSolTimeouts(nowMs: number = Date.now()): Promise<void> {
+    const stalled: SolOperationRecord[] = [];
+    for (const [repoId, op] of this.solOperations.entries()) {
+      if (nowMs >= op.deadline) {
+        if (op.retryCount < 1) {
+          // Retry once idempotently: resubmit same wake intent via page resend
+          op.retryCount += 1;
+          op.deadline = nowMs + this.solTimeoutMs;
+          // Reschedule timeout handle
+          this.scheduleSolTimeout(repoId, op);
+          try {
+            await this.retrySolWake(op);
+          } catch (e: any) {
+            // Retry failed -> will be caught on next deadline check as stall
+            console.warn(`[BrowserManager] Sol retry failed for ${repoId}:`, e?.message || String(e));
+          }
+        } else {
+          stalled.push(op);
+        }
+      }
+    }
+    for (const op of stalled) {
+      const handle = this.solTimeoutHandles.get(op.repositoryId);
+      if (handle) {
+        clearTimeout(handle);
+        this.solTimeoutHandles.delete(op.repositoryId);
+      }
+      this.solOperations.delete(op.repositoryId);
+      const errorMessage = `Sol operation timed out after ${this.solTimeoutMs}ms and one retry with no dispatch or control transition (SOL_STALLED)`;
+      // Update wake record if still submitted
+      try {
+        const wake = this.wakeStore.get(op.wakeId);
+        if (wake && wake.status === "submitted") {
+          this.wakeStore.updateStatus(op.wakeId, "failed", { errorMessage });
+        }
+      } catch {}
+      // Notify loop to mark run SOL_STALLED
+      if (this.onSolStalled) {
+        try {
+          await this.onSolStalled(op.repositoryId, op.runId, errorMessage);
+        } catch {}
+      }
+      // Close only that repository's page
+      await this.closeRepositoryPage(op.repositoryId);
+    }
+  }
+
+  /** For tests: expose pending operations */
+  getSolOperations(): Map<string, SolOperationRecord> {
+    return new Map(this.solOperations);
+  }
+
+  /** For tests: inject fake time without real timeout */
+  getSolTimeoutMs(): number {
+    return this.solTimeoutMs;
+  }
+
+  async getProvisioningStatus(): Promise<ChromiumStatus> {
+    return getChromiumStatus();
   }
 
   getStatus(): BrowserStatus {
@@ -214,6 +350,10 @@ export class BrowserManager {
   }
 
   async close(): Promise<void> {
+    // Clear all pending Sol timeouts
+    for (const h of this.solTimeoutHandles.values()) clearTimeout(h);
+    this.solTimeoutHandles.clear();
+    this.solOperations.clear();
     try {
       if (this.driver.isRunning()) {
         await this.driver.close();
@@ -222,6 +362,73 @@ export class BrowserManager {
       this.lockManager.release();
       this.isSetupOpen = false;
     }
+  }
+
+  private registerSolOperation(
+    repositoryId: string,
+    params: {
+      runId: string;
+      iteration: number;
+      wakeId: string;
+      submittedAt: string;
+      conversationUrl: string;
+      repositoryName: string;
+      dispatchId: string | null;
+      resultStatus: SolWakeResultStatus;
+    }
+  ): void {
+    const deadline = Date.now() + this.solTimeoutMs;
+    const record: SolOperationRecord = {
+      repositoryId,
+      runId: params.runId,
+      iteration: params.iteration,
+      wakeId: params.wakeId,
+      submittedAt: params.submittedAt,
+      deadline,
+      retryCount: 0,
+      conversationUrl: params.conversationUrl,
+      repositoryName: params.repositoryName,
+      dispatchId: params.dispatchId,
+      resultStatus: params.resultStatus
+    };
+    // Clear existing handle for this repo if any
+    const existingHandle = this.solTimeoutHandles.get(repositoryId);
+    if (existingHandle) clearTimeout(existingHandle);
+    this.solOperations.set(repositoryId, record);
+    this.scheduleSolTimeout(repositoryId, record);
+  }
+
+  private scheduleSolTimeout(repositoryId: string, op: SolOperationRecord): void {
+    const delay = Math.max(0, op.deadline - Date.now());
+    const handle = setTimeout(() => {
+      void this.checkSolTimeouts(Date.now());
+    }, delay);
+    // Allow process to exit without waiting for Sol timeout.
+    if ((handle as any).unref) (handle as any).unref();
+    this.solTimeoutHandles.set(repositoryId, handle);
+  }
+
+  private async retrySolWake(op: SolOperationRecord): Promise<void> {
+    // Idempotent retry: reuse same message; re-open page if needed and resubmit
+    const message = generateSolWakeMessage({
+      repositoryName: op.repositoryName,
+      runId: op.runId,
+      iteration: op.iteration,
+      dispatchId: op.dispatchId || "none",
+      resultStatus: op.resultStatus
+    });
+    if (!this.driver.isRunning()) {
+      // Re-acquire lock if needed
+      if (!this.lockManager.acquire("AUTOMATED")) {
+        throw new Error("Cannot retry Sol wake: profile locked");
+      }
+      await this.driver.launch(this.profileDir, true);
+    }
+    const page = await this.driver.openPage(op.repositoryId, op.conversationUrl);
+    await this.submitter.submitWake(page, message);
+    const now = new Date().toISOString();
+    this.wakeStore.updateStatus(op.wakeId, "submitted", { submittedAt: now });
+    op.submittedAt = now;
   }
 
   private publishEvent(event: RepositoryMutationEvent): void {

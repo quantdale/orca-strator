@@ -67,20 +67,20 @@ export function buildTestInvocation(params: BuildInvocationParams): ExecutorInvo
 }
 
 function buildKimiInvocation(params: BuildInvocationParams): ExecutorInvocation {
-  // Kimi Code CLI convention (verify against installed `--help`):
-  //   kimi-code --model <model> --prompt "<prompt>"
+  // Kimi Code CLI verified (--help 0.34.0): `kimi -m <model> -p "<prompt>"` (also --model)
+  // Use -p for prompt (documented non-interactive mode).
   return {
     command: params.cli,
-    args: ["--model", params.model, "--prompt", params.prompt]
+    args: ["-m", params.model, "-p", params.prompt]
   };
 }
 
 function buildCodexInvocation(params: BuildInvocationParams): ExecutorInvocation {
-  // Codex CLI convention (verify against installed `--help`):
-  //   codex --model <model> "<prompt>"
+  // Codex CLI verified (0.147.0): `codex exec -m <model> -C <dir> [--json] "<prompt>"`
+  // Non-interactive exec subcommand; --cd is -C. Do not burn quota in qualification; syntax only.
   return {
     command: params.cli,
-    args: ["--model", params.model, params.prompt]
+    args: ["exec", "-m", params.model, "--json", params.prompt]
   };
 }
 
