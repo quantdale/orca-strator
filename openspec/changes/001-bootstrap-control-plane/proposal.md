@@ -69,7 +69,7 @@ These are already locked and should shape the foundation:
 - one active executor max per repository;
 - different repositories may run concurrently with no global executor cap;
 - user owns executor CLI/model selection;
-- default integration branch is `main`, configurable per repository;
+- V1 Git integration is fixed to `main`; there is no branch field in repository configuration;
 - controller owns runtime truth, not Electron;
 - GitHub/Git will later carry durable cross-agent handoffs;
 - SQLite carries local orchestration state;
@@ -84,7 +84,7 @@ After Change 001, the user should be able to launch Orca-Strator and:
 3. add a repository configuration;
 4. choose Windows or WSL execution environment;
 5. enter the relevant local path and WSL distribution/path when applicable;
-6. configure GitHub remote, branch, executor CLI/model string, dedicated Sol conversation URL, and safety ceilings;
+6. configure GitHub remote, executor CLI/model string, dedicated Sol conversation URL, and safety ceilings;
 7. edit/delete/view repository configuration;
 8. restart the controller and see the same records restored;
 9. close/reopen Electron without losing controller-owned data;
@@ -119,7 +119,7 @@ Electron renderer code must not directly open SQLite or execute repository proce
 
 SQLite must initialize automatically and support ordered migrations from the first version.
 
-Change 001 only needs repository configuration persistence, but the migration mechanism must be usable later for runtime/run/event tables.
+Change 001 only needs static repository configuration persistence. Run goals, current actor, iterations, PIDs, and other changing autonomous-run state belong to later runtime tables/milestones.
 
 Runtime database files are machine-local and MUST NOT be committed to Git.
 
@@ -143,7 +143,8 @@ The UI obtains repository state exclusively through this controller boundary.
 - use temporary/isolated database paths in automated tests;
 - avoid an ORM/plugin framework unless a concrete need appears;
 - avoid hiding critical behavior behind Electron-only IPC when localhost API contracts are the intended shared boundary;
-- do not expose the controller beyond localhost in Change 001.
+- do not expose the controller beyond localhost in Change 001;
+- preserve `.gitattributes`, `.editorconfig`, and `.gitignore` cross-platform/security baselines already seeded in the repository.
 
 ## Implementation strategy
 
@@ -177,7 +178,7 @@ Repository configuration must not assume one path format. WSL repositories requi
 
 ### Premature runtime-state design
 
-Later autonomous states are already defined in `docs/RUNTIME-MODEL.md`, but Change 001 should only model the minimal status/config fields required for a coherent dashboard. Do not implement the autonomous state machine early.
+Later autonomous states are already defined in `docs/RUNTIME-MODEL.md`, but Change 001 should only model static repository configuration and the minimal UI connection/configuration status required for a coherent dashboard. Do not implement the autonomous state machine or run-goal persistence early.
 
 ## Success criteria
 
@@ -187,6 +188,7 @@ Change 001 is complete only when all detailed delta-spec requirements and tasks 
 - controller runs independently;
 - repository CRUD persists through restart;
 - Windows/WSL invariants are validated;
+- V1 repository data/API/UI contain no configurable branch field and assume `main`;
 - UI uses controller API rather than direct persistence;
 - multiple repository records render independently;
 - Electron hosts the same responsive UI;
@@ -206,6 +208,7 @@ After implementation, perform a deep repository review before Change 002. The re
 - SQLite migration/storage design;
 - API/event contracts;
 - Windows/WSL repository configuration semantics;
+- whether unnecessary branch/run-state fields leaked into the configuration foundation;
 - responsive UI architecture;
 - unnecessary dependencies/abstractions;
 - test quality and developer startup reproducibility.
