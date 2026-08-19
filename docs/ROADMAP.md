@@ -322,9 +322,9 @@ Demonstrate deliberately interrupted/restarted Orca can explain what happened, p
 
 ## Milestone 7 — Private phone access and notifications
 
-OpenSpec: `007-remote-phone-experience`
+OpenSpec: `007-remote-phone-experience` (folded into `openspec/specs/remote-phone-experience/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
@@ -373,9 +373,9 @@ From authorized phone on private tailnet:
 
 ## Milestone 8 — End-to-end autonomy qualification
 
-Planned OpenSpec: `008-autonomy-qualification`
+OpenSpec: `008-end-to-end-autonomy-qualification`
 
-Status: **planned**
+Status: **active**
 
 ### Purpose
 

@@ -68,3 +68,23 @@ export function getActiveActor(state: LoopState): "SOL" | "EXECUTOR" | "NONE" {
   if (state === "EXECUTOR_PENDING" || state === "EXECUTING") return "EXECUTOR";
   return "NONE";
 }
+
+export function shouldNotifyLoopState(state: LoopState): boolean {
+  return (
+    state === "GOAL_COMPLETE" ||
+    state === "NEEDS_HUMAN" ||
+    state === "BLOCKED" ||
+    state === "SOL_STALLED" ||
+    state === "EXECUTOR_UNAVAILABLE" ||
+    state === "RECOVERY_REQUIRED" ||
+    state === "STOPPED"
+  );
+}
+
+export interface TailscaleGuidance {
+  loopbackPort: number;
+  loopbackUrl: string;
+  command: string;
+  status: "configured" | "unconfigured";
+  instructions: string[];
+}

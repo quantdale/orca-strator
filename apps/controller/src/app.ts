@@ -12,6 +12,7 @@ import { watcherRoutes } from './http/routes/watcher.js';
 import { executorRoutes } from './http/routes/executor.js';
 import { browserRoutes } from './http/routes/browser.js';
 import { runRoutes } from './http/routes/runs.js';
+import { systemRoutes } from './http/routes/system.js';
 import { websocketRoutes } from './events/websocket.js';
 import { registerStaticUi } from './http/static-ui.js';
 import { DispatchStore } from './watcher/dispatch-store.js';
@@ -124,6 +125,7 @@ export async function buildApp(
   await fastify.register(executorRoutes(executorService, repositoryService));
   await fastify.register(browserRoutes(browserManager, repositoryService, dispatchStore));
   await fastify.register(runRoutes(loopService, repositoryService));
+  await fastify.register(systemRoutes(config.port));
   await fastify.register(websocketRoutes(eventBus));
 
   await registerStaticUi(fastify, config.uiDistDir);

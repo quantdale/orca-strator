@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 7,
-  "activeChange": "007-remote-phone-experience",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6],
-  "planningBaseSha": "bc732a7",
+  "activeMilestone": 8,
+  "activeChange": "008-end-to-end-autonomy-qualification",
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7],
+  "planningBaseSha": "2ba0e5e",
   "checkpoint": {
-    "summary": "Milestone 6 (runtime ceilings, recovery, and hardening) is fully implemented, verified (128 tests passing across all workspaces, wall-clock budget checking with graceful DRAINING at handoff boundaries, StartupReconciler for controller crash and restart recovery, RECOVERY_REQUIRED workflow with POST /api/repositories/:id/runs/recover retry/stop/complete controls, and LogRotator for bounded executor log file retention), and folded into canonical openspec/specs/runtime-recovery-hardening/. Milestone 7 (private phone access and notifications) is now active.",
-    "updatedAt": "2026-08-19T22:45:00+08:00",
-    "lastCompletedTask": "Complete Milestone 6 runtime recovery and hardening, fold into canonical spec, and activate Milestone 7 OpenSpec",
-    "lastVerification": "Full workspace typecheck passed with 0 errors, all 128 Vitest tests passed, build and lint succeeded."
+    "summary": "Milestone 7 (private phone access and notifications) is fully implemented, verified (132 tests passing across all workspaces, GET /api/system/tailscale endpoint for loopback reverse-proxy guidance, notification filtering helper in @orca/shared, responsive mobile layout in apps/ui with live run controls Start/Pause/Resume/Stop/Recover, and browser notification dispatcher), and folded into canonical openspec/specs/remote-phone-experience/. Milestone 8 (end-to-end autonomy qualification) is now active.",
+    "updatedAt": "2026-08-19T22:49:00+08:00",
+    "lastCompletedTask": "Complete Milestone 7 private phone access and notifications, fold into canonical spec, and activate Milestone 8 OpenSpec",
+    "lastVerification": "Full workspace typecheck passed with 0 errors, all 132 Vitest tests passed, build and lint succeeded."
   },
-  "nextAction": "Implement Milestone 7 (openspec/changes/007-remote-phone-experience): shouldNotifyEvent helper in @orca/shared, GET /api/system/tailscale endpoint, responsive mobile cards with live run controls in apps/ui, web notification routing for problem and terminal states, and mobile integration tests.",
+  "nextAction": "Implement Milestone 8 (openspec/changes/008-end-to-end-autonomy-qualification): e2e-autonomy-qualification integration suite covering multi-repo concurrent loops, Windows/WSL matrix, Sol bridge, crash reconstruction, ceilings, and phone access, followed by final V1 roadmap completion.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

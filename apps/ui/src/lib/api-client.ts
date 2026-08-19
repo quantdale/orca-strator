@@ -94,6 +94,55 @@ export function createApiClient(baseUrl = "") {
         method: "DELETE"
       });
       return handleResponse<void>(res);
+    },
+
+    async getRunStatus(id: string): Promise<{ status: any }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/runs/active`);
+      return handleResponse<{ status: any }>(res);
+    },
+
+    async startRun(id: string, goal: string, maxIterations?: number): Promise<{ run: any }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/runs/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal, maxIterations })
+      });
+      return handleResponse<{ run: any }>(res);
+    },
+
+    async pauseRun(id: string): Promise<{ status: string }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/runs/pause`, {
+        method: "POST"
+      });
+      return handleResponse<{ status: string }>(res);
+    },
+
+    async resumeRun(id: string): Promise<{ status: string }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/runs/resume`, {
+        method: "POST"
+      });
+      return handleResponse<{ status: string }>(res);
+    },
+
+    async stopRun(id: string): Promise<{ status: string }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/runs/stop`, {
+        method: "POST"
+      });
+      return handleResponse<{ status: string }>(res);
+    },
+
+    async recoverRun(id: string, action: "retry" | "stop" | "complete"): Promise<{ run: any }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/runs/recover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action })
+      });
+      return handleResponse<{ run: any }>(res);
+    },
+
+    async getTailscaleGuidance(): Promise<{ tailscale: any }> {
+      const res = await fetch(`${cleanBase}/api/system/tailscale`);
+      return handleResponse<{ tailscale: any }>(res);
     }
   };
 }

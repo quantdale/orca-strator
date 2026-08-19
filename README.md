@@ -109,19 +109,22 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 6 — Runtime ceilings, recovery, and hardening** is complete and folded (`openspec/specs/runtime-recovery-hardening/`).
 
-**Milestone 7 — Private phone access and notifications** is active:
+**Milestone 7 — Private phone access and notifications** is complete and folded (`openspec/specs/remote-phone-experience/`).
+
+**Milestone 8 — End-to-end autonomy qualification** is active:
 
 Active OpenSpec:
 
 ```text
-openspec/changes/007-remote-phone-experience/
+openspec/changes/008-end-to-end-autonomy-qualification/
 ```
 
-Milestone 7 builds:
-- private phone access via Tailscale Serve reverse-proxied to loopback controller;
-- relative `/api` and same-origin WebSocket events across desktop and phone views;
-- phone-responsive repository timeline and control cards;
-- problem and terminal state notification routing (Goal Complete, Needs Human, Blocked, Sol Stalled, Recovery Required).
+Milestone 8 qualifies:
+- full-lifecycle leave-and-forget autonomy across multiple concurrent repositories;
+- Windows & WSL executor matrix execution;
+- ChatGPT Sol bridge interaction under rate limits/busy states;
+- comprehensive crash, restart, reboot, and network recovery qualification;
+- complete end-to-end verification across all subpackages and apps.
 
 ## Durable development workflow
 
