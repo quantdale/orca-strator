@@ -2,7 +2,7 @@
 
 ## 1. Summary
 
-Change 001a corrects foundation defects found during the mandatory deep review of Change 001. It preserves the original control-plane architecture:
+Change 001a corrects foundation defects found during the deep review of Change 001 while preserving the original control-plane architecture:
 
 ```text
 shared contracts
@@ -14,79 +14,40 @@ controller   UI
             Electron
 ```
 
-No new runtime subsystem is introduced. The objective is to make the existing foundation honest, reproducible, and safe to extend.
+No new autonomy subsystem belongs inside 001a. The objective is to make the existing foundation honest, reproducible, and safe to extend. Once the corrective exit gate is met, the agent folds Milestone 1 and continues into the next focused roadmap OpenSpec rather than stopping for review by default.
 
 ## 2. Development-stack design
 
-### Required developer experience
+From a fresh checkout after install, `npm run dev` must launch a usable stack containing:
 
-From a fresh checkout after install, one documented command:
+- running controller HTTP/WebSocket process;
+- Vite dev server;
+- Electron desktop shell loading the Vite UI;
+- any shared-package watch/build prerequisite required by the selected workspace approach.
 
-```text
-npm run dev
-```
+A TypeScript watch compiler is not a controller runtime.
 
-must launch a usable development stack that includes:
-
-- a running controller HTTP/WebSocket process;
-- the Vite development server;
-- the Electron desktop shell loading the Vite UI;
-- any required shared-package watch/build process.
-
-A TypeScript compiler watch process by itself is not the controller runtime.
-
-### Process supervision
-
-The implementation may use a small dependency or a focused repository script, but it must:
-
-1. build/prepare prerequisites before dependent processes start;
-2. ensure controller readiness before Electron is expected to use it;
-3. pass the Vite development URL to Electron automatically;
-4. terminate child process trees reliably when the dev stack exits;
-5. work on Windows, not only POSIX shells;
-6. keep `npm run dev:controller`, `npm run dev:ui`, and `npm run dev:desktop` useful independently where practical.
-
-Do not build a generalized production supervisor in this change.
+The supervisor must prepare prerequisites, avoid undocumented startup races, pass the Vite URL to Electron automatically, clean up child process trees on Windows, and keep the controller separately runnable. Do not build a generalized production supervisor here.
 
 ## 3. Workspace dependency design
 
-### Problem
+`@orca/shared` must not require stale ignored `dist` output for root verification or development.
 
-`@orca/shared` currently exposes generated `dist` files, but those files are ignored and absent from a fresh checkout. Root verification commands must not accidentally depend on stale build output.
+Choose the simplest explicit dependency-aware approach: TypeScript project references/build mode, source/path mapping for development/tests, or automatic prerequisite build steps. Developers/agents must not need to remember an undocumented "build shared first" ritual.
 
-### Requirement
-
-Choose one simple, explicit approach that makes dependency ordering deterministic. Acceptable approaches include:
-
-- TypeScript project references/build mode plus dependency-aware root scripts;
-- source/path mapping for development and tests with normal built-package exports for runtime;
-- a small prerequisite build step that is automatically performed by root verification/dev scripts.
-
-The implementation must not require the developer to remember "build shared first" as an undocumented manual step.
-
-### Clean-checkout proof
-
-Verification must delete generated workspace output before testing the documented sequence. A passing run after previous builds is not enough.
+The specific clean-output concern should be reproduced directly. This targeted reproduction is required; a broad startup baseline test suite is not.
 
 ## 4. Technology baseline reconciliation
 
-The locked baseline remains authoritative unless implementation evidence proves a specific incompatibility.
+The locked baseline remains authoritative unless reproduced implementation evidence proves a specific incompatibility.
 
-The corrective change should align package manifests/lockfile to the supported lines documented in `docs/TECH-BASELINE.md`, including the selected React, Vite, Tailwind, Vitest, Electron, Node/npm, and Node type-definition lines.
+Align package manifests/lockfile with `docs/TECH-BASELINE.md` for React, Vite, Tailwind, Vitest, Electron, Node/npm and relevant type/plugin packages. If a baseline line cannot work, reproduce it and amend `docs/TECH-BASELINE.md`/`docs/DECISIONS.md` explicitly before using an alternative.
 
-If any baseline line cannot be used:
-
-1. reproduce the incompatibility;
-2. record evidence;
-3. update `docs/TECH-BASELINE.md` and `docs/DECISIONS.md` before committing an alternative.
-
-Do not silently downgrade because a coding model scaffolded from older defaults.
+Do not silently keep older scaffold defaults.
 
 ## 5. Migration transaction design
 
-Each unapplied migration must be atomic with its migration metadata record.
-
-Conceptual sequence:
+Each unapplied migration body and its `schema_migrations` insertion must be atomic:
 
 ```text
 BEGIN
@@ -95,53 +56,41 @@ BEGIN
 COMMIT
 ```
 
-On error:
+On error, roll back and rethrow. No migration may be marked applied unless its body succeeded, and ordinary transactional failure must not leave partial schema/data behind.
+
+Add deterministic injected failure tests for both migration-body and metadata-recording failure paths where practical.
+
+## 6. WebSocket lifecycle design
+
+REST remains authoritative; WebSocket events are synchronization hints.
+
+Required lifecycle:
 
 ```text
-ROLLBACK
-throw
+connect
+ → connected
+ → transient close/error
+ → disconnected
+ → bounded reconnect
+ → connected
+ → authoritative refetch
 ```
 
 Requirements:
 
-- no migration is marked applied unless its full body succeeded;
-- no partial body should remain after an ordinary transactional failure;
-- failed startup must not claim health/readiness;
-- tests must inject a deliberately failing migration and prove rollback + no metadata row.
+- later legitimate `connect()` re-enables reconnect intent after a prior intentional disconnect;
+- close/error schedules exactly one reconnect when desired;
+- stale socket callbacks cannot clobber a replacement socket;
+- React StrictMode setup/cleanup/setup does not permanently disable reconnect;
+- singleton ownership is explicit enough that one consumer cleanup does not unexpectedly kill all remaining consumers.
 
-Refactor `runMigrations` to accept/test migration definitions if that is the smallest way to exercise failure deterministically.
-
-## 6. WebSocket lifecycle design
-
-The event channel remains a best-effort sync hint; REST remains authoritative.
-
-Correct client lifecycle must satisfy:
-
-```text
-connect
- -> connected
- -> transient close/error
- -> disconnected
- -> bounded reconnect
- -> connected
- -> authoritative refetch
-```
-
-### Required fixes
-
-- `connect()` must re-enable reconnect intent after a prior normal `disconnect()` when a new owner starts the client again;
-- error and close paths must schedule exactly one reconnect when appropriate;
-- stale socket callbacks must not overwrite the state of a newer socket;
-- React StrictMode setup/cleanup/setup must not permanently disable reconnect;
-- if a singleton is shared by more than one UI consumer, one consumer unmounting must not unexpectedly disconnect all remaining consumers. Prefer one app-shell owner or an explicit reference-count/ownership model rather than accidental global lifetime.
-
-Add deterministic fake-WebSocket tests for open, close, error, reconnect, disconnect, and remount behavior.
+Use deterministic fake-WebSocket tests.
 
 ## 7. Routing and deep-link design
 
-Change 001 established controller-side SPA history fallback. The client must actually use history/pathname routing that matches that contract.
+Controller-side SPA history fallback already exists. The client must use pathname/history routing that matches it.
 
-Required routes remain approximately:
+Required routes:
 
 ```text
 /                         repositories list
@@ -150,91 +99,70 @@ Required routes remain approximately:
 /repositories/:id/edit    edit repository
 ```
 
-Hash-only routes such as `#/repositories/:id` do not satisfy the direct-reload acceptance requirement.
-
-Implementation may use a small routing library or focused custom history routing. Prefer established routing rather than maintaining a growing manual parser if the dependency is reasonable.
-
-Tests must prove both:
-
-1. controller returns SPA shell for the path; and
-2. React booted at that pathname renders the intended screen after repository data loads.
+Hash-only routing does not satisfy the direct-reload contract. Prefer an established lightweight routing library or focused history routing. Tests must prove both server fallback and actual React rendering at direct pathnames.
 
 ## 8. Sol conversation URL validation
 
-V1 stores one exact dedicated ChatGPT conversation URL per repository.
-
-Validation should accept only recognized conversation-path forms intentionally supported by Orca. For ordinary ChatGPT V1, prefer a strict shape equivalent to:
+V1 stores one exact dedicated ChatGPT conversation URL per repository. Prefer strict support for the normal form:
 
 ```text
 https://chatgpt.com/c/<conversation-id>
 ```
 
-Legacy host support may remain if deliberately needed, but generic paths such as:
+Only add other forms deliberately. Generic pages such as `/pricing`, `/settings`, `/foo`, or the homepage must be rejected.
 
-```text
-https://chatgpt.com/pricing
-https://chatgpt.com/settings
-https://chatgpt.com/foo
-```
+## 9. Controller/API cleanup
 
-must be rejected.
+Fix directly related inconsistencies while hardening:
 
-Do not expand URL forms for hypothetical future ChatGPT products without evidence.
+- validate controller port/config before passing invalid values to runtime APIs;
+- unknown `/api/*` should use a route-appropriate not-found identity rather than `REPOSITORY_NOT_FOUND`;
+- keep API errors structured and avoid raw stack leakage;
+- update contracts/tests if error identity changes.
 
-## 9. Acceptance evidence design
+Do not widen this into a general controller refactor.
 
-A checked OpenSpec task must map to reproducible evidence.
+## 10. Verification design
 
-### Automated evidence
+Do **not** run a broad baseline suite at the beginning of the goal-mode session.
 
-Add or improve tests for:
+Use:
 
-- migration rollback;
-- WebSocket reconnect/remount;
-- deep-link routing;
-- strict Sol URL validation;
-- clean-workspace dependency resolution;
-- same-origin client behavior.
+1. targeted reproduction of each known review defect;
+2. focused tests/checks during implementation;
+3. broader root typecheck/test/lint/build at meaningful completion checkpoints;
+4. actual smoke evidence for controller, dev stack, Electron, built SPA, direct deep links, and persistence before claiming those acceptance gates.
 
-### Process/smoke evidence
+A checked OpenSpec task must map to evidence actually exercised. Do not infer Electron launch success from a helper-function unit test.
 
-At minimum record the exact commands/outcomes for:
+If one check remains blocked but independent safe work exists, record the issue and continue other tasks. The blocker only becomes global when no meaningful safe roadmap work remains.
 
-- clean install;
-- root typecheck;
-- root tests;
-- root lint;
-- root build;
-- controller standalone start/health;
-- `npm run dev` actual controller + Vite + Electron startup;
-- controller-served built SPA;
-- direct deep-link reload;
-- CRUD persistence across controller restart.
+## 11. Continuous roadmap transition
 
-Do not infer Electron launch success from a pure helper-function unit test.
+When all material 001a requirements are satisfied:
 
-## 10. Small contract cleanup
+1. reconcile Change 001 + 001a against the implemented Milestone 1 behavior;
+2. update inaccurate Change 001 task evidence;
+3. fold/archive accepted capability behavior into canonical `openspec/specs/`;
+4. mark Milestone 1 complete in roadmap/state;
+5. create/activate the Milestone 2 watcher/transactional-dispatch OpenSpec if absent;
+6. commit/push the transition;
+7. **continue implementation immediately**.
 
-While correcting the above, fix nearby contradictions only when they are low-risk and directly related. Examples:
+An external second Sol review is useful but non-blocking during unattended Kimi goal mode unless the user explicitly requests a review stop.
 
-- use an API-route-not-found code/message appropriate to an unknown API route rather than `REPOSITORY_NOT_FOUND`;
-- validate controller port/config values before passing invalid values to runtime APIs;
-- ensure README status matches waypoint/OpenSpec status;
-- ensure future Change 002 name in waypoint matches the roadmap when Milestone 1 is eventually accepted.
+## 12. Definition of done
 
-Do not widen this into a general refactor.
+001a is done when:
 
-## 11. Definition of done
-
-Change 001a is done only when:
-
-1. clean generated outputs are removed and documented root verification still works;
+1. clean-output workspace resolution is deterministic;
 2. `npm run dev` actually launches controller + UI + Electron on Windows;
-3. package versions match the locked supported baseline or an evidence-backed decision update exists;
+3. package versions match the locked baseline or an evidence-backed decision amendment exists;
 4. migrations are atomic and failure-tested;
-5. event reconnect survives errors and React StrictMode lifecycle;
-6. pathname deep links resolve correctly in the real UI;
-7. non-conversation ChatGPT URLs are rejected;
-8. acceptance checkboxes/evidence are reconciled truthfully;
-9. no Milestone 2 runtime code was added;
-10. the repository returns to `READY_FOR_REVIEW` for a second deep review.
+5. event reconnect survives errors and StrictMode lifecycle;
+6. pathname deep links render correctly in the actual UI;
+7. generic non-conversation ChatGPT URLs are rejected;
+8. controller/API cleanup above is complete;
+9. acceptance evidence is truthful;
+10. no Milestone 2 runtime code was mixed into 001a;
+11. Milestone 1 is folded and the next focused roadmap change is activated so continuous development can proceed.
