@@ -33,6 +33,40 @@ export const migrations: Migration[] = [
         );
       `);
     }
+  },
+  {
+    version: 2,
+    name: "002_create_dispatches",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS dispatches (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL,
+          iteration INTEGER NOT NULL,
+          commit_sha TEXT NOT NULL,
+          base_sha TEXT NOT NULL,
+          change_path TEXT NOT NULL,
+          goal TEXT NOT NULL,
+          instructions_version INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('detected', 'consumed', 'rejected')),
+          rejection_reason TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_dispatches_repo ON dispatches(repository_id);
+        CREATE INDEX IF NOT EXISTS idx_dispatches_commit ON dispatches(commit_sha);
+
+        CREATE TABLE IF NOT EXISTS watcher_state (
+          repository_id TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+          last_observed_sha TEXT,
+          last_polled_at TEXT,
+          last_error TEXT,
+          updated_at TEXT NOT NULL
+        );
+      `);
+    }
   }
 ];
 

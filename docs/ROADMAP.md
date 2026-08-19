@@ -105,9 +105,9 @@ From fresh Windows checkout:
 
 ## Milestone 2 — Repository watcher and transactional dispatch
 
-OpenSpec: `002-repository-watch-dispatch`
+OpenSpec: `002-repository-watch-dispatch` (folded into `openspec/specs/repository-watch-dispatch/`)
 
-Status: **active**
+Status: **complete**
 
 ### Purpose
 
@@ -142,17 +142,13 @@ Prove:
 - controller restart does not forget consumed dispatches;
 - no branch-routing code path exists in V1 watcher runtime.
 
-### Review checkpoint
-
-Review dispatch protocol and Git edge cases before process execution attaches to it.
-
 ---
 
 ## Milestone 3 — Headless executor runtime
 
-Planned OpenSpec: `003-headless-executor-runtime`
+OpenSpec: `003-headless-executor-runtime`
 
-Status: **planned**
+Status: **active**
 
 ### Purpose
 

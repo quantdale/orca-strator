@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "READY_TO_IMPLEMENT",
   "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
-  "activeMilestone": 2,
-  "activeChange": "002-repository-watch-dispatch",
-  "completedMilestones": [0, 1],
-  "planningBaseSha": "b791aca22a6133be421919ba5ae02a8335f60bf5",
+  "activeMilestone": 3,
+  "activeChange": "003-headless-executor-runtime",
+  "completedMilestones": [0, 1, 2],
+  "planningBaseSha": "bedc59ae4402636f32e604f7c10b784a0d9b4b7c",
   "checkpoint": {
-    "summary": "Milestone 1 control plane foundation and corrective hardening (001 and 001a) are completely implemented, verified (57 tests passing across shared/controller/desktop/ui, atomic migrations, robust WebSocket reconnect, browser deep-link history routing, tech baseline alignment with React 19.2/Vite 8.1/Tailwind 4.3/Vitest 4.1/Electron 43/Node 24, and clean-output builds), and folded into canonical openspec/specs/control-plane-foundation/. Milestone 2 (repository watcher and transactional dispatch) is now active.",
-    "updatedAt": "2026-08-19T22:20:00+08:00",
-    "lastCompletedTask": "Fold Milestone 1 control plane foundation into canonical specs and activate Milestone 2 OpenSpec",
-    "lastVerification": "Full workspace clean typecheck, 57 vitest tests, production SPA/API smoke, and dev supervisor smoke verified successfully."
+    "summary": "Milestone 2 (repository watcher and transactional dispatch) is fully implemented, verified (83 tests passing across all workspaces including unit and temporary bare-remote Git integration tests for main-only polling, isolated dispatch commits, mixed-commit rejection, and multi-repo concurrency), and folded into canonical openspec/specs/repository-watch-dispatch/. Milestone 3 (headless executor runtime) is now active.",
+    "updatedAt": "2026-08-19T22:26:00+08:00",
+    "lastCompletedTask": "Complete Milestone 2 repository watcher and transactional dispatch, fold into canonical spec, and activate Milestone 3 OpenSpec",
+    "lastVerification": "Full workspace typecheck passed with 0 errors, all 83 Vitest tests passed, build and lint succeeded."
   },
-  "nextAction": "Implement Milestone 2 (openspec/changes/002-repository-watch-dispatch): DispatchMarker protocol types/schemas in @orca/shared, SQLite migration 002 for dispatches and watcher_state, GitClient and CommitInspector in @orca/controller, WatcherService with remote main polling, REST/WebSocket watcher observability, and temporary bare Git remote integration tests.",
+  "nextAction": "Implement Milestone 3 (openspec/changes/003-headless-executor-runtime): ExecutorResult protocol types/schemas in @orca/shared, SQLite migration 003 for executor_runs, WindowsPowerShellAdapter and WslAdapter, ExecutorRunner process supervisor with log streaming, operational controls (Pause/Resume/Kill), REST endpoints, and FakeExecutor qualification integration tests.",
   "blockers": [],
   "developmentPolicies": {
     "branch": "main",

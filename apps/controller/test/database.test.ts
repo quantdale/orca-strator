@@ -26,18 +26,20 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
   });
 
   it('4.T1 fresh temp DB migrates and creates schema_migrations', () => {
-    const rows = dbCtx.db.prepare('SELECT version, name FROM schema_migrations').all() as any[];
-    expect(rows).toHaveLength(1);
+    const rows = dbCtx.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
+    expect(rows).toHaveLength(2);
     expect(rows[0].version).toBe(1);
     expect(rows[0].name).toBe('001_create_repositories');
+    expect(rows[1].version).toBe(2);
+    expect(rows[1].name).toBe('002_create_dispatches');
   });
 
   it('4.T2 reopen is idempotent and does not fail or duplicate migrations', () => {
     dbCtx.close();
     const reopened = initDatabase(dbPath);
-    const rows = reopened.db.prepare('SELECT version, name FROM schema_migrations').all() as any[];
-    expect(rows).toHaveLength(1);
-    reopened.close();
+    dbCtx = reopened;
+    const rows = reopened.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
+    expect(rows).toHaveLength(2);
   });
 
   it('4.T3 CRUD round-trips and supports multiple records', () => {
