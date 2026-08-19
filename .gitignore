@@ -1,0 +1,52 @@
+# Dependencies / build output
+node_modules/
+dist/
+build/
+out/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Test / browser automation output
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+playwright/.auth/
+
+# Local Orca runtime data (never commit browser/session/database state)
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+logs/
+runtime/
+browser-profile/
+.orca-local/
+
+# Local environment / credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs / temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# IDE / OS noise
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Note: managed repositories intentionally commit .orca/ coordination artifacts.
