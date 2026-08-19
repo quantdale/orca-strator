@@ -45,7 +45,7 @@ The executor remains the normal implementation workhorse.
 
 **Decision:** do not move Sol into Codex/API merely for orchestration.
 
-Reason: preserve the user's desired ChatGPT-browser usage economics/limits.
+Reason: preserve desired ChatGPT-browser usage economics/limits.
 
 ## D-006 — Sol -> executor transport
 
@@ -65,15 +65,15 @@ Watcher rejects a dispatch marker mixed with ordinary changes.
 
 **Decision:** Playwright browser automation.
 
-Playwright submits a trusted wake message into the configured exact ChatGPT conversation URL.
+Playwright submits a trusted wake message into configured exact ChatGPT conversation URL.
 
-Playwright does not scrape Sol output as the completion protocol.
+Playwright does not scrape Sol output as completion protocol.
 
 ## D-009 — Sol completion signal
 
 **Decision:** durable Git/GitHub transition, not browser DOM response completion.
 
-Expected outcome is a new valid dispatch or durable Sol control decision.
+Expected outcome is new valid dispatch or durable Sol control decision.
 
 ## D-010 — Browser architecture
 
@@ -81,15 +81,15 @@ Expected outcome is a new valid dispatch or durable Sol control decision.
 
 Chromium closes when no active Sol operations remain where practical.
 
-Do not run multiple Chromium processes against the same persistent profile.
+Do not run multiple Chromium processes against same persistent profile.
 
 ## D-011 — ChatGPT authentication
 
 **Decision:** user manually logs in through an Orca-headed setup browser.
 
-Authentication persists in the dedicated profile for later headless use.
+Authentication persists in dedicated profile for later headless use.
 
-Do not automate login or reuse the user's ordinary Chrome profile.
+Do not automate login or reuse user's ordinary Chrome profile.
 
 ## D-012 — ChatGPT backpressure
 
@@ -101,9 +101,9 @@ Do not attempt to bypass service-side limits.
 
 ## D-013 — Controller ownership
 
-**Decision:** orchestration logic/state lives in a standalone Node/TypeScript controller, separate from Electron window lifecycle.
+**Decision:** orchestration logic/state lives in standalone Node/TypeScript controller, separate from Electron window lifecycle.
 
-Electron is a desktop shell/client.
+Electron is desktop shell/client.
 
 ## D-014 — UI architecture
 
@@ -125,7 +125,7 @@ Do not expose full control API publicly by default.
 
 Git/GitHub stores durable cross-agent coordination/work state.
 
-These roles must remain distinct.
+These roles remain distinct.
 
 ## D-017 — State file ownership
 
@@ -137,9 +137,9 @@ Each managed repository has its own coordination artifacts/state; Orca local SQL
 
 **Decision:** V1 always watches, reconciles, commits, and pushes `main`.
 
-There is no configurable branch field in the V1 repository record, API, or UI. This intentionally removes branch-selection complexity while V1 supports only one session/executor per repository.
+There is no configurable branch field in V1 repository record, API, or UI. This intentionally removes branch-selection complexity while V1 supports only one session/executor per repository.
 
-For Orca-Strator development itself, commit/push directly to `main` unless the user explicitly revises this decision.
+For Orca-Strator development itself, commit/push directly to `main` unless user explicitly revises this decision.
 
 **Deferred:** branch-per-session and configurable integration branches when multi-session-per-repository support is designed.
 
@@ -153,7 +153,7 @@ Orca must not automatically discard with hard reset/clean.
 
 ## D-020 — Remote divergence
 
-**Decision:** executor should fetch/rebase/pull `main` and resolve ordinary conflicts where possible.
+**Decision:** executor fetches/rebases/pulls `main` and resolves ordinary conflicts where possible.
 
 Do not automatically force-push.
 
@@ -172,13 +172,13 @@ Executor result status may be:
 - `NEEDS_HUMAN`;
 - `FAILED`.
 
-All normally wake Sol unless controls/ceilings suppress the handoff.
+All normally wake Sol unless controls/ceilings suppress handoff.
 
 ## D-022 — High-level completion authority
 
 **Decision:** Sol decides high-level `GOAL_COMPLETE`.
 
-Executor saying `COMPLETED` means only that executor turn completed.
+Executor saying `COMPLETED` means only executor turn completed.
 
 ## D-023 — Pause
 
@@ -188,10 +188,10 @@ If executor is running:
 
 - interrupt/terminate process tree;
 - preserve checkout exactly as-is;
-- do not wake Sol due to that interruption;
+- do not wake Sol due to interruption;
 - resume later on same work with recovery instructions.
 
-If Sol is already running, do not forcibly cancel it solely because Pause was requested; record its later durable result but suppress executor dispatch while paused.
+If Sol already running, do not forcibly cancel solely because Pause was requested; record later durable result but suppress executor dispatch while paused.
 
 ## D-024 — Stop
 
@@ -203,11 +203,13 @@ Current actor may finish; no next actor starts.
 
 **Decision:** immediate termination of selected repository's active executor/browser operation, with explicit interrupted/recovery state.
 
+For shared Chromium, isolate the selected repository page/operation where practical; process-wide failure must reconcile all affected repository Sol operations independently.
+
 ## D-026 — Runtime ceilings
 
 **Decision:** default 20 iterations and 8 hours; configurable per repository/run.
 
-When ceiling is reached during active work, enter draining: allow actor to finish but do not start next handoff.
+When ceiling reached during active work, enter draining: allow actor to finish but do not start next handoff.
 
 ## D-027 — Sol timeout
 
@@ -219,7 +221,7 @@ Configurable later.
 
 **Decision:** up to three bounded launch/contact attempts before `EXECUTOR_UNAVAILABLE`.
 
-This is about launching/contacting the harness, not retrying failing implementation tests three times automatically.
+This is about launching/contacting harness, not retrying failing implementation tests three times automatically.
 
 ## D-029 — Crash/reboot recovery
 
@@ -241,13 +243,13 @@ Fresh coding session:
 - commit/push main;
 - exit cleanly.
 
-Significant milestone implementation returns to Sol/ChatGPT for deep review before the next major OpenSpec change.
+Significant milestone implementation returns to Sol/ChatGPT for deep review before next major OpenSpec change.
 
 ## D-031 — Planning method
 
 **Decision:** significant work uses focused OpenSpec changes, not mega-prompts.
 
-Repository artifacts are the detailed work contract; executor bootstrap prompt remains small.
+Repository artifacts are detailed work contract; executor bootstrap prompt remains small.
 
 ## D-032 — Initial technology stack
 
@@ -272,25 +274,53 @@ Patch versions follow lockfile/current compatible security releases.
 
 **Decision:** detailed specification should reduce ambiguity, not justify elaborate implementation.
 
-Avoid premature plugin systems, distributed services, cloud backend, message brokers, ORMs, and framework layers unless a concrete V1 requirement proves they are needed.
+Avoid premature plugin systems, distributed services, cloud backend, message brokers, ORMs, and framework layers unless concrete V1 requirement proves needed.
 
 ## D-034 — Cross-agent protocol schemas
 
 **Decision:** dispatch, executor-result, and Sol-control artifacts are validated against versioned machine-readable JSON Schemas under `schemas/protocol/`.
 
-The prose protocol explains semantics; schemas define structural validity. Watcher/runtime implementations must reject structurally invalid protocol artifacts rather than guessing missing fields.
+Prose protocol explains semantics; schemas define structural validity. Watcher/runtime implementations reject structurally invalid artifacts rather than guessing missing fields.
 
-Schema version 1 is append-only/backward-stable once runtime implementation begins. Breaking changes require an explicit new schema version and migration/compatibility decision.
+Schema version 1 is append-only/backward-stable once runtime implementation begins. Breaking changes require explicit new schema version and migration/compatibility decision.
+
+## D-035 — Same-origin web/API topology
+
+**Decision:** the shared React UI, controller REST API, and WebSocket share one Orca origin in built/runtime mode.
+
+Canonical built shape:
+
+```text
+/
+/api/*
+/api/events
+```
+
+The UI uses relative routes. Vite proxies them in development. The controller serves built SPA in production-like local mode.
+
+Future Tailscale Serve phone access reverse-proxies this one loopback origin, so phone browser does not try to call laptop `localhost` directly and no second mobile API client is needed.
+
+Wildcard CORS is not the normal V1 phone-access design.
+
+## D-036 — Exclusive browser-profile ownership
+
+**Decision:** one browser process at a time owns the dedicated persistent Orca automation profile.
+
+Both headless Browser Manager and headed ChatGPT setup browser use same global profile lock.
+
+After profile opens, one browser process may host multiple concurrent repository Sol pages. The lock prevents competing browser **processes**, not concurrent pages inside the owner process.
+
+Stale lock recovery must verify actual browser ownership before clearing it.
 
 ## How to revise a locked decision
 
 If a locked decision must change:
 
-1. user explicitly changes it, or implementation evidence proves it infeasible;
+1. user explicitly changes it, or implementation evidence proves infeasible;
 2. update this ledger;
 3. update `docs/ARCHITECTURE.md` and affected focused docs;
 4. update active OpenSpec proposal/spec/design/tasks where relevant;
 5. update `.agent/state.json` waypoint;
-6. commit the decision change before broad implementation depending on it.
+6. commit decision change before broad implementation depending on it.
 
-Do not let code silently become the only record of an architectural reversal.
+Do not let code silently become only record of architectural reversal.
