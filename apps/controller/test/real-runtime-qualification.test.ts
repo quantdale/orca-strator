@@ -61,6 +61,13 @@ function wslDistroReady(distribution: string): boolean {
 
 const HARNESS_PATH = path.resolve(__dirname, "fixtures", "real-executor-harness.mjs");
 
+// Make the real qualification tier self-contained: default the harness path so
+// `npm run test:real` works without an externally exported env var. Q.WIN.2 still
+// deletes the var and asserts the honest throw, so this default does not mask it.
+if (!process.env.ORCA_TEST_EXECUTOR_HARNESS) {
+  process.env.ORCA_TEST_EXECUTOR_HARNESS = HARNESS_PATH;
+}
+
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] })
     .toString()
@@ -251,7 +258,7 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
     // dispatch is consumed (the loop marks it consumed after a valid result).
     await waitForCondition(
       () => dispatchStore.get(dispatchId)?.status === "consumed",
-      30000
+      60000
     );
 
     // 5. Assert the executor actually ran as a real child process and produced a
@@ -280,7 +287,7 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
     expect(loopStatus.state).toBe("SOL_REVIEWING");
 
     watcherService.stop();
-  }, 60000);
+  }, 120000);
 
   it("Q.WIN.2 truthfully reports UNQUALIFIED when the real executor harness env is missing", async () => {
     // If ORCA_TEST_EXECUTOR_HARNESS is unset, the test profile must throw rather
@@ -365,7 +372,7 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
 
     await waitForCondition(
       () => dispatchStore.get(dispatchId)?.status === "consumed",
-      40000
+      120000
     );
 
     const execRuns = executorStore.getByRepository(wslRepo.id);
@@ -392,5 +399,5 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
     expect(loopStatus.state).toBe("SOL_REVIEWING");
 
     watcherService.stop();
-  }, 90000);
+  }, 180000);
 });

@@ -17,6 +17,40 @@ Do not implement later milestones merely because their contracts are already doc
 
 ---
 
+## V1 qualification status (Change 009 — NOT YET QUALIFIED)
+
+All nine milestones (0–8) are **implemented** in code. However, the prior
+"Milestone 8 complete / V1_ROADMAP_COMPLETE" status was **not** proof of real
+end-to-end autonomy: the earlier tests were simulations that manually invoked
+internal transition methods and used fake executors/mock browsers.
+
+V1 was reopened as **NOT YET QUALIFIED** and is being hardened under
+`openspec/changes/009-v1-runtime-integration-hardening/`. Honest status labels:
+
+- **MACHINE-QUALIFIED** — proven on this machine with real Git, real child-process
+  executors, and real `wsl.exe` execution.
+- **SIMULATION-TESTED** — implementation present, covered by fake/mock tests; not
+  yet proven against the real external dependency here.
+- **UNQUALIFIED** — required real external dependency (real Kimi/Codex CLI,
+  Chromium, ChatGPT auth, Tailscale) absent on this machine; explicitly not faked.
+
+| Area | Status on this machine |
+| --- | --- |
+| A. Real autonomous pipeline (watcher→loop→executor→result→loop→Sol) | **MACHINE-QUALIFIED** (`Q.WIN.1`, `Q.WIN.WSL.1`) |
+| C. Windows/WSL Git adapters + real WSL executor | **MACHINE-QUALIFIED** |
+| E. Executor result contract (real manifest) | **MACHINE-QUALIFIED** |
+| M. Startup/crash rehydration | **MACHINE-QUALIFIED** (code) |
+| O. Real log streaming + secret redaction | **MACHINE-QUALIFIED** |
+| P. Tailscale status truthfulness | **MACHINE-QUALIFIED** (honestly `not_installed` here) |
+| B/D/F/G/H/I/J/K/L/N | **SIMULATION-TESTED** (implementation + mock tests) |
+| Q.5 real Kimi/Codex CLI, Q.8 Chromium/ChatGPT wake, Q.9 Tailscale phone route | **UNQUALIFIED** (external deps absent) |
+
+The finish line is a real assembled-controller test proving the pipeline end-to-end,
+which is **achieved for the Windows and WSL executor paths**. Remaining real-external
+items are explicitly UNQUALIFIED and must not be claimed as done.
+
+---
+
 ## Milestone 0 — Architecture and durable workflow
 
 Status: **complete**
@@ -375,7 +409,14 @@ From authorized phone on private tailnet:
 
 OpenSpec: `008-end-to-end-autonomy-qualification` (folded into `openspec/specs/end-to-end-autonomy-qualification/`)
 
-Status: **complete**
+Status: **implemented — qualification in progress (Change 009, NOT YET QUALIFIED)**
+
+> The implementation contracts for end-to-end qualification are complete, but the
+> milestone is **not** yet fully machine-qualified. The earlier "complete" status
+> relied on simulation tests. Real end-to-end qualification (Windows + WSL executor
+> paths) is now proven under Change 009; real Kimi/Codex CLI, Chromium/ChatGPT
+> wake, and Tailscale phone-route remain UNQUALIFIED. See the V1 qualification
+> status banner above and `openspec/changes/009-v1-runtime-integration-hardening/`.
 
 ### Purpose
 

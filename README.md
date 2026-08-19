@@ -111,9 +111,17 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 7 — Private phone access and notifications** is complete and folded (`openspec/specs/remote-phone-experience/`).
 
-**Milestone 8 — End-to-end autonomy qualification** is complete and folded (`openspec/specs/end-to-end-autonomy-qualification/`).
+**Milestone 8 — End-to-end autonomy qualification** is *implemented* and folded (`openspec/specs/end-to-end-autonomy-qualification/`). Its real end-to-end qualification is **in progress** under Change 009 (see below).
 
-All V1 roadmap milestones are **fully implemented, qualified, and verified**. Orca-Strator is complete for V1 operation as an autonomous multi-repository development orchestrator.
+All nine V1 milestones are **implemented in code**. V1 is currently **NOT YET QUALIFIED** for real end-to-end autonomy: the earlier "complete/qualified/verified" status relied on simulation tests that manually invoked internal transition methods and used fake executors/mock browsers. A runtime-integration hardening campaign (`openspec/changes/009-v1-runtime-integration-hardening/`) is underway.
+
+Honest status (this machine):
+
+- **MACHINE-QUALIFIED** — real autonomous pipeline on Windows and via real `wsl.exe` (Change 009 `Q.WIN.1` / `Q.WIN.WSL.1`); honest Tailscale detection; secret-redacted event stream; startup rehydration.
+- **SIMULATION-TESTED** — B/D/F/G/H/I/J/K/L/N implementations covered by mock/fake tests; not yet proven against real external dependencies here.
+- **UNQUALIFIED** — real Kimi/Codex CLI execution, Chromium/ChatGPT wake, and Tailscale phone-route (external dependencies absent on this machine; explicitly not claimed as done).
+
+The finish line is a real assembled-controller test proving the pipeline end-to-end, which is **achieved for the Windows and WSL executor paths**. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
 ## Durable development workflow
 

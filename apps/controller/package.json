@@ -8,7 +8,8 @@
     "start": "node dist/index.js",
     "build": "npm run build --workspace=@orca/shared && tsc -p tsconfig.json",
     "typecheck": "npm run build --workspace=@orca/shared && tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/real-runtime-qualification.test.ts\"",
+    "test:real": "vitest run test/real-runtime-qualification.test.ts --no-file-parallelism",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

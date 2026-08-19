@@ -22,7 +22,8 @@
     "build:controller": "npm run build --workspace=@orca/controller",
     "build:desktop": "npm run build --workspace=@orca/desktop",
     "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/real-runtime-qualification.test.ts\"",
+    "test:real": "npm --prefix apps/controller run test:real",
     "lint": "npm run lint --workspaces --if-present"
   },
   "devDependencies": {
