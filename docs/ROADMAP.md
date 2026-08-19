@@ -6,14 +6,14 @@ This roadmap is the durable development sequence. Significant implementation adv
 
 Each milestone has:
 
-- **purpose** — why the milestone exists;
+- **purpose** — why it exists;
 - **deliverables** — what must be built;
-- **exit gate** — evidence required before the milestone is considered complete;
-- **review checkpoint** — when a Sol/ChatGPT repository review is valuable before the next OpenSpec.
+- **exit gate** — evidence required before complete;
+- **review checkpoint** — when Sol/ChatGPT repository review is valuable before next OpenSpec.
 
-A coding-agent `/go` session should normally continue the currently active OpenSpec until its exit gate is reached or a genuine blocker requires review.
+A coding-agent `/go` session normally continues the active OpenSpec until its exit gate or a genuine blocker requires review.
 
-Do not implement later milestones merely because their requirements are already described here.
+Do not implement later milestones merely because their contracts are already documented.
 
 ---
 
@@ -23,22 +23,24 @@ Status: **complete**
 
 ### Purpose
 
-Establish enough durable repository context that development itself can be resumed safely across disposable AI coding sessions.
+Establish enough durable repository context that development can resume safely across disposable AI coding sessions.
 
 ### Delivered
 
 - locked V1 product architecture;
 - `AGENTS.md` recovery/agent contract;
-- `.agent/state.json` waypoint plus schema;
+- `.agent/state.json` waypoint + schema;
 - repository-local `/go` skill;
 - detailed development protocol;
 - runtime-state/concurrency contract;
 - OpenSpec-based implementation sequence;
+- protocol JSON Schemas;
+- cross-platform repository hygiene baseline;
 - initial OpenSpec Change 001.
 
 ### Exit gate
 
-A fresh coding-agent session can determine the active work from repository state without this ChatGPT conversation.
+A fresh coding-agent session can determine active work from repository state without this ChatGPT conversation.
 
 ---
 
@@ -50,51 +52,58 @@ Status: **active**
 
 ### Purpose
 
-Create the smallest real application foundation that later watcher, executor, browser, and autonomy systems can plug into without putting orchestration ownership inside Electron.
+Create the smallest real application foundation that later watcher, executor, browser, phone, and autonomy systems can plug into without putting orchestration ownership inside Electron or creating multiple UI networking models.
 
 ### Deliverables
 
 - npm/TypeScript workspace;
 - separate Node.js controller process;
 - responsive React/Vite UI;
-- Electron Windows desktop shell using the same UI;
-- localhost HTTP + WebSocket controller boundary;
+- Electron Windows desktop shell using same UI;
+- loopback HTTP + WebSocket controller boundary;
+- controller-served built SPA so built UI + REST + WebSocket share one origin;
+- Vite development proxy so shared UI always uses relative `/api` and event routes;
 - SQLite migration/persistence foundation;
-- repository registry/configuration model;
+- static repository registry/configuration model;
+- V1 main-only contract with no branch config field;
 - native Windows vs WSL configuration validation;
 - basic repository dashboard/detail/configuration UI;
 - controller health/connection status;
-- test/typecheck/build baseline;
-- clear developer startup workflow.
+- test/typecheck/build/lint baseline;
+- clear developer startup + production-like local web workflow.
 
 ### Explicitly not yet
 
-- no GitHub remote watcher;
-- no dispatch marker handling;
+- no remote Git watcher;
+- no dispatch runtime;
 - no executor launch;
 - no Playwright/ChatGPT automation;
 - no autonomous run state machine;
-- no Tailscale exposure/notifications.
+- no Tailscale configuration/notifications.
 
 ### Exit gate
 
-From a fresh Windows checkout:
+From fresh Windows checkout:
 
-1. dependencies install using the documented command;
+1. dependencies install using documented command;
 2. controller starts independently of Electron;
 3. SQLite initializes/migrates automatically;
 4. repository CRUD works through controller APIs;
-5. Windows and WSL repository records validate correctly;
-6. configurations survive controller restart;
-7. React UI can list/add/edit/view multiple repositories;
-8. Electron can open the same UI;
-9. narrow phone-like viewport remains usable;
-10. closing/reopening Electron does not own/erase controller persistence;
-11. root typecheck/test/build commands pass or any intentional limitation is explicitly documented.
+5. Windows/WSL records validate correctly;
+6. config survives controller restart;
+7. repository config/API/UI expose no configurable branch or active-run fields;
+8. React UI can list/add/edit/view multiple repositories;
+9. Vite development proxy supports same relative REST/WebSocket client;
+10. controller serves built SPA + API + WebSocket from one loopback origin;
+11. SPA deep links work and do not shadow `/api`;
+12. Electron can open same UI and does not own persistence;
+13. narrow phone-like viewport remains usable;
+14. closing/reopening Electron does not erase controller persistence;
+15. root typecheck/test/build/lint pass or any intentional limitation is durably documented.
 
 ### Review checkpoint
 
-Perform a deep repository review before creating Change 002. Verify process boundaries, package structure, API contracts, SQLite choice/migrations, and UI/controller ownership. Correct foundational mistakes now rather than letting later orchestration code depend on them.
+Perform deep repository review before Change 002. Verify process/package boundaries, SQLite migrations, API/event contracts, same-origin delivery seam, Windows/WSL model, and UI/controller ownership.
 
 ---
 
@@ -106,38 +115,40 @@ Status: **planned**
 
 ### Purpose
 
-Turn durable Sol Git commits into a deterministic local executor wake signal without GitHub Actions, public webhooks, MCP, or UI copy/paste.
+Turn durable Sol Git commits into a deterministic local executor wake signal without GitHub Actions, public webhooks, MCP, or copy/paste.
 
 ### Deliverables
 
 - one lightweight remote watcher per active repository;
-- configurable watched branch, default `main`;
+- **remote `main` only** in V1; no branch routing/configuration;
 - cheap remote-HEAD polling before full fetch;
 - observable watcher lifecycle/error state;
-- `.orca/dispatch/<id>.json` schema;
+- `schemas/protocol/dispatch.schema.json` runtime validation;
+- `.orca/dispatch/<id>.json` semantic validation;
 - isolated final-dispatch-commit validation;
 - reject mixed ordinary-work + dispatch commits;
 - consumed dispatch IDs persisted in SQLite;
-- last observed remote SHA persisted;
+- last observed remote `main` SHA persisted;
 - duplicate/event idempotency;
 - per-repository executor lock;
 - watcher restart/recovery behavior;
-- unit/integration tests using temporary Git repositories/remotes where practical.
+- unit/integration tests with temporary Git remotes.
 
 ### Exit gate
 
-Prove that:
+Prove:
 
-- ordinary Sol/spec commits never launch the executor;
-- a valid isolated dispatch commit launches exactly once;
-- seeing the same commit repeatedly cannot double-launch;
-- invalid/mixed dispatch is rejected observably;
-- two different repositories may detect/dispatch independently;
-- controller restart does not forget consumed dispatches.
+- ordinary Sol/spec commits never launch executor;
+- valid isolated dispatch launches exactly once;
+- same commit/ID repeatedly observed cannot double-launch;
+- invalid/mixed/schema-invalid dispatch is rejected observably;
+- two repositories detect/dispatch independently;
+- controller restart does not forget consumed dispatches;
+- no branch-routing code path exists in V1 watcher runtime.
 
 ### Review checkpoint
 
-Review the dispatch protocol and Git edge cases before process execution is attached to it.
+Review dispatch protocol and Git edge cases before process execution attaches to it.
 
 ---
 
@@ -149,43 +160,42 @@ Status: **planned**
 
 ### Purpose
 
-Execute the user's configured coding agent/model headlessly in either Windows or WSL while preserving repository work and exposing enough observability/control for unattended use.
+Execute user's configured coding agent/model headlessly in Windows or WSL while preserving repository work and exposing enough observability/control for unattended use.
 
 ### Deliverables
 
 - native Windows/PowerShell execution adapter;
-- WSL adapter with configurable distribution/Linux working path;
+- WSL adapter with configured distribution/Linux path;
 - user-owned executor CLI/model configuration;
-- stable small bootstrap prompt contract;
+- stable small bootstrap prompt;
 - process-tree supervision;
 - live stdout/stderr/event capture;
-- executor launch/contact retry policy (default bounded retries, e.g. three);
-- result-manifest schema and writer contract;
-- executor statuses `COMPLETED`, `BLOCKED`, `NEEDS_HUMAN`, `FAILED`;
-- dirty-tree preservation/recovery instructions;
-- fetch/rebase/conflict-resolution expectations;
+- executor launch/contact retry policy (bounded, baseline three);
+- `schemas/protocol/executor-result.schema.json` validation;
+- isolated result-manifest publication contract;
+- statuses `COMPLETED`, `BLOCKED`, `NEEDS_HUMAN`, `FAILED`;
+- dirty-tree preservation/recovery;
+- fetch/rebase/conflict resolution against `main`;
 - no automatic force-push;
-- Pause/Resume semantics;
-- graceful Stop semantics;
-- Emergency Kill semantics;
-- integration tests with deterministic fake/test executors before relying exclusively on real model CLIs.
+- Pause/Resume, graceful Stop, Emergency Kill;
+- deterministic fake executor qualification before real CLI dependence.
 
 ### Exit gate
 
-Prove Windows and WSL executor paths can independently:
+Prove Windows and WSL paths can independently:
 
-1. start in the configured repository;
-2. stream observable output;
-3. modify/test/commit/push a controlled fixture task;
-4. produce a structured result manifest;
-5. recover a deliberately dirty checkout;
-6. handle ordinary remote divergence;
-7. be paused/resumed without discarding partial files;
-8. be stopped/killed with accurate state reporting.
+1. start in intended repository;
+2. stream output;
+3. modify/test/commit/push controlled fixture task to `main`;
+4. produce valid structured result manifest;
+5. recover dirty checkout;
+6. handle ordinary remote-main divergence;
+7. pause/resume without discarding partial files;
+8. stop/kill with accurate state reporting.
 
 ### Review checkpoint
 
-Deep review the process model, WSL boundary, Git reconciliation policy, and interruption semantics before automated Sol wake-up is added.
+Deep-review process model, WSL boundary, Git reconciliation, interruption semantics before automated Sol wake.
 
 ---
 
@@ -197,44 +207,48 @@ Status: **planned**
 
 ### Purpose
 
-Remove the executor -> browser-Sol manual handoff while keeping the ChatGPT browser subscription as the Sol intelligence layer.
+Remove executor -> browser-Sol manual handoff while keeping browser ChatGPT as Sol intelligence layer.
 
 ### Deliverables
 
-- dedicated Orca Playwright/Chromium user-data directory;
-- headed **Open ChatGPT Setup Browser** flow;
+- dedicated Orca Playwright/Chromium profile;
+- one global persistent-profile ownership lock;
+- headed **Open ChatGPT Setup Browser** flow sharing that lock;
+- stale-lock recovery that verifies real browser process ownership;
 - login-state persistence/verification;
 - exact Sol conversation URL per repository;
 - on-demand Chromium Browser Manager;
 - one page per concurrently active repository;
-- no competing Chromium processes against one profile;
-- trusted fixed wake-message construction;
+- no competing Chromium processes against same profile;
+- trusted fixed wake message;
 - input-only browser protocol (no Sol-output scraping for coordination);
-- composer/send automation with resilient selectors;
-- safe handling of informational confirmation dialogs;
-- ChatGPT busy/backpressure state and bounded retry/backoff queue;
+- resilient composer/send adapter;
+- safe informational-dialog handling;
+- ChatGPT busy/backpressure + bounded retry queue;
 - auth/login-required state;
-- browser automation failure state/diagnostics;
-- GitHub-transition-based Sol completion detection;
-- configurable Sol timeout (initially ~20 min);
-- one wake retry before `SOL_STALLED` by default;
-- headed/debug mode for troubleshooting.
+- browser failure diagnostics;
+- GitHub-transition-based Sol completion;
+- configurable Sol timeout (~20 min baseline), one retry then `SOL_STALLED`;
+- headed/debug troubleshooting mode;
+- repository-specific page cancellation where possible without disturbing unrelated Sol pages.
 
 ### Exit gate
 
-Prove with at least two dedicated ChatGPT conversation URLs that:
+Prove with at least two dedicated conversations:
 
-- Orca can reuse saved authentication after browser restart;
-- two repository Sol pages can coexist inside one Chromium process;
-- each wake is sent only to its configured conversation;
-- browser completion is not inferred from response text;
-- Git transition closes the correct pending Sol operation;
-- busy/auth/selector failures are surfaced and retried according to policy;
+- saved auth reused after browser restart;
+- setup and automation cannot concurrently own persistent profile;
+- two repository Sol pages coexist in one Chromium;
+- each wake sent only to its configured conversation;
+- browser response text/spinner not used as completion;
+- Git transition closes correct pending Sol operation;
+- busy/auth/selector failures surfaced/retried according to policy;
+- killing one repo page does not falsely complete another;
 - Chromium closes when no Sol operations remain.
 
 ### Review checkpoint
 
-Review browser security, session isolation, retry behavior, and UI fragility before enabling the full autonomous loop.
+Review browser security, profile ownership, page isolation, retry behavior, UI fragility before full loop.
 
 ---
 
@@ -246,11 +260,11 @@ Status: **planned**
 
 ### Purpose
 
-Compose watcher, executor, Git result, Playwright, and Sol review into the first true leave-and-forget loop.
+Compose watcher, executor, Git result, Playwright, and Sol review into first true leave-and-forget loop.
 
 ### Deliverables
 
-Implement the durable per-repository state machine described in `docs/RUNTIME-MODEL.md`, including core progression similar to:
+Implement per-repository state machine from `docs/RUNTIME-MODEL.md`, including progression:
 
 ```text
 SOL_PENDING
@@ -260,7 +274,7 @@ SOL_PENDING
   -> SOL_PENDING
 ```
 
-plus terminal/control/recovery states such as:
+plus:
 
 - `GOAL_COMPLETE`;
 - `BLOCKED`;
@@ -274,23 +288,23 @@ plus terminal/control/recovery states such as:
 
 Other requirements:
 
-- required durable high-level goal per run;
+- durable high-level goal per run;
 - initial Sol inspection turn;
-- Sol remains authoritative for high-level completion;
-- executor result normally wakes Sol regardless of `COMPLETED/BLOCKED/NEEDS_HUMAN/FAILED`;
+- Sol authoritative for high-level completion;
+- executor result normally wakes Sol regardless of executor terminal status;
 - one active actor per repository;
-- no global executor cap across repositories;
-- manual safe `Wake Sol` / `Run executor` controls;
-- configuration/model lock while a run is active;
-- coherent event/timeline representation for UI.
+- no global executor cap;
+- manual safe Wake Sol / Run executor controls;
+- config/model lock while active;
+- coherent event/timeline UI.
 
 ### Exit gate
 
-Prove one repository can complete several Sol -> executor -> Sol cycles without manual copy/paste, then prove at least two repositories can progress independently/concurrently without cross-routing state or conversation URLs.
+Prove one repository completes several Sol -> executor -> Sol cycles without copy/paste, then at least two repositories progress independently/concurrently without cross-routing state/conversation URLs.
 
 ### Review checkpoint
 
-Perform a full architecture/code review before adding long-duration unattended recovery/ceilings.
+Full architecture/code review before long-duration recovery/ceilings.
 
 ---
 
@@ -302,31 +316,31 @@ Status: **planned**
 
 ### Purpose
 
-Make the autonomous loop safe to leave running for hours and recoverable after ordinary failures/reboots.
+Make autonomous loop safe to leave running for hours and recoverable after failures/reboots.
 
 ### Deliverables
 
-- iteration ceiling (default 20);
-- wall-clock ceiling (default 8h);
+- iteration ceiling default 20;
+- wall-clock ceiling default 8h;
 - `DRAINING` at handoff boundaries;
 - no killing current actor solely due to ceiling crossing;
 - controller crash/reboot reconstruction;
 - safe auto-recovery of waiting states;
 - `RECOVERY_REQUIRED` for interrupted executor work;
 - duplicate wake/dispatch/result protection;
-- stale process detection;
+- stale process/browser-profile lock detection;
 - structured event/audit log;
-- retention policy for large executor logs;
+- bounded executor-log retention;
 - actionable diagnostics;
-- fault-injection/integration tests for process loss, Git changes, duplicate events, browser failure, and controller restart.
+- fault-injection tests for process loss, Git changes, duplicates, browser failure, controller restart.
 
 ### Exit gate
 
-Demonstrate a deliberately interrupted/restarted Orca instance can explain what happened, preserve repository work, and resume or require explicit recovery without duplicate execution or silent data loss.
+Demonstrate deliberately interrupted/restarted Orca can explain what happened, preserve work, and resume or require explicit recovery without duplicate execution or silent data loss.
 
 ### Review checkpoint
 
-Security/reliability review before enabling remote phone controls.
+Security/reliability review before remote phone controls.
 
 ---
 
@@ -338,20 +352,25 @@ Status: **planned**
 
 ### Purpose
 
-Let the user monitor/control Orca away from the Windows machine without publicly exposing the controller.
+Let user monitor/control Orca away from Windows machine without publicly exposing controller.
 
 ### Deliverables
 
-- same responsive React UI usable from phone;
-- Tailscale Serve setup/status guidance;
-- controller remains localhost-only by default;
+- same responsive React UI from Milestone 1;
+- Tailscale Serve configuration/status guidance;
+- Serve reverse-proxies the **single loopback Orca web origin** established in Change 001;
+- phone loads private HTTPS tailnet URL;
+- relative `/api` and same-origin `wss:` event channel work through that URL;
+- controller remains loopback-only;
+- no phone-local localhost backend assumption;
+- no wildcard-CORS workaround required;
 - status/timeline visibility;
-- operational controls: Start/Pause/Resume/Stop/Emergency Kill/Wake Sol/recovery actions as safe;
-- risky configuration edits disabled while target run is active;
+- Start/Pause/Resume/Stop/Emergency Kill/Wake Sol/recovery controls as safe;
+- risky configuration edits disabled server-side while run active;
 - notifications for meaningful problem/terminal events;
-- ordinary successful iterations remain quiet.
+- ordinary successful iterations quiet.
 
-Initial notification-worthy events:
+Notification-worthy baseline:
 
 - goal complete;
 - needs human;
@@ -359,14 +378,20 @@ Initial notification-worthy events:
 - Sol stalled;
 - executor unavailable;
 - browser/auth failure;
-- unrecoverable Git conflict/divergence;
-- runtime/iteration ceiling reached;
+- unrecoverable Git divergence;
+- runtime/iteration ceiling;
 - recovery required;
 - emergency stop.
 
 ### Exit gate
 
-From an authorized phone on the private tailnet, observe concurrent repositories and safely perform core run controls without opening a public control endpoint.
+From authorized phone on private tailnet:
+
+1. load Orca HTTPS origin;
+2. verify REST + WebSocket reach Windows controller through same origin;
+3. observe concurrent repositories;
+4. safely perform core controls;
+5. confirm controller is not publicly exposed and Funnel is not required for normal V1 operation.
 
 ---
 
@@ -378,50 +403,49 @@ Status: **planned**
 
 ### Purpose
 
-Prove the architecture as a system rather than merely testing components in isolation.
+Prove architecture as a system rather than isolated components.
 
 ### Qualification matrix
 
 At minimum:
 
-- configure at least two real/representative repositories;
-- run them concurrently;
-- exercise native Windows executor path;
-- exercise WSL executor path;
-- perform repeated Sol -> executor -> Sol cycles;
-- verify isolated transactional dispatch;
-- verify duplicate dispatch protection;
-- verify multiple concurrent Sol pages;
-- observe ChatGPT busy/backpressure behavior safely if encountered;
-- exercise dirty-tree recovery;
-- exercise remote-main divergence/rebase;
-- exercise Pause/Resume;
-- exercise graceful Stop;
-- exercise Emergency Kill;
-- exercise iteration and wall-clock draining;
-- exercise controller restart;
-- exercise executor interruption/recovery;
-- exercise browser auth/automation failure path;
-- verify phone status/control;
-- verify notification routing;
-- inspect Git/GitHub/SQLite timeline after the run.
+- configure at least two representative repositories;
+- run concurrently;
+- exercise Windows and WSL executor paths;
+- repeated Sol -> executor -> Sol cycles;
+- isolated transactional dispatch;
+- duplicate dispatch protection;
+- multiple concurrent Sol pages;
+- ChatGPT busy/backpressure safely if encountered;
+- dirty-tree recovery;
+- remote-main divergence/rebase;
+- Pause/Resume;
+- graceful Stop;
+- Emergency Kill;
+- iteration/wall-clock draining;
+- controller restart;
+- executor interruption/recovery;
+- browser auth/automation failure;
+- phone same-origin Tailscale access/control;
+- notification routing;
+- inspect Git/GitHub/SQLite timeline after run.
 
 ### Exit gate
 
-Orca can be started with a high-level goal, left unattended for a meaningful period, and later explain through durable state/logs exactly what each repository did, why it stopped/continued, and what requires user attention.
+Orca can be started with high-level goal, left unattended for meaningful period, and later explain through durable state/logs exactly what each repository did, why it stopped/continued, and what requires attention.
 
 ---
 
 ## Future / intentionally deferred
 
-Do not pull these into V1 unless required for a low-cost compatibility seam:
+Do not pull these into V1 unless required for low-cost compatibility seam:
 
 - multiple concurrent sessions/executors inside one repository;
-- branch-per-session orchestration and merge coordination;
+- branch-per-session orchestration/configurable integration branches/merge coordination;
 - dynamic executor/model selection by Sol;
 - resource-based global scheduling/quotas;
-- macOS/Linux desktop application support;
-- public internet exposure of the control plane;
-- GitHub Actions/webhook/MCP as the primary dispatcher;
+- macOS/Linux desktop app;
+- public internet exposure;
+- GitHub Actions/webhook/MCP as primary dispatcher;
 - cross-machine distributed executors;
 - arbitrary third-party orchestration plugin framework.
