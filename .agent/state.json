@@ -1,20 +1,33 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "V1_ROADMAP_COMPLETE",
-  "highLevelGoal": "Build Orca-Strator through the committed V1 roadmap as far as safely possible, continuously advancing across OpenSpec changes without stopping at ordinary review checkpoints.",
+  "developmentStatus": "IMPLEMENTING",
+  "highLevelGoal": "Reopen Orca-Strator V1 as NOT YET QUALIFIED and perform a deep runtime-integration hardening campaign until the real production path works end-to-end: watcher->loop->executor->result->loop->Sol wake wired in production, correct Windows/WSL/Git/browser/recovery/control semantics, and a real qualification tier that proves the pipeline with real Git, real child-process executors, and durable result manifests.",
   "activeMilestone": null,
-  "activeChange": null,
+  "activeChange": "009-v1-runtime-integration-hardening",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8],
-  "planningBaseSha": "fdf5c7d",
+  "planningBaseSha": null,
   "checkpoint": {
-    "summary": "All Milestones (0 through 8) in the Orca-Strator V1 Roadmap are fully implemented, tested, and verified. 136 tests passing across 33 test suites with 0 errors across @orca/shared, @orca/controller, @orca/ui, and @orca/desktop. All canonical OpenSpec specifications folded into openspec/specs/.",
-    "updatedAt": "2026-08-19T22:52:00+08:00",
-    "lastCompletedTask": "Complete Milestone 8 End-to-End Autonomy Qualification and fold into canonical spec",
-    "lastVerification": "Full workspace typecheck passed with 0 errors, all 136 Vitest tests passed across 33 test files, build and lint succeeded."
+    "summary": "V1 is re-opened as NOT YET QUALIFIED. The prior V1_ROADMAP_COMPLETE / '136 tests passing' status is NOT proof of real functionality: the existing tests are simulation tests that manually invoke internal transition methods (onDispatchDetected/onExecutorCompleted) and use fake executors/mock browsers. Production wiring was absent: WatcherService had no callback into LoopService, ExecutorService.onExit never called back into the loop, ceiling/exit were mapped to GOAL_COMPLETE, startup reconciler duplicated active runs, and problem states were hidden as IDLE. Change 009 (openspec/changes/009-v1-runtime-integration-hardening/) documents findings A-R and the corrective design. Implementation of the real pipeline and the highest-value correctness fixes is in progress.",
+    "updatedAt": "2026-08-19T15:25:00+08:00",
+    "lastCompletedTask": "Create Change 009 OpenSpec (proposal, design, delta spec, tasks) and reopen V1 as NOT YET QUALIFIED",
+    "lastVerification": "Change 009 artifacts written; findings A-R catalogued with concrete corrective design. No implementation changes merged yet; broad baseline test run intentionally skipped per campaign policy."
   },
-  "nextAction": "V1 Roadmap implementation is complete. Orca-Strator is ready for leave-and-forget autonomous multi-repository development orchestration.",
-  "blockers": [],
+  "nextAction": "Implement Finding A (wire watcher->loop->executor->result->loop->Sol wake in production via explicit callbacks) and Finding G/M/N (correct loop semantics, startup rehydration, status visibility) using focused tests, then proceed through B-F, H-L, O-P, and the real qualification tier Q, committing continuously. Keep simulation tests as regression coverage but stop treating them as proof of real autonomy.",
+  "blockers": [
+    {
+      "code": "V1_NOT_QUALIFIED",
+      "summary": "Prior V1_ROADMAP_COMPLETE claim is unsubstantiated: production pipeline was not actually wired and ceiling/exit were mapped to GOAL_COMPLETE. Real end-to-end autonomy has not been demonstrated on this machine.",
+      "evidence": "apps/controller/src/app.ts wires WatcherService without a loop callback; LoopService takes watcherService but never stores/calls it; ExecutorService.onExit updates dispatchStore but never calls loopService.onExecutorCompleted; loop-service.onExecutorCompleted maps ceiling/wall-clock/exit to GOAL_COMPLETE; StartupReconciler calls startRun() on already-active runs; RunStore.getActiveRun excludes problem states.",
+      "nextAction": "Resolve findings A-R per Change 009 and add a real qualification tier (Q) proving the assembled pipeline end-to-end."
+    },
+    {
+      "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",
+      "summary": "Real qualification may be limited by absence of locally installed Kimi Code/Codex CLIs, Chromium, ChatGPT auth, or Tailscale on this machine. Such gaps must be reported as UNQUALIFIED/MANUALLY-QUALIFIED rather than faked.",
+      "evidence": "Qualification design requires real temp git remotes, real child-process executors, optional Chromium provisioning, optional ChatGPT auth, optional Tailscale.",
+      "nextAction": "Run real qualification tiers where the machine permits; explicitly mark gaps UNQUALIFIED."
+    }
+  ],
   "developmentPolicies": {
     "branch": "main",
     "commitAndPush": true,
