@@ -214,7 +214,7 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 - Completed: [`openspec/changes/013-optional-same-repository-swarm/`](openspec/changes/013-optional-same-repository-swarm/)
 - Completed: [`openspec/changes/014-optional-dag-execution-strategy/`](openspec/changes/014-optional-dag-execution-strategy/)
 - Completed: [`openspec/changes/015-optional-rich-opencode-adapter/`](openspec/changes/015-optional-rich-opencode-adapter/)
-- Next: [`openspec/changes/016-execution-topology-ui/`](openspec/changes/016-execution-topology-ui/)
+- Active: [`openspec/changes/016-execution-topology-ui/`](openspec/changes/016-execution-topology-ui/)
 
 Change 010, Change 011, and Change 012 are complete and internally
 machine-qualified. Change 012 established typed work packets, isolated

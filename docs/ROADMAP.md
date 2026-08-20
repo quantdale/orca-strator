@@ -567,7 +567,7 @@ UNQUALIFIED unless explicitly available.
 
 OpenSpec: `016-execution-topology-ui`
 
-Status: **next / activate after Change 015 checkpoint**
+Status: **active / implementation in progress**
 
 The UI visualizes actual single-agent/swarm/DAG state and may add simple reusable
 configuration presets; it does not author graphs.

@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "CHANGE_COMPLETE",
+  "developmentStatus": "IMPLEMENTING",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 14,
-  "activeChange": "015-optional-rich-opencode-adapter",
+  "activeMilestone": 15,
+  "activeChange": "016-execution-topology-ui",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 010, Change 011, Change 012, Change 013, Change 014, and Change 015 are implemented, folded, and qualified as far as the available machine/external dependencies allow. Change 015 adds an optional experimental OpenCode adapter and non-inference server capability probe without making OpenCode a core dependency.",
-    "updatedAt": "2026-08-20T18:37:00+08:00",
+    "summary": "Change 015 is implemented, folded, qualified as far as available dependencies allow, committed, and pushed. Change 016 is now active for the responsive execution-topology observability UI and explicit strategy-policy presets.",
+    "updatedAt": "2026-08-20T18:39:00+08:00",
     "lastCompletedTask": "Change 015 optional OpenCode adapter: profile/invocation, optional Windows/WSL adapter delegation, bounded health/OpenAPI V1/V2/hybrid probe, guarded native session/event/permission/provider/subagent/usage operations, capability/usage integration, deterministic HTTP tests, conditional real qualification, canonical spec and documentation reconciliation.",
-    "lastVerification": "Change 015 gates: npm test 46 files / 194 tests; npm run test:real 7 files / 25 passed with 1 explicit OpenCode external qualification skip; focused OpenCode tests 5/5; npm run typecheck, npm run build, npm run lint, git diff --check, and strict OpenSpec validation passed."
+    "lastVerification": "Change 015 gates passed before push: npm test 46 files / 194 tests; npm run test:real 7 files / 25 passed with 1 explicit OpenCode external qualification skip; focused OpenCode tests 5/5; npm run typecheck, npm run build, npm run lint, git diff --check, and strict OpenSpec validation passed."
   },
-  "nextAction": "Commit and push the Change 015 checkpoint, then create and activate Change 016 for execution-topology observability and strategy presets; keep the OpenCode real-server qualification UNQUALIFIED unless an authorized endpoint is supplied.",
+  "nextAction": "Implement Change 016 shared preset contracts and the read-model-only topology panel, then add focused responsive/component verification without introducing graph authoring.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",
