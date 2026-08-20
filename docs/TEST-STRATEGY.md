@@ -531,3 +531,25 @@ Focused coverage includes:
 
 The real tier reports WSL as UNQUALIFIED when the required distro/tools are not
 available; Windows results never substitute for WSL evidence.
+
+## 19. Change 013 optional swarm matrix
+
+Focused coverage includes:
+
+- shared strategy/control/report schemas and migration/restart persistence;
+- explicit opt-in and strict packet/run/iteration/cycle correlation;
+- bounded worker scheduling, scheduler queue provenance, dependency waits, and
+  no opaque executor/model switching;
+- real Windows child-process workers in distinct worktrees, local commits,
+  non-pushing integration, path/commit provenance, partial failure, conflict,
+  dependency skip, and dirty-work preservation;
+- pause/resume, graceful stop, emergency kill, restart recovery, orphan/stale
+  worktree evidence, and no shared persistent-checkout writers;
+- conditional real WSL worker launch/integration through `wsl.exe` and the
+  Linux node/Git path;
+- REST correlation and campaign-ledger events without raw transcript truth.
+
+The deterministic worker harness is qualification-only. Missing real provider
+credentials or telemetry keeps provider inference/usage claims UNKNOWN or
+UNQUALIFIED; it does not turn a local child-process result into provider
+qualification.

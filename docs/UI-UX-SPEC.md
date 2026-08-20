@@ -503,3 +503,10 @@ queued decision counts/reasons; and explicit role/model policy showing the
 repository default primary and named user-authored rules. These are
 observability and policy surfaces, not a graph editor or automatic model
 router.
+
+Change 013 adds structured API/read-model data for an explicitly started swarm:
+strategy status, effective bound, packet lifecycle, controls, scheduler queue
+reason, worktree/commit provenance, partial failures, integration, recovery,
+and usage references. A later topology surface may visualize these real
+records, but this change does not add graph authoring or require users to build
+packets manually; repository + goal with `SINGLE_AGENT` remains the default UX.

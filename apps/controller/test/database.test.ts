@@ -27,7 +27,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
 
   it('4.T1 fresh temp DB migrates and creates schema_migrations', () => {
     const rows = dbCtx.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
-    expect(rows).toHaveLength(18);
+    expect(rows).toHaveLength(19);
     expect(rows[0].version).toBe(1);
     expect(rows[0].name).toBe('001_create_repositories');
     expect(rows[1].version).toBe(2);
@@ -64,6 +64,8 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
     expect(rows[16].name).toBe('017_create_work_packets_and_isolated_worktrees');
     expect(rows[17].version).toBe(18);
     expect(rows[17].name).toBe('018_create_integration_reports');
+    expect(rows[18].version).toBe(19);
+    expect(rows[18].name).toBe('019_create_execution_strategy_runs_and_controls');
   });
 
   it('4.T2 reopen is idempotent and does not fail or duplicate migrations', () => {
@@ -71,7 +73,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
     const reopened = initDatabase(dbPath);
     dbCtx = reopened;
     const rows = reopened.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
-    expect(rows).toHaveLength(18);
+    expect(rows).toHaveLength(19);
   });
 
   it('4.T3 CRUD round-trips and supports multiple records', () => {

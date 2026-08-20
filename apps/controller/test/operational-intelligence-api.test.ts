@@ -103,5 +103,10 @@ describe("Operational intelligence and Change 011 policy APIs", () => {
     const packets = await app.fastify.inject({ method: "GET", url: `/api/repositories/${repositoryId}/campaigns/${run.id}/packets` });
     expect(packets.statusCode).toBe(200);
     expect(JSON.parse(packets.body).packets.find((item: { packetId: string }) => item.packetId === packetId)).toBeTruthy();
+
+    const swarmList = await app.fastify.inject({ method: "GET", url: `/api/repositories/${repositoryId}/campaigns/${run.id}/swarm` });
+    expect(swarmList.statusCode).toBe(200);
+    expect(JSON.parse(swarmList.body).strategies).toEqual([]);
+    expect(JSON.parse(detail.body).campaign.strategyRuns).toEqual([]);
   });
 });

@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "IMPLEMENTING",
+  "developmentStatus": "CHANGE_COMPLETE",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
   "activeMilestone": 12,
   "activeChange": "013-optional-same-repository-swarm",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 010, Change 011, and Change 012 are implemented, folded, committed, and pushed (`eb68985`, `3a52756`, `2343604`). Change 013 is active for explicitly enabled, bounded same-repository swarm execution on qualified worktree/integration primitives.",
-    "updatedAt": "2026-08-20T16:00:00+08:00",
-    "lastCompletedTask": "Change 012 typed packet/result contracts, persisted isolation lifecycle, deterministic integration/reconciliation, partial-failure semantics, canonical spec fold, documentation reconciliation, qualification, commit, and push complete.",
-    "lastVerification": "Change 012 gates: npm test 43 files / 185 tests; npm run test:real 5 files / 14 tests; npm run typecheck, npm run build, npm run lint, and git diff --check passed."
+    "summary": "Change 010, Change 011, Change 012, and Change 013 are implemented, folded, committed, and pushed (`eb68985`, `3a52756`, `2343604`, pending Change 013 checkpoint). Change 013 qualifies explicitly enabled, bounded same-repository swarm execution on the qualified worktree/integration primitives while preserving SINGLE_AGENT as the default.",
+    "updatedAt": "2026-08-20T17:44:32+08:00",
+    "lastCompletedTask": "Change 013 optional same-repository swarm: durable strategy/control state, bounded isolated workers, scheduler and permission integration, pause/stop/kill/recovery, deterministic integration and partial results, APIs, canonical spec fold, documentation reconciliation, and qualification complete.",
+    "lastVerification": "Change 013 gates: npm test 44 files / 187 tests; npm run test:real 6 files / 20 tests; npm run typecheck, npm run build, npm run lint, and git diff --check passed."
   },
-  "nextAction": "Implement Change 013 shared strategy contracts and durable strategy/control records, then build the bounded isolated worker scheduler and deterministic qualification before considering Change 014.",
+  "nextAction": "Commit and push the Change 013 checkpoint, then create and activate Change 014 for the optional DAG execution strategy; preserve swarm as explicit opt-in while continuing the campaign.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",

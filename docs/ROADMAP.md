@@ -529,16 +529,18 @@ qualification gates passed and is now eligible for the next focused change.
 
 OpenSpec: `013-optional-same-repository-swarm`
 
-Status: **implementing / explicitly opt-in**
+Status: **complete / MACHINE-QUALIFIED internally / explicitly opt-in**
 
 Single-agent remains default; swarm is explicit, bounded, isolated, and returns a
-structured partial result to Sol.
+structured partial result to Sol. Fast 187/187 tests and real 20/20 tests pass,
+including Windows worktree/Git controls, partial failure, restart recovery, and
+conditional WSL execution. Typecheck, build, lint, and diff checks pass.
 
 ### Milestone 13 — Optional DAG execution strategy
 
 OpenSpec: `014-optional-dag-execution-strategy`
 
-Status: **conditional on stable swarm foundations**
+Status: **next / eligible after stable swarm foundations**
 
 Structured DAG definitions/presets only; no visual composer and no DAG default UX.
 

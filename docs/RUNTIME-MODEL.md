@@ -500,3 +500,31 @@ successes. Worker `COMPLETED`, `FAILED`, `BLOCKED`, `SKIPPED_DEPENDENCY`,
 `CANCELLED`, and `INTEGRATION_CONFLICT` remain distinct. Sol will receive the
 eventual structured iteration result in a later optional strategy; integration
 does not mark the high-level campaign complete.
+
+## 19. Optional swarm iteration state
+
+Change 013 adds an intra-iteration strategy state below the persistent campaign
+loop:
+
+```text
+Sol selects SWARM
+  -> typed packet validation
+  -> bounded scheduler admission
+  -> isolated worker start/result (one worktree each)
+  -> deterministic integration/reconciliation
+  -> structured partial/final iteration result
+  -> Sol review/replan
+```
+
+`SINGLE_AGENT` remains the ordinary path. Swarm states are `QUEUED`, `RUNNING`,
+`PAUSED`, `STOPPING`, `COMPLETED`, `PARTIAL`, `BLOCKED`, `FAILED`,
+`CANCELLED`, and `RECOVERY_REQUIRED`. Packet states retain the finer worker
+outcomes, while the integration report records the final main-checkout
+reconciliation.
+
+PAUSE prevents new starts and cancels/pauses active workers through the adapter;
+STOP cancels queued work and drains active workers; KILL terminates active
+workers and preserves worktrees for recovery. A controller restart marks
+orphaned active strategy/packet state recoverable and runs stale/dirty worktree
+inspection. None of these transitions changes the enclosing run to
+`GOAL_COMPLETE`; only Sol's existing outer loop may do that.

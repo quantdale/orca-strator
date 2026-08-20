@@ -482,3 +482,28 @@ returns branch/path/base SHA provenance; integration returns per-packet
 outcomes, integrated commits, blockers, and partial/conflict status. These
 endpoints do not enable production swarm or change the default single-agent
 loop.
+
+## 20. Optional same-repository swarm endpoints
+
+Change 013 adds an explicit strategy surface built on the Change 012 packet and
+worktree contracts:
+
+```text
+GET  /api/repositories/:id/campaigns/:runId/swarm
+POST /api/repositories/:id/campaigns/:runId/swarm/start
+GET  /api/repositories/:id/campaigns/:runId/swarm/:strategyRunId
+POST /api/repositories/:id/campaigns/:runId/swarm/:strategyRunId/control
+POST /api/repositories/:id/campaigns/:runId/swarm/:strategyRunId/recover
+```
+
+The start body is `{ packetIds: string[], maxConcurrency?: number }` and is
+validated as an explicit `SWARM` choice with a bound from 1 through 32. The
+response is a durable strategy record; execution is backgrounded for REST
+callers and can be inspected through the detail endpoint. Detail returns
+strategy/control/packet/result records, with integration and scheduler
+references in the structured report when finalized.
+
+Control bodies are `{ decision: "PAUSE" | "STOP" | "KILL" | "RESUME", reason?:
+string }`. Repository/run/iteration/packet correlation is mandatory. The API
+does not expose a graph authoring format, does not dynamically route models,
+and does not translate a worker/integration result into `GOAL_COMPLETE`.

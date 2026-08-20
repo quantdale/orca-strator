@@ -347,3 +347,20 @@ These rows are local orchestration truth. Worker changes remain Git commits on
 internal branches; the persistent repository `main` checkout remains the
 integration target. No table or cleanup path authorizes force-push, reset, or
 discard of dirty worker/user files.
+
+## 14. Optional swarm strategy tables
+
+Change 013 adds a small lifecycle anchor around the normalized packet/worktree
+records:
+
+- `execution_strategy_runs` stores one explicit `SWARM` strategy for a
+  campaign/run/iteration, its packet ID set, effective worker bound, lifecycle
+  status, control state, timestamps, blocker, and final structured report;
+- `execution_strategy_controls` stores append-only PAUSE/STOP/KILL/RESUME
+  decisions with strategy/run/iteration correlation and reason.
+
+The strategy row is a read-model anchor, not a replacement for packet results,
+worktree provenance, integration reports, scheduler decisions, usage metrics,
+or the campaign trace. A strategy row may be `COMPLETED` or `PARTIAL` while the
+enclosing campaign remains under Sol review; it never stores a goal-complete
+authority.

@@ -49,6 +49,9 @@ import { WorkPacketService } from './packets/work-packet-service.js';
 import { WorktreeIsolationService } from './packets/worktree-isolation-service.js';
 import { IntegrationService } from './packets/integration-service.js';
 import { workPacketRoutes } from './http/routes/work-packets.js';
+import { StrategyRunStore } from './strategy/strategy-run-store.js';
+import { SwarmExecutionService } from './strategy/swarm-execution-service.js';
+import { swarmRoutes } from './http/routes/swarm.js';
 
 import type { BrowserDriver } from './browser/browser-driver.js';
 
@@ -83,6 +86,8 @@ export interface AppInstance {
   workPacketService: WorkPacketService;
   worktreeIsolationService: WorktreeIsolationService;
   integrationService: IntegrationService;
+  strategyRunStore: StrategyRunStore;
+  swarmExecutionService: SwarmExecutionService;
 }
 
 export async function buildApp(
@@ -113,6 +118,7 @@ export async function buildApp(
   const capabilityStore = new CapabilityStore(dbContext.db);
   const runPolicyStore = new RunPolicyStore(dbContext.db);
   const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);
+  const strategyRunStore = new StrategyRunStore(dbContext.db);
   const usageStore = new UsageTelemetryStore(dbContext.db);
   const usageTelemetryService = new UsageTelemetryService(
     usageStore,
@@ -125,7 +131,8 @@ export async function buildApp(
     runStore,
     runPolicyStore,
     campaignLedgerStore,
-    usageStore
+    usageStore,
+    strategyRunStore
   );
   eventBus.subscribe((event) => {
     campaignLedgerService.recordEvent(event);
@@ -169,6 +176,22 @@ export async function buildApp(
         }
       });
     },
+    eventPublisher: (event) => eventBus.publish(event)
+  });
+
+  const swarmExecutionService = new SwarmExecutionService({
+    repositoryStore: store,
+    runStore,
+    strategyStore: strategyRunStore,
+    packetStore: workPacketStore,
+    packetService: workPacketService,
+    worktreeService: worktreeIsolationService,
+    integrationService,
+    schedulerService,
+    permissionPolicyService,
+    usageTelemetryService,
+    gitClient,
+    dataDir: config.dataDir,
     eventPublisher: (event) => eventBus.publish(event)
   });
 
@@ -243,6 +266,7 @@ export async function buildApp(
 
   const reconciler = new StartupReconciler(store, runStore, loopService, browserManager);
   await reconciler.reconcile();
+  await swarmExecutionService.recoverAll();
 
   // Production watcher lifecycle (Fix #1): every existing enabled repository
   // must be watched automatically after startup without requiring a user
@@ -284,6 +308,11 @@ export async function buildApp(
     worktreeIsolationService,
     integrationService,
     workPacketStore
+  ));
+  await fastify.register(swarmRoutes(
+    repositoryService,
+    runStore,
+    swarmExecutionService
   ));
   await fastify.register(systemRoutes(config.port, browserManager));
   await fastify.register(websocketRoutes(eventBus));
@@ -334,6 +363,8 @@ export async function buildApp(
     workPacketStore,
     workPacketService,
     worktreeIsolationService,
-    integrationService
+    integrationService,
+    strategyRunStore,
+    swarmExecutionService
   };
 }

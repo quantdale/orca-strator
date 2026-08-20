@@ -14,6 +14,7 @@ import type { RunPolicyStore } from "../loop/run-policy-store.js";
 import type { CampaignLedgerStore } from "./campaign-ledger-store.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { UsageTelemetryStore } from "../usage/usage-telemetry-store.js";
+import type { StrategyRunStore } from "../strategy/strategy-run-store.js";
 
 interface DispatchLike { id?: string; runId?: string; iteration?: number; }
 interface ControlLike { id?: string; controlId?: string; runId?: string; iteration?: number; relatedDispatchId?: string | null; }
@@ -25,7 +26,8 @@ export class CampaignLedgerService {
     private readonly runStore: RunStore,
     private readonly runPolicyStore: RunPolicyStore,
     private readonly ledgerStore: CampaignLedgerStore,
-    private readonly usageStore?: UsageTelemetryStore
+    private readonly usageStore?: UsageTelemetryStore,
+    private readonly strategyStore?: StrategyRunStore
   ) {}
 
   /** EventBus already redacts secrets before this listener receives the event. */
@@ -97,7 +99,8 @@ export class CampaignLedgerService {
       controls: rows("sol_controls"),
       effectivePolicy: this.runPolicyStore.get(runId),
       usage,
-      usageSummary: summarizeUsage(usage)
+      usageSummary: summarizeUsage(usage),
+      strategyRuns: this.strategyStore?.listByRun(runId) ?? []
     };
   }
 
@@ -192,6 +195,12 @@ export class CampaignLedgerService {
     if (event.type === "executor.usage_recorded") return "EXECUTOR_ACTIVITY";
     if (event.type === "permission.decision") return "PERMISSION";
     if (event.type === "budget.expired") return "BUDGET";
+    if (event.type === "strategy.control") return "CONTROL";
+    if (event.type === "strategy.integration_completed") return "GIT_POSTFLIGHT";
+    if (event.type === "strategy.recovery") return "RECOVERY";
+    if (event.type === "strategy.worker_started" || event.type === "strategy.worker_completed" || event.type === "strategy.worker_queued") return "EXECUTOR_ACTIVITY";
+    if (event.type === "strategy.started") return "EXECUTOR_LAUNCH";
+    if (event.type === "strategy.completed") return "RESULT";
     if (event.type === "loop.state_changed") {
       const state = this.stringValue(data.loopState);
       if (state === "SOL_PENDING") return "SOL_WAKE";
@@ -222,6 +231,20 @@ export class CampaignLedgerService {
     if (event.type === "sol.wake_busy" || event.type === "sol.wake_retrying") return "RETRYING";
     if (event.type === "sol.wake_failed") return "FAILED";
     if (event.type === "budget.expired") return "FAILED";
+    if (event.type === "strategy.control") return data.decision === "KILL" ? "FAILED" : "STARTED";
+    if (event.type === "strategy.completed") {
+      if (["COMPLETED", "PARTIAL"].includes(this.stringValue(data.strategyStatus) ?? "")) return "SUCCEEDED";
+      if (["BLOCKED", "RECOVERY_REQUIRED"].includes(this.stringValue(data.strategyStatus) ?? "")) return "BLOCKED";
+      return "FAILED";
+    }
+    if (event.type === "strategy.worker_completed") {
+      return data.resultStatus === "COMPLETED" ? "SUCCEEDED" : "FAILED";
+    }
+    if (event.type === "strategy.worker_queued") return "RETRYING";
+    if (event.type === "strategy.integration_completed") {
+      return data.integrationStatus === "COMPLETED" || data.integrationStatus === "PARTIAL" ? "SUCCEEDED" : "BLOCKED";
+    }
+    if (event.type === "strategy.recovery") return "BLOCKED";
     if (event.type === "loop.state_changed" && ["BLOCKED", "NEEDS_HUMAN", "RECOVERY_REQUIRED", "SOL_STALLED", "ATTENTION_REQUIRED"].includes(this.stringValue(data.loopState) ?? "")) return "BLOCKED";
     return event.type === "loop.state_changed" ? "STARTED" : "INFO";
   }

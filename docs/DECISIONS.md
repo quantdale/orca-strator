@@ -369,6 +369,15 @@ integration to main owns conflict detection, partial success, dependency skips,
 and the structured result returned to Sol. No force-push or dirty-work discard
 is permitted.
 
+## D-046 — Swarm is explicit, bounded, and subordinate
+
+**Decision:** Change 013 may run an explicitly selected `SWARM` strategy for one
+iteration only after typed worktree/integration qualification. Each worker has
+its own persisted worktree and authored executor/model policy; a per-strategy
+bound and any explicit scheduler limits are durable and visible. `SINGLE_AGENT`
+remains default, worker/integration results return to Sol, and no swarm status
+can mark the high-level campaign `GOAL_COMPLETE`.
+
 ## How to revise a locked decision
 
 If a locked decision must change:

@@ -12,7 +12,7 @@
  * harness, register it in PROFILES; nothing else needs to change.
  */
 
-export type ExecutorProfileId = "kimi" | "codex" | "generic" | "test";
+export type ExecutorProfileId = "kimi" | "codex" | "generic" | "test" | "swarm-test";
 
 export interface ExecutorInvocation {
   /** Executable to spawn (the resolved cli, possibly a script path). */
@@ -31,6 +31,7 @@ export interface BuildInvocationParams {
 
 export function resolveProfile(cli: string): ExecutorProfileId {
   const normalized = cli.toLowerCase();
+  if (normalized.includes("orca-swarm-test-harness")) return "swarm-test";
   if (normalized.includes("orca-test-harness")) return "test";
   if (normalized.includes("kimi")) return "kimi";
   if (normalized.includes("codex")) return "codex";
@@ -66,6 +67,20 @@ export function buildTestInvocation(params: BuildInvocationParams): ExecutorInvo
   };
 }
 
+/** Deterministic worker-only harness used by the real swarm qualification tier. */
+export function buildSwarmTestInvocation(params: BuildInvocationParams): ExecutorInvocation {
+  const harnessPath = process.env.ORCA_SWARM_TEST_HARNESS;
+  if (!harnessPath) {
+    throw new Error(
+      "ORCA_SWARM_TEST_HARNESS is not set; cannot build a swarm test invocation."
+    );
+  }
+  if (params.environment === "wsl") {
+    return { command: "node", args: [toWslPath(harnessPath)] };
+  }
+  return { command: process.execPath, args: [harnessPath] };
+}
+
 function buildKimiInvocation(params: BuildInvocationParams): ExecutorInvocation {
   // Kimi Code CLI verified (--help 0.34.0): `kimi -m <model> -p "<prompt>"` (also --model)
   // Use -p for prompt (documented non-interactive mode).
@@ -97,7 +112,8 @@ const PROFILES: Record<ExecutorProfileId, (p: BuildInvocationParams) => Executor
   kimi: buildKimiInvocation,
   codex: buildCodexInvocation,
   generic: buildGenericInvocation,
-  test: buildTestInvocation
+  test: buildTestInvocation,
+  "swarm-test": buildSwarmTestInvocation
 };
 
 export function buildExecutorInvocation(

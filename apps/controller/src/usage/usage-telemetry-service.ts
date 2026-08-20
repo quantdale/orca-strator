@@ -6,8 +6,8 @@ export interface AdapterUsageContext {
   repositoryId: string;
   runId: string;
   iteration: number;
-  dispatchId: string;
-  executorRunId: string;
+  dispatchId?: string | null;
+  executorRunId?: string | null;
   executor: string;
   model: string;
   provider?: string | null;

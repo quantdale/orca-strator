@@ -23,6 +23,8 @@ export class SchedulerService {
     const now = request.requestedAt ?? new Date().toISOString();
     const blockedBy = policy.enabled ? this.firstLimit(request) : null;
     const status = blockedBy ? (policy.queueWhenLimited ? "QUEUED" : "REJECTED") : "ADMITTED";
+    const historicalBlockedBy = existing?.blockedBy ?? blockedBy;
+    const wasQueued = existing?.queuedAt !== null && existing?.queuedAt !== undefined;
     const decision: SchedulerDecision = {
       id: existing?.id ?? crypto.randomUUID(),
       requestId: request.requestId,
@@ -34,10 +36,14 @@ export class SchedulerService {
       model: request.model,
       kind: request.kind,
       status,
-      blockedBy,
-      reason: blockedBy ? `Queued by explicit ${blockedBy} limit.` : "Admitted: no configured scheduler limit blocks this request.",
-      queuedAt: blockedBy && status === "QUEUED" ? now : null,
-      runnableAt: null,
+      blockedBy: historicalBlockedBy,
+      reason: blockedBy
+        ? `Queued by explicit ${blockedBy} limit.`
+        : wasQueued
+          ? `Admitted after the explicit scheduler limit ${existing?.blockedBy ?? "configured"} became available.`
+          : "Admitted: no configured scheduler limit blocks this request.",
+      queuedAt: existing?.queuedAt ?? (blockedBy && status === "QUEUED" ? now : null),
+      runnableAt: status === "ADMITTED" && wasQueued ? now : null,
       resolvedAt: status === "REJECTED" ? now : null,
       policySnapshot: policy,
       createdAt: existing?.createdAt ?? now
@@ -96,10 +102,13 @@ export class SchedulerService {
       if (blockedBy) continue;
       this.active.set(requestId, request);
       this.queued.delete(requestId);
+      const current = this.store.getDecision(requestId);
       this.store.updateDecision(requestId, {
         status: "ADMITTED",
-        blockedBy: null,
-        reason: "Admitted after the explicit scheduler limit became available.",
+        blockedBy: current?.blockedBy ?? null,
+        reason: current?.blockedBy
+          ? `Admitted after the explicit scheduler limit ${current.blockedBy} became available.`
+          : "Admitted after the explicit scheduler limit became available.",
         runnableAt: new Date().toISOString()
       });
     }

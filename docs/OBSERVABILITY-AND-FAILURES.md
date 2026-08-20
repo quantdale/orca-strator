@@ -377,3 +377,17 @@ worktrees become `CLEANUP_REQUIRED` rather than silently disappearing.
 Integration reports identify the deterministic order, integrated packet IDs,
 final main commit, partial successes, dependency skips, and conflict blockers.
 Raw worker prose is not the coordination protocol.
+
+## 20. Swarm strategy evidence
+
+The ledger records `strategy.started`, worker queued/started/completed,
+strategy control, integration completed, recovery, and strategy completed
+events with strategy-run/packet/worktree/scheduler correlation. A swarm detail
+read model exposes effective concurrency, each typed packet/result, controls,
+integration status, scheduler decision IDs, usage metric IDs, and recovery
+blockers. Queue events retain the configured limiting dimension and reason.
+
+Worker process logs remain bounded diagnostics. They are never required to
+reconstruct whether a worker committed, whether integration succeeded, or why a
+packet was cancelled/blocked. A strategy `COMPLETED`/`PARTIAL` status is an
+iteration result, not a high-level campaign success signal.

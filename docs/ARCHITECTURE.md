@@ -371,3 +371,12 @@ recoverable. Deterministic integration cherry-picks validated worker commits to
 main, preserves successful siblings, and returns conflicts/partial failures as
 structured results. Swarm and DAG strategies remain disabled until this layer
 passes its real qualification gate.
+
+Change 013 enables the optional `SWARM` strategy now that that gate is green.
+Sol or an explicit user API request selects a packet set for one iteration; a
+bounded controller scheduler launches each packet through the existing
+capability-aware adapter in a distinct temporary worktree, then invokes the
+qualified integration service. Strategy controls, scheduler admissions,
+worker results, usage references, and integration outcomes return to the
+campaign ledger. `SINGLE_AGENT` remains the default, the persistent main
+checkout remains integration-only, and no worker result is campaign completion.

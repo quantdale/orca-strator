@@ -482,6 +482,51 @@ export const migrations: Migration[] = [
           ON integration_reports(run_id, iteration, created_at DESC);
       `);
     }
+  },
+  {
+    version: 19,
+    name: "019_create_execution_strategy_runs_and_controls",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS execution_strategy_runs (
+          strategy_run_id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          campaign_id TEXT NOT NULL,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          strategy TEXT NOT NULL CHECK (strategy IN ('SINGLE_AGENT', 'SWARM')),
+          status TEXT NOT NULL CHECK (status IN ('QUEUED', 'RUNNING', 'PAUSED', 'STOPPING', 'COMPLETED', 'PARTIAL', 'BLOCKED', 'FAILED', 'CANCELLED', 'RECOVERY_REQUIRED')),
+          max_concurrency INTEGER NOT NULL CHECK (max_concurrency > 0 AND max_concurrency <= 32),
+          packet_ids_json TEXT NOT NULL,
+          control_state TEXT NOT NULL CHECK (control_state IN ('NONE', 'PAUSE_REQUESTED', 'STOP_REQUESTED', 'KILL_REQUESTED')),
+          started_at TEXT,
+          finished_at TEXT,
+          last_error TEXT,
+          report_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_execution_strategy_runs_run_iteration
+          ON execution_strategy_runs(run_id, iteration, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_execution_strategy_runs_repo_status
+          ON execution_strategy_runs(repository_id, status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS execution_strategy_controls (
+          control_id TEXT PRIMARY KEY,
+          strategy_run_id TEXT NOT NULL REFERENCES execution_strategy_runs(strategy_run_id) ON DELETE CASCADE,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          decision TEXT NOT NULL CHECK (decision IN ('PAUSE', 'STOP', 'KILL', 'RESUME')),
+          reason TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_execution_strategy_controls_strategy_time
+          ON execution_strategy_controls(strategy_run_id, created_at ASC);
+      `);
+    }
   }
 ];
 

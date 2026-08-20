@@ -21,7 +21,15 @@ export type EventType =
   | "executor.capability_probed"
   | "executor.usage_recorded"
   | "permission.decision"
-  | "budget.expired";
+  | "budget.expired"
+  | "strategy.started"
+  | "strategy.worker_queued"
+  | "strategy.worker_started"
+  | "strategy.worker_completed"
+  | "strategy.control"
+  | "strategy.integration_completed"
+  | "strategy.completed"
+  | "strategy.recovery";
 
 export interface RepositoryMutationEvent {
   type: EventType;
