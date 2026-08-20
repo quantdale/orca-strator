@@ -6,7 +6,7 @@ import type {
   StrategyControlState,
   StrategyRunRecord,
   StrategyRunStatus,
-  SwarmExecutionReport
+  StrategyExecutionReport
 } from "@orca/shared";
 
 interface StrategyRunRow {
@@ -177,13 +177,13 @@ export class StrategyRunStore {
 
   private mapRun(row: StrategyRunRow): StrategyRunRecord {
     let packetIds: string[] = [];
-    let report: SwarmExecutionReport | null = null;
+    let report: StrategyExecutionReport | null = null;
     try {
       const parsed = JSON.parse(row.packet_ids_json);
       if (Array.isArray(parsed)) packetIds = parsed.filter((value): value is string => typeof value === "string");
     } catch {}
     try {
-      report = row.report_json ? JSON.parse(row.report_json) as SwarmExecutionReport : null;
+      report = row.report_json ? JSON.parse(row.report_json) as StrategyExecutionReport : null;
     } catch {}
     return {
       schemaVersion: 1,

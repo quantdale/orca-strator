@@ -304,5 +304,14 @@ worktrees/internal branches. The persistent main checkout is never a worker
 working directory; integration is a separate controller phase. No worker is
 allowed to force-push, and dirty worktrees are retained for recovery rather
 than forcibly removed. The deterministic harness is test-only. This isolation
-guarantee does not claim native executor sandboxing for filesystem, network, or
+ guarantee does not claim native executor sandboxing for filesystem, network, or
 shell actions; permission enforcement remains labelled by its actual mechanism.
+
+## 23. DAG writer and policy boundary
+
+DAG nodes inherit the packet's authored allowed paths, executor/model, budget,
+and autonomy policy. The DAG scheduler never grants a worker access to the
+persistent main checkout; each writer receives a persisted worktree/internal
+branch. A node `ASK`/`DENY` result becomes a durable attention/blocker state.
+The DAG definition cannot bypass no-force-push, dirty-user-work preservation,
+or no-secret-commit invariants.

@@ -528,3 +528,13 @@ workers and preserves worktrees for recovery. A controller restart marks
 orphaned active strategy/packet state recoverable and runs stale/dirty worktree
 inspection. None of these transitions changes the enclosing run to
 `GOAL_COMPLETE`; only Sol's existing outer loop may do that.
+
+## 20. Optional DAG strategy
+
+`DAG` is an explicit intra-iteration strategy. A request first persists a
+packet-linked node definition and rejects unknown dependencies, cycles, and
+packet mismatch. Nodes move through `QUEUED`, `WAITING_DEPENDENCY`, `STARTING`,
+`RUNNING`, `WAITING_PERMISSION`, `RETRYING`, terminal typed states, and
+`INTEGRATING` while the shared strategy run carries pause/stop/kill/recovery
+state. A worker commit or a green DAG does not complete the campaign; the
+structured DAG result returns to Sol for review and the next action.

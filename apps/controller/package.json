@@ -9,7 +9,7 @@
     "build": "npm run build --workspace=@orca/shared && tsc -p tsconfig.json",
     "typecheck": "npm run build --workspace=@orca/shared && tsc -p tsconfig.json --noEmit",
     "test": "vitest run --exclude \"**/real-*.test.ts\"",
-    "test:real": "vitest run test/real-runtime-qualification.test.ts test/real-runtime-controls.test.ts test/real-runtime-buildapp.test.ts test/real-operational-intelligence.test.ts test/real-worktree-isolation.test.ts test/real-swarm.test.ts --no-file-parallelism",
+    "test:real": "vitest run test/real-runtime-qualification.test.ts test/real-runtime-controls.test.ts test/real-runtime-buildapp.test.ts test/real-operational-intelligence.test.ts test/real-worktree-isolation.test.ts test/real-swarm.test.ts test/real-dag.test.ts --no-file-parallelism",
     "browser:install": "playwright install chromium",
     "playwright:status": "node -e \"import('./dist/browser/provisioning.js').then(m=>m.getChromiumStatus().then(s=>console.log(JSON.stringify(s,null,2)))).catch(e=>console.error(e.message))\"",
     "lint": "tsc -p tsconfig.json --noEmit"

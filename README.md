@@ -212,15 +212,17 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 - Completed: [`openspec/changes/011-usage-telemetry-scheduler-policy/`](openspec/changes/011-usage-telemetry-scheduler-policy/)
 - Completed: [`openspec/changes/012-typed-work-packets-isolation/`](openspec/changes/012-typed-work-packets-isolation/)
 - Completed: [`openspec/changes/013-optional-same-repository-swarm/`](openspec/changes/013-optional-same-repository-swarm/)
-- Active: [`openspec/changes/014-optional-dag-execution-strategy/`](openspec/changes/014-optional-dag-execution-strategy/)
+- Completed: [`openspec/changes/014-optional-dag-execution-strategy/`](openspec/changes/014-optional-dag-execution-strategy/)
+- Next: [`openspec/changes/015-optional-rich-opencode-adapter/`](openspec/changes/015-optional-rich-opencode-adapter/)
 
 Change 010, Change 011, and Change 012 are complete and internally
 machine-qualified. Change 012 established typed work packets, isolated
 temporary worktrees/internal branches, deterministic integration, and explicit
 partial-failure results. Change 013 is complete and internally
 machine-qualified for an explicitly enabled, bounded same-repository swarm
-built on those qualified primitives. Change 014 is active for an optional
-structured DAG strategy.
+built on those qualified primitives. Change 014 is complete and internally
+machine-qualified for an optional structured DAG strategy. Change 015 is next
+for a technically evaluated optional OpenCode adapter.
 
 Post-V1 evolution is being implemented as focused sequential changes. The
 historical OpenFlow-inspired exploration is explicitly non-binding; see the

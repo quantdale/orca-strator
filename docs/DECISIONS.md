@@ -390,3 +390,11 @@ If a locked decision must change:
 6. commit decision change before broad implementation depending on it.
 
 Do not let code silently become only record of architectural reversal.
+
+## D-047 — DAG is a packet-linked optional strategy
+
+Change 014 adds `DAG` only as an explicit structured intra-iteration strategy.
+Node dependencies must agree with typed packet dependencies and pass cycle
+validation before launch. DAG execution reuses the qualified swarm worker
+runtime, worktree isolation, scheduler, controls, and integration protocol;
+there is no visual composer and no automatic decomposition/model routing.

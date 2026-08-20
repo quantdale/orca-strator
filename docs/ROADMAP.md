@@ -540,15 +540,19 @@ conditional WSL execution. Typecheck, build, lint, and diff checks pass.
 
 OpenSpec: `014-optional-dag-execution-strategy`
 
-Status: **implementing / explicitly opt-in**
+Status: **complete / MACHINE-QUALIFIED internally / explicitly opt-in**
 
 Structured DAG definitions/presets only; no visual composer and no DAG default UX.
+Fast 189/189 tests and real 25/25 tests pass, including Windows/Git
+topological execution, integration conflict/partial failure, controls,
+restart recovery, and conditional WSL execution. Typecheck, build, lint, and
+diff checks are required at the final checkpoint.
 
 ### Milestone 14 — Optional rich OpenCode adapter
 
 OpenSpec: `015-optional-rich-opencode-adapter`
 
-Status: **planned / technical evaluation required**
+Status: **next / technical evaluation required**
 
 OpenCode remains optional and absent-safe. An unstable API is documented as
 experimental rather than hidden behind brittle hacks.

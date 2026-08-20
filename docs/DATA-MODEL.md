@@ -364,3 +364,15 @@ worktree provenance, integration reports, scheduler decisions, usage metrics,
 or the campaign trace. A strategy row may be `COMPLETED` or `PARTIAL` while the
 enclosing campaign remains under Sol review; it never stores a goal-complete
 authority.
+
+## 15. DAG nodes (Change 014)
+
+`execution_strategy_runs.strategy` accepts `DAG` after migration 020. Migration
+021 adds `execution_dag_nodes`, keyed by `(strategy_run_id, node_id)` with a
+unique packet link per strategy. Each row stores explicit node dependencies,
+the effective packet budget snapshot, lifecycle status, attempt/retry ceiling,
+waiting/control reason, timestamps, and the packet result reference.
+
+DAG node rows are subordinate to the strategy run and packet/result records.
+They do not replace typed work packets, Git worktree provenance, integration
+reports, scheduler decisions, usage metrics, or the enclosing campaign run.

@@ -3,6 +3,7 @@ import type { RepositoryRecord } from "./repository.js";
 import type { RunRecord } from "./loop.js";
 import type { UsageMetric, UsageSummary } from "./usage-telemetry.js";
 import type { StrategyRunRecord } from "./execution-strategy.js";
+import type { DagNodeRecord } from "./execution-strategy.js";
 
 export type TracePhase =
   | "CAMPAIGN"
@@ -74,6 +75,7 @@ export interface CampaignDetail {
   usage: UsageMetric[];
   usageSummary: UsageSummary;
   strategyRuns: StrategyRunRecord[];
+  dagNodes: DagNodeRecord[];
 }
 
 export type BudgetFailureReason =

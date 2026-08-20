@@ -7,9 +7,10 @@ import {
   type RunRecord,
   type StrategyControlDecision,
   type StrategyControlRecord,
+  type ExecutionStrategy,
+  type StrategyExecutionReport,
   type StrategyRunRecord,
   type StrategyRunStatus,
-  type SwarmExecutionReport,
   type WorkPacket,
   type WorkPacketResult,
   type WorktreeProvenance
@@ -47,6 +48,12 @@ interface ActiveWorker {
 interface ActiveStrategy {
   workers: Map<string, ActiveWorker>;
   queuedRequests: Set<string>;
+}
+
+export interface StrategyExecutionHooks {
+  nodeIds?: string[];
+  onCreated?: (record: StrategyRunRecord, packets: WorkPacket[]) => void;
+  onEvent?: (event: RepositoryMutationEvent) => void;
 }
 
 export interface SwarmStartOptions {
@@ -89,6 +96,7 @@ export class SwarmExecutionService {
   private readonly wslAdapter: ExecutorAdapter;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private readonly active = new Map<string, ActiveStrategy>();
+  private readonly hooks = new Map<string, StrategyExecutionHooks>();
 
   constructor(options: SwarmExecutionServiceOptions) {
     this.repositoryStore = options.repositoryStore;
@@ -110,9 +118,22 @@ export class SwarmExecutionService {
 
   /** Start an explicitly selected swarm in the background for REST callers. */
   start(repositoryId: string, runId: string, iteration: number, options: SwarmStartOptions): StrategyRunRecord {
+    return this.startStrategy("SWARM", repositoryId, runId, iteration, options);
+  }
+
+  startStrategy(
+    strategy: Exclude<ExecutionStrategy, "SINGLE_AGENT">,
+    repositoryId: string,
+    runId: string,
+    iteration: number,
+    options: SwarmStartOptions,
+    hooks: StrategyExecutionHooks = {}
+  ): StrategyRunRecord {
     const context = this.validateStart(repositoryId, runId, iteration, options);
-    const record = this.createRecord(context.repository, context.run, context.packets, options.maxConcurrency);
-    void this.executeRecord(record, context.repository, context.run, context.packets).catch((error) => {
+    const record = this.createRecord(strategy, context.repository, context.run, context.packets, options.maxConcurrency);
+    this.hooks.set(record.strategyRunId, hooks);
+    hooks.onCreated?.(record, context.packets);
+    void this.executeRecord(record, context.repository, context.run, context.packets, hooks).catch((error) => {
       this.failStrategy(record.strategyRunId, error);
     });
     return record;
@@ -120,9 +141,22 @@ export class SwarmExecutionService {
 
   /** Deterministic/test-friendly synchronous entry point that resolves on final report. */
   async execute(repositoryId: string, runId: string, iteration: number, options: SwarmStartOptions): Promise<StrategyRunRecord> {
+    return this.executeStrategy("SWARM", repositoryId, runId, iteration, options);
+  }
+
+  async executeStrategy(
+    strategy: Exclude<ExecutionStrategy, "SINGLE_AGENT">,
+    repositoryId: string,
+    runId: string,
+    iteration: number,
+    options: SwarmStartOptions,
+    hooks: StrategyExecutionHooks = {}
+  ): Promise<StrategyRunRecord> {
     const context = this.validateStart(repositoryId, runId, iteration, options);
-    const record = this.createRecord(context.repository, context.run, context.packets, options.maxConcurrency);
-    return this.executeRecord(record, context.repository, context.run, context.packets);
+    const record = this.createRecord(strategy, context.repository, context.run, context.packets, options.maxConcurrency);
+    this.hooks.set(record.strategyRunId, hooks);
+    hooks.onCreated?.(record, context.packets);
+    return this.executeRecord(record, context.repository, context.run, context.packets, hooks);
   }
 
   get(strategyRunId: string): StrategyRunRecord | null {
@@ -144,7 +178,7 @@ export class SwarmExecutionService {
     results: WorkPacketResult[];
   } | null {
     const strategy = this.strategyStore.get(strategyRunId);
-    if (!strategy || strategy.repositoryId !== repositoryId || strategy.runId !== runId) return null;
+    if (!strategy || strategy.strategy !== "SWARM" || strategy.repositoryId !== repositoryId || strategy.runId !== runId) return null;
     const packets = strategy.packetIds
       .map((packetId) => this.packetService.get(packetId))
       .filter((packet): packet is WorkPacket => Boolean(packet));
@@ -166,9 +200,9 @@ export class SwarmExecutionService {
   ): Promise<StrategyRunRecord> {
     const record = this.strategyStore.get(strategyRunId);
     if (!record || record.repositoryId !== repositoryId) {
-      throw new ValidationError("Swarm strategy run does not belong to this repository.");
+      throw new ValidationError("Execution strategy run does not belong to this repository.");
     }
-    if (record.strategy !== "SWARM") throw new ValidationError("Only SWARM strategy runs accept swarm controls.");
+    if (record.strategy === "SINGLE_AGENT") throw new ValidationError("Single-agent runs do not accept strategy controls.");
     const repository = this.repositoryStore.get(repositoryId);
     if (!repository) throw new ValidationError(`Repository ${repositoryId} not found`);
     const control = this.strategyStore.createControl({
@@ -195,15 +229,16 @@ export class SwarmExecutionService {
       type: "strategy.control",
       at: control.createdAt,
       repositoryId,
-      data: {
+        data: {
         runId: record.runId,
         iteration: record.iteration,
         strategyRunId,
         controlId: control.controlId,
         decision,
-        reason: reason ?? undefined
-      }
-    });
+          reason: reason ?? undefined,
+          strategy: record.strategy
+        }
+    }, this.hooks.get(strategyRunId));
 
     const active = this.active.get(strategyRunId);
     if (decision === "PAUSE" && active) {
@@ -215,7 +250,7 @@ export class SwarmExecutionService {
         await worker.runner?.kill().catch(() => {});
       }));
     } else if (decision === "RESUME") {
-      if (record.status !== "PAUSED") throw new ValidationError(`Cannot resume swarm strategy in status ${record.status}.`);
+      if (record.status !== "PAUSED") throw new ValidationError(`Cannot resume strategy in status ${record.status}.`);
       const run = this.runStore.get(record.runId);
       if (!run) throw new ValidationError(`Campaign ${record.runId} not found.`);
       const packets = record.packetIds.map((packetId) => this.packetService.get(packetId)).filter((packet): packet is WorkPacket => Boolean(packet));
@@ -224,7 +259,7 @@ export class SwarmExecutionService {
         if (existingResult?.status !== "COMPLETED") this.packetService.updateStatus(packet.packetId, "QUEUED");
       }
       const resumed = this.strategyStore.update(strategyRunId, { controlState: "NONE", status: "QUEUED", finishedAt: null });
-      if (resumed) void this.executeRecord(resumed, repository, run, packets).catch((error) => this.failStrategy(strategyRunId, error));
+      if (resumed) void this.executeRecord(resumed, repository, run, packets, this.hooks.get(strategyRunId)).catch((error) => this.failStrategy(strategyRunId, error));
       return resumed ?? updated;
     }
     return this.strategyStore.get(strategyRunId) ?? updated;
@@ -262,7 +297,7 @@ export class SwarmExecutionService {
           type: "strategy.recovery",
           at: next.finishedAt ?? new Date().toISOString(),
           repositoryId: next.repositoryId,
-          data: { runId: next.runId, iteration: next.iteration, strategyRunId: next.strategyRunId, reason: next.lastError ?? undefined }
+          data: { runId: next.runId, iteration: next.iteration, strategyRunId: next.strategyRunId, strategy: next.strategy, reason: next.lastError ?? undefined }
         });
       }
     }
@@ -278,7 +313,7 @@ export class SwarmExecutionService {
     if (!repository) throw new ValidationError(`Repository ${repositoryId} not found`);
     const run = this.runStore.get(runId);
     if (!run || run.repositoryId !== repositoryId) throw new ValidationError("Campaign/run correlation is invalid.");
-    if (run.currentIteration !== iteration) throw new ValidationError("Swarm iteration does not match the campaign's current iteration.");
+    if (run.currentIteration !== iteration) throw new ValidationError("Execution strategy iteration does not match the campaign's current iteration.");
     const maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
     if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > MAX_MAX_CONCURRENCY) {
       throw new ValidationError(`Swarm maxConcurrency must be an integer from 1 to ${MAX_MAX_CONCURRENCY}.`);
@@ -286,7 +321,7 @@ export class SwarmExecutionService {
     const packetIds = [...new Set(options.packetIds)];
     if (packetIds.length !== options.packetIds.length) throw new ValidationError("Swarm packet IDs must be unique.");
     const packets = packetIds.map((packetId) => this.packetService.get(packetId));
-    if (packets.some((packet): packet is null => packet === null)) throw new ValidationError("Every swarm packet must be durable before execution.");
+    if (packets.some((packet): packet is null => packet === null)) throw new ValidationError("Every strategy packet must be durable before execution.");
     const selected = packets as WorkPacket[];
     for (const packet of selected) {
       if (packet.runId !== runId || packet.campaignId !== runId || packet.iteration !== iteration || this.packetStore.getRepositoryId(packet.packetId) !== repositoryId) {
@@ -299,7 +334,7 @@ export class SwarmExecutionService {
     const selectedIds = new Set(selected.map((packet) => packet.packetId));
     for (const packet of selected) {
       if (packet.dependencies.some((dependency) => !selectedIds.has(dependency))) {
-        throw new ValidationError(`Packet ${packet.packetId} has a dependency outside the selected swarm.`);
+        throw new ValidationError(`Packet ${packet.packetId} has a dependency outside the selected strategy.`);
       }
     }
     if (this.hasCycle(selected)) throw new ValidationError("Swarm packet dependency graph contains a cycle.");
@@ -307,7 +342,13 @@ export class SwarmExecutionService {
     return { repository, run, packets: selected };
   }
 
-  private createRecord(repository: RepositoryRecord, run: RunRecord, packets: WorkPacket[], maxConcurrency = DEFAULT_MAX_CONCURRENCY): StrategyRunRecord {
+  private createRecord(
+    strategy: Exclude<ExecutionStrategy, "SINGLE_AGENT">,
+    repository: RepositoryRecord,
+    run: RunRecord,
+    packets: WorkPacket[],
+    maxConcurrency = DEFAULT_MAX_CONCURRENCY
+  ): StrategyRunRecord {
     const now = new Date().toISOString();
     return this.strategyStore.create({
       schemaVersion: 1,
@@ -316,7 +357,7 @@ export class SwarmExecutionService {
       campaignId: run.id,
       runId: run.id,
       iteration: run.currentIteration,
-      strategy: "SWARM",
+      strategy,
       status: "QUEUED",
       maxConcurrency,
       packetIds: packets.map((packet) => packet.packetId),
@@ -330,7 +371,14 @@ export class SwarmExecutionService {
     });
   }
 
-  private async executeRecord(record: StrategyRunRecord, repository: RepositoryRecord, run: RunRecord, packets: WorkPacket[]): Promise<StrategyRunRecord> {
+  private async executeRecord(
+    record: StrategyRunRecord,
+    repository: RepositoryRecord,
+    run: RunRecord,
+    packets: WorkPacket[],
+    hooks: StrategyExecutionHooks = this.hooks.get(record.strategyRunId) ?? {}
+  ): Promise<StrategyRunRecord> {
+    this.hooks.set(record.strategyRunId, hooks);
     const startedAt = new Date().toISOString();
     this.strategyStore.update(record.strategyRunId, { status: "RUNNING", startedAt, controlState: "NONE", lastError: null });
     const active: ActiveStrategy = { workers: new Map(), queuedRequests: new Set() };
@@ -339,8 +387,8 @@ export class SwarmExecutionService {
       type: "strategy.started",
       at: startedAt,
       repositoryId: repository.id,
-      data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategy: "SWARM", maxConcurrency: record.maxConcurrency }
-    });
+       data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategy: record.strategy, maxConcurrency: record.maxConcurrency }
+     }, hooks);
 
     const pending = new Set(packets.map((packet) => packet.packetId));
     const results = new Map<string, WorkPacketResult>();
@@ -396,6 +444,20 @@ export class SwarmExecutionService {
             const permission = this.evaluateWritePermission(repository, run, packet);
             if (permission === "ASK" || permission === "DENY") {
               this.packetService.updateStatus(packet.packetId, "WAITING_PERMISSION");
+              this.publish({
+                type: "strategy.permission_required",
+                at: new Date().toISOString(),
+                repositoryId: repository.id,
+                data: {
+                  runId: run.id,
+                  iteration: run.currentIteration,
+                  strategyRunId: record.strategyRunId,
+                  strategy: record.strategy,
+                  packetId: packet.packetId,
+                  outcome: permission,
+                  reason: "Repository file write policy requires an actionable permission decision."
+                }
+              }, hooks);
               const result = this.syntheticResult(packet, "BLOCKED", `PERMISSION_${permission}: repository file write policy requires attention.`, null);
               results.set(packet.packetId, this.packetService.recordResult(repository, packet, result));
               pending.delete(packet.packetId);
@@ -431,7 +493,7 @@ export class SwarmExecutionService {
                     blockedBy: decision.blockedBy ?? undefined,
                     reason: decision.reason
                   }
-                });
+                }, hooks);
               }
               if (decision.status === "REJECTED") {
                 const result = this.syntheticResult(packet, "BLOCKED", `SCHEDULER_REJECTED: ${decision.reason}`, null);
@@ -480,7 +542,7 @@ export class SwarmExecutionService {
                   blocker: persisted.blocker ?? undefined,
                   commitSha: persisted.worktree?.commitSha ?? undefined
                 }
-              });
+              }, hooks);
               return persisted;
             }).catch((error) => {
               const result = this.syntheticResult(packet, "FAILED", `WORKER_RESULT_FAILED: ${error?.message ?? String(error)}`, worktree ? this.provenance(worktree.path, worktree.branch, worktree.baseSha, null, worktree.worktreeId) : null);
@@ -496,7 +558,7 @@ export class SwarmExecutionService {
               at: new Date().toISOString(),
               repositoryId: repository.id,
               data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, packetId: packet.packetId, worktreeId: worktree.worktreeId, branch: worktree.branch, executor: packet.executor.executorCli, model: packet.executor.model }
-            });
+            }, hooks);
           }
         }
 
@@ -544,8 +606,8 @@ export class SwarmExecutionService {
           type: "strategy.integration_completed",
           at: integration.createdAt,
           repositoryId: repository.id,
-          data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, integrationStatus: integration.status, finalCommitSha: integration.finalCommitSha ?? undefined }
-        });
+          data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategy: record.strategy, integrationStatus: integration.status, finalCommitSha: integration.finalCommitSha ?? undefined }
+        }, hooks);
         status = integration.status === "COMPLETED"
           ? "COMPLETED"
           : integration.status === "PARTIAL" || integration.status === "INTEGRATION_CONFLICT"
@@ -554,24 +616,45 @@ export class SwarmExecutionService {
         blocker = integration.blocker;
       }
       const finishedAt = new Date().toISOString();
-      const report: SwarmExecutionReport = {
-        schemaVersion: 1,
-        strategyRunId: record.strategyRunId,
-        repositoryId: repository.id,
-        runId: run.id,
-        iteration: run.currentIteration,
-        strategy: "SWARM",
-        status,
-        maxConcurrency: record.maxConcurrency,
-        packetIds: packets.map((packet) => packet.packetId),
-        results: integration?.results ?? finalResults,
-        integration,
-        schedulerDecisionIds: this.schedulerService.listDecisions(1000).filter((decision) => decision.requestId.startsWith(`${record.strategyRunId}:`)).map((decision) => decision.id),
-        controlIds: controls.map((control) => control.controlId),
-        blocker,
-        startedAt,
-        finishedAt
-      };
+      const report: StrategyExecutionReport = record.strategy === "DAG"
+        ? {
+          schemaVersion: 1,
+          strategyRunId: record.strategyRunId,
+          repositoryId: repository.id,
+          runId: run.id,
+          iteration: run.currentIteration,
+          strategy: "DAG",
+          status,
+          maxConcurrency: record.maxConcurrency,
+          packetIds: packets.map((packet) => packet.packetId),
+          nodeIds: hooks.nodeIds ?? [],
+          nodes: [],
+          results: integration?.results ?? finalResults,
+          integration,
+          schedulerDecisionIds: this.schedulerService.listDecisions(1000).filter((decision) => decision.requestId.startsWith(`${record.strategyRunId}:`)).map((decision) => decision.id),
+          controlIds: controls.map((control) => control.controlId),
+          blocker,
+          startedAt,
+          finishedAt
+        }
+        : {
+          schemaVersion: 1,
+          strategyRunId: record.strategyRunId,
+          repositoryId: repository.id,
+          runId: run.id,
+          iteration: run.currentIteration,
+          strategy: "SWARM",
+          status,
+          maxConcurrency: record.maxConcurrency,
+          packetIds: packets.map((packet) => packet.packetId),
+          results: integration?.results ?? finalResults,
+          integration,
+          schedulerDecisionIds: this.schedulerService.listDecisions(1000).filter((decision) => decision.requestId.startsWith(`${record.strategyRunId}:`)).map((decision) => decision.id),
+          controlIds: controls.map((control) => control.controlId),
+          blocker,
+          startedAt,
+          finishedAt
+        };
       if (status !== "PAUSED" && status !== "RECOVERY_REQUIRED") {
         await Promise.all(packets.map(async (packet) => {
           const worktree = this.packetStore.getWorktreeByPacket(packet.packetId);
@@ -583,14 +666,15 @@ export class SwarmExecutionService {
         type: "strategy.completed",
         at: finishedAt,
         repositoryId: repository.id,
-        data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategyStatus: status, blocker: blocker ?? undefined }
-      });
+        data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategy: record.strategy, strategyStatus: status, blocker: blocker ?? undefined }
+      }, hooks);
       return final ?? { ...record, status, finishedAt, report, lastError: blocker, updatedAt: finishedAt };
     } catch (error) {
       await this.failStrategy(record.strategyRunId, error);
       return this.strategyStore.get(record.strategyRunId) ?? record;
     } finally {
       this.active.delete(record.strategyRunId);
+      if (this.strategyStore.get(record.strategyRunId)?.status !== "PAUSED") this.hooks.delete(record.strategyRunId);
     }
   }
 
@@ -800,13 +884,14 @@ export class SwarmExecutionService {
     try {
       const record = this.strategyStore.get(strategyRunId);
       if (!record) return null;
-      const message = `SWARM_FAILED: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `STRATEGY_FAILED: ${error instanceof Error ? error.message : String(error)}`;
       const next = this.strategyStore.update(strategyRunId, {
         status: "FAILED",
         lastError: message,
         finishedAt: new Date().toISOString()
       });
-      if (next) this.publish({ type: "strategy.completed", at: next.finishedAt!, repositoryId: next.repositoryId, data: { runId: next.runId, iteration: next.iteration, strategyRunId, strategyStatus: "FAILED", reason: message } });
+      if (next) this.publish({ type: "strategy.completed", at: next.finishedAt!, repositoryId: next.repositoryId, data: { runId: next.runId, iteration: next.iteration, strategyRunId, strategy: next.strategy, strategyStatus: "FAILED", reason: message } }, this.hooks.get(strategyRunId));
+      this.hooks.delete(strategyRunId);
       return next;
     } catch {
       // A controller teardown can close SQLite while a child exit callback is
@@ -816,8 +901,9 @@ export class SwarmExecutionService {
     }
   }
 
-  private publish(event: RepositoryMutationEvent): void {
+  private publish(event: RepositoryMutationEvent, hooks?: StrategyExecutionHooks): void {
     try { this.eventPublisher?.(event); } catch {}
+    try { hooks?.onEvent?.(event); } catch {}
   }
 
   private async delay(ms: number): Promise<void> {

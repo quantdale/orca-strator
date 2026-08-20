@@ -318,7 +318,10 @@ describe("Real Change 013 optional same-repository swarm qualification", () => {
     fs.writeFileSync(stopRelease, "release\n");
     await waitFor(() => ["CANCELLED", "PARTIAL", "COMPLETED"].includes(strategy.get(stopped.strategyRunId)?.status ?? ""), 20_000);
     expect(strategy.get(stopped.strategyRunId)?.status).toBe("CANCELLED");
-    expect(packetService.getResult(second.packetId)?.status).toBe("CANCELLED");
+    // UUID packet ordering determines which packet owns the latch-controlled
+    // worker. Verify the durable boundary rather than assuming creation order:
+    // the active worker drains, while the queued sibling is cancelled.
+    expect([packetService.getResult(first.packetId)?.status, packetService.getResult(second.packetId)?.status].sort()).toEqual(["CANCELLED", "COMPLETED"]);
 
     const killData = fixture("orca-real-swarm-kill-");
     tempDirs.push(killData.tempDir);

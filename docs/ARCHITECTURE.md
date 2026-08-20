@@ -380,3 +380,24 @@ qualified integration service. Strategy controls, scheduler admissions,
 worker results, usage references, and integration outcomes return to the
 campaign ledger. `SINGLE_AGENT` remains the default, the persistent main
 checkout remains integration-only, and no worker result is campaign completion.
+
+## Optional DAG execution (Change 014)
+
+An explicitly selected DAG adds a validated node/dependency layer over the same
+strategy runtime:
+
+```text
+Sol dispatch
+  -> typed packet-linked DAG definition
+  -> cycle/dependency/correlation validation
+  -> bounded scheduler
+  -> isolated worktree workers
+  -> deterministic integration
+  -> durable node + strategy result
+  -> Sol review/replan
+```
+
+The DAG service owns node records and topology validation. The Change 013
+execution engine still owns adapters, child processes, budgets, permissions,
+worktrees, controls, and integration. `SINGLE_AGENT` remains the default and
+the UI does not become a graph composer.

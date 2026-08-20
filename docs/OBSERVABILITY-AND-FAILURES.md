@@ -391,3 +391,12 @@ Worker process logs remain bounded diagnostics. They are never required to
 reconstruct whether a worker committed, whether integration succeeded, or why a
 packet was cancelled/blocked. A strategy `COMPLETED`/`PARTIAL` status is an
 iteration result, not a high-level campaign success signal.
+
+## 21. DAG evidence
+
+DAG events use the existing strategy timeline with `strategy: "DAG"`, stable
+strategy/node/packet IDs, scheduler decisions, control reasons, integration
+status, and structured result references. The DAG detail read model exposes
+node dependency state and effective packet budgets without requiring log
+parsing. Cycle/dependency validation failures are returned as actionable API
+errors before a worker or worktree exists.

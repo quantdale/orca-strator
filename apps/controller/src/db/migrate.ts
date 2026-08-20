@@ -527,6 +527,110 @@ export const migrations: Migration[] = [
           ON execution_strategy_controls(strategy_run_id, created_at ASC);
       `);
     }
+  },
+  {
+    version: 20,
+    name: "020_allow_dag_execution_strategy",
+    up: (db) => {
+      db.exec(`
+        CREATE TEMP TABLE strategy_controls_v20 AS
+          SELECT control_id, strategy_run_id, repository_id, run_id, iteration,
+                 decision, reason, created_at
+          FROM execution_strategy_controls;
+        DROP TABLE execution_strategy_controls;
+        ALTER TABLE execution_strategy_runs RENAME TO execution_strategy_runs_v19;
+
+        CREATE TABLE execution_strategy_runs (
+          strategy_run_id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          campaign_id TEXT NOT NULL,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          strategy TEXT NOT NULL CHECK (strategy IN ('SINGLE_AGENT', 'SWARM', 'DAG')),
+          status TEXT NOT NULL CHECK (status IN ('QUEUED', 'RUNNING', 'PAUSED', 'STOPPING', 'COMPLETED', 'PARTIAL', 'BLOCKED', 'FAILED', 'CANCELLED', 'RECOVERY_REQUIRED')),
+          max_concurrency INTEGER NOT NULL CHECK (max_concurrency > 0 AND max_concurrency <= 32),
+          packet_ids_json TEXT NOT NULL,
+          control_state TEXT NOT NULL CHECK (control_state IN ('NONE', 'PAUSE_REQUESTED', 'STOP_REQUESTED', 'KILL_REQUESTED')),
+          started_at TEXT,
+          finished_at TEXT,
+          last_error TEXT,
+          report_json TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        INSERT INTO execution_strategy_runs (
+          strategy_run_id, repository_id, campaign_id, run_id, iteration,
+          strategy, status, max_concurrency, packet_ids_json, control_state,
+          started_at, finished_at, last_error, report_json, created_at, updated_at
+        )
+        SELECT strategy_run_id, repository_id, campaign_id, run_id, iteration,
+               strategy, status, max_concurrency, packet_ids_json, control_state,
+               started_at, finished_at, last_error, report_json, created_at, updated_at
+        FROM execution_strategy_runs_v19;
+
+        DROP TABLE execution_strategy_runs_v19;
+
+        CREATE INDEX idx_execution_strategy_runs_run_iteration
+          ON execution_strategy_runs(run_id, iteration, created_at DESC);
+        CREATE INDEX idx_execution_strategy_runs_repo_status
+          ON execution_strategy_runs(repository_id, status, created_at DESC);
+
+        CREATE TABLE execution_strategy_controls (
+          control_id TEXT PRIMARY KEY,
+          strategy_run_id TEXT NOT NULL REFERENCES execution_strategy_runs(strategy_run_id) ON DELETE CASCADE,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          decision TEXT NOT NULL CHECK (decision IN ('PAUSE', 'STOP', 'KILL', 'RESUME')),
+          reason TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        INSERT INTO execution_strategy_controls (
+          control_id, strategy_run_id, repository_id, run_id, iteration,
+          decision, reason, created_at
+        )
+        SELECT control_id, strategy_run_id, repository_id, run_id, iteration,
+               decision, reason, created_at
+        FROM strategy_controls_v20;
+        DROP TABLE strategy_controls_v20;
+
+        CREATE INDEX idx_execution_strategy_controls_strategy_time
+          ON execution_strategy_controls(strategy_run_id, created_at ASC);
+      `);
+    }
+  },
+  {
+    version: 21,
+    name: "021_create_execution_dag_nodes",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS execution_dag_nodes (
+          strategy_run_id TEXT NOT NULL REFERENCES execution_strategy_runs(strategy_run_id) ON DELETE CASCADE,
+          node_id TEXT NOT NULL,
+          packet_id TEXT NOT NULL REFERENCES work_packets(packet_id) ON DELETE CASCADE,
+          depends_on_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('QUEUED', 'STARTING', 'RUNNING', 'WAITING_DEPENDENCY', 'WAITING_PERMISSION', 'RETRYING', 'COMPLETED', 'FAILED', 'BLOCKED', 'SKIPPED', 'CANCELLED', 'INTEGRATING')),
+          budget_json TEXT NOT NULL,
+          attempt INTEGER NOT NULL CHECK (attempt >= 0),
+          max_retries INTEGER NOT NULL CHECK (max_retries >= 0),
+          waiting_reason TEXT,
+          started_at TEXT,
+          finished_at TEXT,
+          result_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (strategy_run_id, node_id),
+          UNIQUE (strategy_run_id, packet_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_execution_dag_nodes_strategy_status
+          ON execution_dag_nodes(strategy_run_id, status, updated_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_execution_dag_nodes_packet
+          ON execution_dag_nodes(packet_id);
+      `);
+    }
   }
 ];
 

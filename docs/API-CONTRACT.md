@@ -507,3 +507,21 @@ Control bodies are `{ decision: "PAUSE" | "STOP" | "KILL" | "RESUME", reason?:
 string }`. Repository/run/iteration/packet correlation is mandatory. The API
 does not expose a graph authoring format, does not dynamically route models,
 and does not translate a worker/integration result into `GOAL_COMPLETE`.
+
+## 21. Optional DAG strategy endpoints (Change 014)
+
+For an explicitly selected structured DAG:
+
+- `GET /api/repositories/:id/campaigns/:runId/dag` lists DAG strategy runs;
+- `POST /api/repositories/:id/campaigns/:runId/dag/start` accepts `{ nodes:
+  [{ nodeId, packetId, dependsOn }], maxConcurrency? }` and returns `202`;
+- `GET /api/repositories/:id/campaigns/:runId/dag/:strategyRunId` returns node
+  states, typed packets/results, controls, integration, and blockers;
+- `POST .../dag/:strategyRunId/control` accepts the existing `PAUSE`, `STOP`,
+  `KILL`, or `RESUME` control contract;
+- `POST .../dag/:strategyRunId/recover` runs durable orphan recovery.
+
+The service rejects duplicate IDs, unknown dependencies, packet/run mismatch,
+packet dependency mismatch, cycles, and invalid concurrency before worker
+launch. DAG detail is a structured read model; no graph authoring UI or raw
+transcript is required.

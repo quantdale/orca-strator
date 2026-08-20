@@ -553,3 +553,19 @@ The deterministic worker harness is qualification-only. Missing real provider
 credentials or telemetry keeps provider inference/usage claims UNKNOWN or
 UNQUALIFIED; it does not turn a local child-process result into provider
 qualification.
+
+## 20. Change 014 DAG qualification
+
+The DAG tier covers:
+
+- fast contract/store validation, duplicate/unknown dependency, mismatch, and
+  cycle-negative paths;
+- real Windows child-process/Git independent and dependent nodes, concurrency
+  bounds, distinct worktrees, deterministic integration, conflict, and partial
+  result semantics;
+- real graceful stop, orphan/restart recovery, path preservation, and
+  conditional WSL adapter execution;
+- multi-repository isolation and no shared persistent checkout writes.
+
+The final real tier records skipped WSL/provider/browser cases honestly and
+does not call them machine-qualified.

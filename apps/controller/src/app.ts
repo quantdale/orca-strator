@@ -50,8 +50,11 @@ import { WorktreeIsolationService } from './packets/worktree-isolation-service.j
 import { IntegrationService } from './packets/integration-service.js';
 import { workPacketRoutes } from './http/routes/work-packets.js';
 import { StrategyRunStore } from './strategy/strategy-run-store.js';
+import { DagNodeStore } from './strategy/dag-node-store.js';
 import { SwarmExecutionService } from './strategy/swarm-execution-service.js';
+import { DagExecutionService } from './strategy/dag-execution-service.js';
 import { swarmRoutes } from './http/routes/swarm.js';
+import { dagRoutes } from './http/routes/dag.js';
 
 import type { BrowserDriver } from './browser/browser-driver.js';
 
@@ -88,6 +91,8 @@ export interface AppInstance {
   integrationService: IntegrationService;
   strategyRunStore: StrategyRunStore;
   swarmExecutionService: SwarmExecutionService;
+  dagNodeStore: DagNodeStore;
+  dagExecutionService: DagExecutionService;
 }
 
 export async function buildApp(
@@ -119,6 +124,7 @@ export async function buildApp(
   const runPolicyStore = new RunPolicyStore(dbContext.db);
   const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);
   const strategyRunStore = new StrategyRunStore(dbContext.db);
+  const dagNodeStore = new DagNodeStore(dbContext.db);
   const usageStore = new UsageTelemetryStore(dbContext.db);
   const usageTelemetryService = new UsageTelemetryService(
     usageStore,
@@ -132,7 +138,8 @@ export async function buildApp(
     runPolicyStore,
     campaignLedgerStore,
     usageStore,
-    strategyRunStore
+    strategyRunStore,
+    dagNodeStore
   );
   eventBus.subscribe((event) => {
     campaignLedgerService.recordEvent(event);
@@ -193,6 +200,15 @@ export async function buildApp(
     gitClient,
     dataDir: config.dataDir,
     eventPublisher: (event) => eventBus.publish(event)
+  });
+  const dagExecutionService = new DagExecutionService({
+    repositoryStore: store,
+    runStore,
+    strategyStore: strategyRunStore,
+    nodeStore: dagNodeStore,
+    packetStore: workPacketStore,
+    packetService: workPacketService,
+    executionService: swarmExecutionService
   });
 
   // Forward declaration so watcher/executor callbacks can reference the loop
@@ -266,7 +282,7 @@ export async function buildApp(
 
   const reconciler = new StartupReconciler(store, runStore, loopService, browserManager);
   await reconciler.reconcile();
-  await swarmExecutionService.recoverAll();
+  await dagExecutionService.recoverAll();
 
   // Production watcher lifecycle (Fix #1): every existing enabled repository
   // must be watched automatically after startup without requiring a user
@@ -313,6 +329,11 @@ export async function buildApp(
     repositoryService,
     runStore,
     swarmExecutionService
+  ));
+  await fastify.register(dagRoutes(
+    repositoryService,
+    runStore,
+    dagExecutionService
   ));
   await fastify.register(systemRoutes(config.port, browserManager));
   await fastify.register(websocketRoutes(eventBus));
@@ -365,6 +386,8 @@ export async function buildApp(
     worktreeIsolationService,
     integrationService,
     strategyRunStore,
-    swarmExecutionService
+    swarmExecutionService,
+    dagNodeStore,
+    dagExecutionService
   };
 }

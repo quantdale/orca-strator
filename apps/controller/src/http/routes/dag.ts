@@ -1,13 +1,13 @@
 import type { FastifyPluginAsync } from "fastify";
-import { strategyControlRequestSchema, swarmStartRequestSchema, type SwarmStartRequest } from "@orca/shared";
+import { dagStartRequestSchema, strategyControlRequestSchema, type DagStartRequest } from "@orca/shared";
 import type { RepositoryService } from "../../repositories/repository-service.js";
 import type { RunStore } from "../../loop/run-store.js";
-import type { SwarmExecutionService } from "../../strategy/swarm-execution-service.js";
+import type { DagExecutionService } from "../../strategy/dag-execution-service.js";
 
-export const swarmRoutes = (
+export const dagRoutes = (
   repositoryService: RepositoryService,
   runStore: RunStore,
-  swarmService: SwarmExecutionService
+  dagService: DagExecutionService
 ): FastifyPluginAsync => async (fastify) => {
   const getRun = (repositoryId: string, runId: string) => {
     const repository = repositoryService.getRepository(repositoryId);
@@ -17,54 +17,54 @@ export const swarmRoutes = (
   };
 
   fastify.get<{ Params: { id: string; runId: string } }>(
-    "/api/repositories/:id/campaigns/:runId/swarm",
+    "/api/repositories/:id/campaigns/:runId/dag",
     async (request) => {
       const { run } = getRun(request.params.id, request.params.runId);
-      return { strategies: swarmService.listByRun(run.id) };
+      return { strategies: dagService.listByRun(run.id) };
     }
   );
 
-  fastify.post<{ Params: { id: string; runId: string }; Body: SwarmStartRequest }>(
-    "/api/repositories/:id/campaigns/:runId/swarm/start",
+  fastify.post<{ Params: { id: string; runId: string }; Body: DagStartRequest }>(
+    "/api/repositories/:id/campaigns/:runId/dag/start",
     async (request, reply) => {
       const { run } = getRun(request.params.id, request.params.runId);
-      const input = swarmStartRequestSchema.parse(request.body);
-      const strategy = swarmService.start(request.params.id, run.id, run.currentIteration, input);
+      const input = dagStartRequestSchema.parse(request.body);
+      const strategy = dagService.start(request.params.id, run.id, run.currentIteration, input);
       return reply.status(202).send({ strategy });
     }
   );
 
   fastify.get<{ Params: { id: string; runId: string; strategyRunId: string } }>(
-    "/api/repositories/:id/campaigns/:runId/swarm/:strategyRunId",
+    "/api/repositories/:id/campaigns/:runId/dag/:strategyRunId",
     async (request) => {
       const { run } = getRun(request.params.id, request.params.runId);
-      const detail = swarmService.getDetail(request.params.id, run.id, request.params.strategyRunId);
-      if (!detail) throw new Error("Swarm strategy run not found for campaign.");
+      const detail = dagService.getDetail(request.params.id, run.id, request.params.strategyRunId);
+      if (!detail) throw new Error("DAG strategy run not found for campaign.");
       return detail;
     }
   );
 
   fastify.post<{ Params: { id: string; runId: string; strategyRunId: string }; Body: unknown }>(
-    "/api/repositories/:id/campaigns/:runId/swarm/:strategyRunId/control",
+    "/api/repositories/:id/campaigns/:runId/dag/:strategyRunId/control",
     async (request) => {
       const { run } = getRun(request.params.id, request.params.runId);
       const body = strategyControlRequestSchema.parse(request.body);
-      const strategy = swarmService.get(request.params.strategyRunId);
-      if (!strategy || strategy.strategy !== "SWARM" || strategy.runId !== run.id) throw new Error("Swarm strategy run not found for campaign.");
-      const updated = await swarmService.control(request.params.id, strategy.strategyRunId, body.decision, body.reason ?? null);
+      const strategy = dagService.get(request.params.strategyRunId);
+      if (!strategy || strategy.runId !== run.id) throw new Error("DAG strategy run not found for campaign.");
+      const updated = await dagService.control(request.params.id, strategy.strategyRunId, body.decision, body.reason ?? null);
       return { strategy: updated };
     }
   );
 
   fastify.post<{ Params: { id: string; runId: string; strategyRunId: string } }>(
-    "/api/repositories/:id/campaigns/:runId/swarm/:strategyRunId/recover",
+    "/api/repositories/:id/campaigns/:runId/dag/:strategyRunId/recover",
     async (request) => {
       const { run } = getRun(request.params.id, request.params.runId);
-      const recovered = await swarmService.recoverAll();
+      const recovered = await dagService.recoverAll();
       const strategy = recovered.find((item) => item.strategyRunId === request.params.strategyRunId && item.runId === run.id);
       if (!strategy) {
-        const existing = swarmService.get(request.params.strategyRunId);
-        if (!existing || existing.strategy !== "SWARM" || existing.runId !== run.id) throw new Error("Swarm strategy run not found for campaign.");
+        const existing = dagService.get(request.params.strategyRunId);
+        if (!existing || existing.runId !== run.id) throw new Error("DAG strategy run not found for campaign.");
         return { strategy: existing };
       }
       return { strategy };

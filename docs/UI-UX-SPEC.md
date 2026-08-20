@@ -510,3 +510,12 @@ reason, worktree/commit provenance, partial failures, integration, recovery,
 and usage references. A later topology surface may visualize these real
 records, but this change does not add graph authoring or require users to build
 packets manually; repository + goal with `SINGLE_AGENT` remains the default UX.
+
+## Change 014 DAG read model
+
+The current UI may render the existing structured campaign detail and DAG API
+data as an observability surface: node IDs, dependencies, state, executor/model,
+budget, controls, integration, and blockers. It must not require users to draw
+or author a graph. A repository + goal still enters `SINGLE_AGENT` unless the
+user explicitly selects another strategy through a future structured control.
+Actual topology visualization remains Change 016 scope.

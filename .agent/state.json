@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "IMPLEMENTING",
+  "developmentStatus": "CHANGE_COMPLETE",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
   "activeMilestone": 13,
   "activeChange": "014-optional-dag-execution-strategy",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 010, Change 011, Change 012, and Change 013 are implemented, folded, committed, and pushed (`eb68985`, `3a52756`, `2343604`, `fe3abdb`). Change 014 is active for an optional structured DAG strategy built on the qualified swarm/isolation runtime.",
-    "updatedAt": "2026-08-20T17:47:00+08:00",
-    "lastCompletedTask": "Change 013 optional same-repository swarm: durable strategy/control state, bounded isolated workers, scheduler and permission integration, pause/stop/kill/recovery, deterministic integration and partial results, APIs, canonical spec fold, documentation reconciliation, qualification, commit, and push complete.",
-    "lastVerification": "Change 013 gates: npm test 44 files / 187 tests; npm run test:real 6 files / 20 tests; npm run typecheck, npm run build, npm run lint, and git diff --check passed."
+    "summary": "Change 010, Change 011, Change 012, Change 013, and Change 014 are implemented, folded, and qualified; the next checkpoint will push Change 014. Change 014 adds an explicit packet-linked DAG strategy on the qualified swarm/isolation runtime.",
+    "updatedAt": "2026-08-20T18:11:00+08:00",
+    "lastCompletedTask": "Change 014 optional DAG strategy: versioned node contracts, cycle/dependency validation, durable node state, bounded isolated topological execution, controls/recovery, integration/partial results, APIs, canonical spec fold, documentation reconciliation, and qualification complete.",
+    "lastVerification": "Change 014 gates: npm test 45 files / 189 tests; npm run test:real 7 files / 25 tests; focused DAG tests passed; typecheck passed; final build, lint, and diff checks are being completed for the checkpoint."
   },
-  "nextAction": "Implement Change 014 DAG contracts and durable node state, then reuse the Change 013 engine for validated topological execution, controls, integration, and qualification.",
+  "nextAction": "Run the final Change 014 build/lint/diff gates, commit and push the checkpoint, then create and activate Change 015 for the optional rich OpenCode adapter evaluation.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",

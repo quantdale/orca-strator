@@ -15,6 +15,7 @@ import type { CampaignLedgerStore } from "./campaign-ledger-store.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { UsageTelemetryStore } from "../usage/usage-telemetry-store.js";
 import type { StrategyRunStore } from "../strategy/strategy-run-store.js";
+import type { DagNodeStore } from "../strategy/dag-node-store.js";
 
 interface DispatchLike { id?: string; runId?: string; iteration?: number; }
 interface ControlLike { id?: string; controlId?: string; runId?: string; iteration?: number; relatedDispatchId?: string | null; }
@@ -27,7 +28,8 @@ export class CampaignLedgerService {
     private readonly runPolicyStore: RunPolicyStore,
     private readonly ledgerStore: CampaignLedgerStore,
     private readonly usageStore?: UsageTelemetryStore,
-    private readonly strategyStore?: StrategyRunStore
+    private readonly strategyStore?: StrategyRunStore,
+    private readonly dagNodeStore?: DagNodeStore
   ) {}
 
   /** EventBus already redacts secrets before this listener receives the event. */
@@ -87,6 +89,7 @@ export class CampaignLedgerService {
     const iterations = this.buildIterations(timeline);
     const usage = this.usageStore?.listByRun(runId) ?? [];
     const rows = (table: string) => this.db.prepare(`SELECT * FROM ${table} WHERE run_id = ? ORDER BY created_at ASC`).all(runId) as unknown as Record<string, unknown>[];
+    const strategyRuns = this.strategyStore?.listByRun(runId) ?? [];
     return {
       repository,
       run,
@@ -100,7 +103,10 @@ export class CampaignLedgerService {
       effectivePolicy: this.runPolicyStore.get(runId),
       usage,
       usageSummary: summarizeUsage(usage),
-      strategyRuns: this.strategyStore?.listByRun(runId) ?? []
+      strategyRuns,
+      dagNodes: this.dagNodeStore
+        ? strategyRuns.filter((strategy) => strategy.strategy === "DAG").flatMap((strategy) => this.dagNodeStore!.list(strategy.strategyRunId))
+        : []
     };
   }
 
@@ -194,6 +200,7 @@ export class CampaignLedgerService {
     if (event.type === "executor.capability_probed") return "EXECUTOR_LAUNCH";
     if (event.type === "executor.usage_recorded") return "EXECUTOR_ACTIVITY";
     if (event.type === "permission.decision") return "PERMISSION";
+    if (event.type === "strategy.permission_required") return "PERMISSION";
     if (event.type === "budget.expired") return "BUDGET";
     if (event.type === "strategy.control") return "CONTROL";
     if (event.type === "strategy.integration_completed") return "GIT_POSTFLIGHT";
@@ -219,6 +226,7 @@ export class CampaignLedgerService {
       if (data.outcome === "DENY") return "FAILED";
       return "SUCCEEDED";
     }
+    if (event.type === "strategy.permission_required") return "BLOCKED";
     if (event.type === "watcher.dispatch_rejected" || data.failureReason || data.reason) return "FAILED";
     if (event.type === "watcher.dispatch_detected" || event.type === "watcher.control_detected") return "SUCCEEDED";
     if (event.type === "executor.started") return "STARTED";

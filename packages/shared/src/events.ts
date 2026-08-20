@@ -26,6 +26,7 @@ export type EventType =
   | "strategy.worker_queued"
   | "strategy.worker_started"
   | "strategy.worker_completed"
+  | "strategy.permission_required"
   | "strategy.control"
   | "strategy.integration_completed"
   | "strategy.completed"
