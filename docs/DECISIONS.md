@@ -312,6 +312,32 @@ After profile opens, one browser process may host multiple concurrent repository
 
 Stale lock recovery must verify actual browser ownership before clearing it.
 
+## D-037 — Post-V1 execution capabilities remain subordinate
+
+**Decision:** OpenFlow-inspired capabilities such as ledgers, probes, budgets,
+permissions, swarm, and DAG execution are subordinate strategies/facilities
+inside one persistent Orca iteration. They do not replace the campaign/Sol/Git
+hierarchy or make Orca an OpenFlow clone.
+
+## D-038 — Capability probes never spend implicitly
+
+**Decision:** STATIC and NON_INFERENCE probes are the default. An INFERENCE
+probe requires an explicit user authorization and its result remains unknown if
+the provider response was not actually obtained.
+
+## D-039 — No default global executor cap
+
+**Decision:** Independent repositories remain concurrently runnable without an
+Orca-wide executor cap by default. Any later scheduler limit must be explicit,
+transparent, and policy-recorded.
+
+## D-040 — Parallel writers require qualified isolation
+
+**Decision:** Same-repository parallel writing is forbidden until typed work
+packets, isolated temporary worktrees/branches, integration semantics, crash
+recovery, and deterministic qualification are complete. Single-agent remains
+the default strategy.
+
 ## How to revise a locked decision
 
 If a locked decision must change:

@@ -127,6 +127,8 @@ export class BrowserManager {
       resultStatus: SolWakeResultStatus;
       conversationUrl: string;
       repositoryName: string;
+      /** Effective per-run completion budget; persisted in the operation deadline. */
+      completionWaitMs?: number;
     }
   ): Promise<SolWakeRecord> {
     const now = new Date().toISOString();
@@ -157,7 +159,7 @@ export class BrowserManager {
         resultStatus: params.resultStatus,
         message,
         submittedAt: null,
-        deadline: nowMs + this.solTimeoutMs,
+        deadline: nowMs + (params.completionWaitMs ?? this.solTimeoutMs),
         timeoutRetryCount: 0,
         busyRetryCount: 0,
         status: "active",
@@ -224,9 +226,15 @@ export class BrowserManager {
       });
 
       this.publishEvent({
-        type: "repository.updated",
+        type: "sol.wake_submitted",
         at: submittedAt,
-        repositoryId
+        repositoryId,
+        data: {
+          runId: params.runId,
+          iteration: params.iteration,
+          dispatchId: params.dispatchId ?? undefined,
+          wakeId
+        }
       });
 
       this.registerSolOperation(this.solStore.get(repositoryId)!);
@@ -244,11 +252,38 @@ export class BrowserManager {
         const count = (op.busyRetryCount ?? 0) + 1;
         this.solStore.update(repositoryId, { busyRetryCount: count, status: "active", updatedAt: now });
         this.wakeStore.updateStatus(wakeId, "busy", { errorMessage });
+        this.publishEvent({
+          type: "sol.wake_busy",
+          at: now,
+          repositoryId,
+          data: {
+            runId: op.runId,
+            iteration: op.iteration,
+            dispatchId: op.dispatchId ?? undefined,
+            wakeId,
+            retryCount: count,
+            reason: errorMessage,
+            failureReason: "SOL_BUSY_RETRY"
+          }
+        });
         // Reconstruct in-memory operation so resume/retry sees the durable state.
         this.registerSolOperation(this.solStore.get(repositoryId)!);
         return this.wakeStore.get(wakeId)!;
       }
       this.wakeStore.updateStatus(wakeId, "failed", { errorMessage });
+      this.publishEvent({
+        type: "sol.wake_failed",
+        at: now,
+        repositoryId,
+        data: {
+          runId: op.runId,
+          iteration: op.iteration,
+          dispatchId: op.dispatchId ?? undefined,
+          wakeId,
+          reason: errorMessage,
+          failureReason: needsAttention ? "SOL_ATTENTION_REQUIRED" : "SOL_WAKE_SUBMISSION_FAILED"
+        }
+      });
       this.solStore.update(repositoryId, { status: "stalled", updatedAt: now });
       // Persist so rehydrate does not resurrect a failed operation.
       this.registerSolOperation(this.solStore.get(repositoryId)!);
@@ -295,6 +330,17 @@ export class BrowserManager {
       this.solTimeoutHandles.delete(repositoryId);
     }
     this.solOperations.delete(repositoryId);
+    this.publishEvent({
+      type: "sol.operation_completed",
+      at: new Date().toISOString(),
+      repositoryId,
+      data: {
+        runId: op.runId,
+        iteration: op.iteration,
+        dispatchId: op.dispatchId ?? undefined,
+        wakeId: op.wakeId
+      }
+    });
     this.solStore.update(repositoryId, { status: "completed" });
     try {
       this.solStore.delete(repositoryId);
@@ -320,13 +366,26 @@ export class BrowserManager {
       if (nowMs >= op.deadline) {
         if (op.timeoutRetryCount < 1) {
           op.timeoutRetryCount += 1;
-          op.deadline = nowMs + this.solTimeoutMs;
+          op.deadline = nowMs + (op.completionWaitMs ?? this.solTimeoutMs);
           this.solStore.update(repoId, {
             timeoutRetryCount: op.timeoutRetryCount,
             deadline: op.deadline,
             updatedAt: new Date().toISOString()
           });
           this.scheduleSolTimeout(repoId, op);
+          this.publishEvent({
+            type: "sol.wake_retrying",
+            at: new Date().toISOString(),
+            repositoryId: repoId,
+            data: {
+              runId: op.runId,
+              iteration: op.iteration,
+              dispatchId: op.dispatchId ?? undefined,
+              wakeId: op.wakeId,
+              retryCount: op.timeoutRetryCount,
+              failureReason: "SOL_COMPLETION_TIMEOUT"
+            }
+          });
           try {
             await this.retrySolWake(op);
           } catch (e: any) {
@@ -402,7 +461,7 @@ export class BrowserManager {
       if (nowMs >= op.deadline) {
         if (op.timeoutRetryCount < 1) {
           // Exactly one permitted timeout retry (budget persisted durably).
-          const newDeadline = nowMs + this.solTimeoutMs;
+          const newDeadline = nowMs + (op.completionWaitMs ?? this.solTimeoutMs);
           this.solStore.update(repoId, {
             timeoutRetryCount: op.timeoutRetryCount + 1,
             deadline: newDeadline,

@@ -5,7 +5,15 @@ import type {
   CreateRepositoryInput,
   UpdateRepositoryInput,
   ApiErrorEnvelope,
-  FieldError
+  FieldError,
+  CampaignSummary,
+  CampaignDetail,
+  ExecutorCapabilitySnapshot,
+  PhaseBudgetPolicy,
+  AutonomyPermissionPolicy,
+  PermissionDecision,
+  PermissionAction,
+  PermissionEvaluation
 } from "@orca/shared";
 
 export class ApiError extends Error {
@@ -143,6 +151,49 @@ export function createApiClient(baseUrl = "") {
     async getTailscaleGuidance(): Promise<{ tailscale: any }> {
       const res = await fetch(`${cleanBase}/api/system/tailscale`);
       return handleResponse<{ tailscale: any }>(res);
+    },
+
+    async listCampaigns(id: string): Promise<{ campaigns: CampaignSummary[] }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/campaigns`);
+      return handleResponse<{ campaigns: CampaignSummary[] }>(res);
+    },
+
+    async getCampaign(id: string, runId: string): Promise<{ campaign: CampaignDetail }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/campaigns/${encodeURIComponent(runId)}`);
+      return handleResponse<{ campaign: CampaignDetail }>(res);
+    },
+
+    async getExecutorCapabilities(id: string): Promise<{ capability: ExecutorCapabilitySnapshot | null; history: unknown[] }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/executor/capabilities`);
+      return handleResponse<{ capability: ExecutorCapabilitySnapshot | null; history: unknown[] }>(res);
+    },
+
+    async probeExecutor(id: string, level: "STATIC" | "NON_INFERENCE" | "INFERENCE" = "NON_INFERENCE"): Promise<{ capability: ExecutorCapabilitySnapshot }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/executor/probe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level })
+      });
+      return handleResponse<{ capability: ExecutorCapabilitySnapshot }>(res);
+    },
+
+    async getPhasePolicy(id: string): Promise<{ policy: PhaseBudgetPolicy | null }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/phase-policy`);
+      return handleResponse<{ policy: PhaseBudgetPolicy | null }>(res);
+    },
+
+    async getPermissions(id: string): Promise<{ policy: AutonomyPermissionPolicy; decisions: PermissionDecision[] }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/permissions`);
+      return handleResponse<{ policy: AutonomyPermissionPolicy; decisions: PermissionDecision[] }>(res);
+    },
+
+    async checkPermission(id: string, action: PermissionAction): Promise<{ evaluation: PermissionEvaluation }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/permissions/check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action })
+      });
+      return handleResponse<{ evaluation: PermissionEvaluation }>(res);
     }
   };
 }

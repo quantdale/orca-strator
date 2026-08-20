@@ -26,6 +26,8 @@ export interface SolOperationRecord {
   deadline: number;
   /** One-time timeout retry budget — survives restart so controller restarts cannot reset it. */
   timeoutRetryCount: number;
+  /** Effective per-run Sol completion wait; retained across timeout/restart. */
+  completionWaitMs?: number;
   /** Bounded BUSY backpressure budget — survives restart. */
   busyRetryCount: number;
   status: SolOperationStatus;
@@ -45,6 +47,7 @@ export interface SolOperationPatch {
   submittedAt?: string | null;
   deadline?: number;
   timeoutRetryCount?: number;
+  completionWaitMs?: number;
   busyRetryCount?: number;
   status?: SolOperationStatus;
   updatedAt?: string;
@@ -71,6 +74,7 @@ interface SolOperationRow {
   submitted_at: string | null;
   deadline: number;
   timeout_retry_count: number;
+  completion_wait_ms?: number;
   busy_retry_count: number;
   status: SolOperationStatus;
   created_at: string;
@@ -94,6 +98,7 @@ export class SqliteSolOperationStore implements SolOperationStore {
       submittedAt: row.submitted_at,
       deadline: row.deadline,
       timeoutRetryCount: row.timeout_retry_count,
+      completionWaitMs: row.completion_wait_ms ?? undefined,
       busyRetryCount: row.busy_retry_count,
       status: row.status,
       createdAt: row.created_at,
@@ -106,8 +111,8 @@ export class SqliteSolOperationStore implements SolOperationStore {
       INSERT INTO sol_operations (
         repository_id, run_id, iteration, wake_id, dispatch_id, conversation_url,
         repository_name, result_status, message, submitted_at, deadline,
-        timeout_retry_count, busy_retry_count, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        timeout_retry_count, completion_wait_ms, busy_retry_count, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(repository_id) DO UPDATE SET
         run_id = excluded.run_id,
         iteration = excluded.iteration,
@@ -120,6 +125,7 @@ export class SqliteSolOperationStore implements SolOperationStore {
         submitted_at = excluded.submitted_at,
         deadline = excluded.deadline,
         timeout_retry_count = excluded.timeout_retry_count,
+        completion_wait_ms = excluded.completion_wait_ms,
         busy_retry_count = excluded.busy_retry_count,
         status = excluded.status,
         updated_at = excluded.updated_at
@@ -137,6 +143,7 @@ export class SqliteSolOperationStore implements SolOperationStore {
       record.submittedAt ?? null,
       record.deadline,
       record.timeoutRetryCount,
+      record.completionWaitMs ?? 20 * 60 * 1000,
       record.busyRetryCount,
       record.status,
       record.createdAt,

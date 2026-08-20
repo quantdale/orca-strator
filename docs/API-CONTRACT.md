@@ -408,3 +408,31 @@ Required coverage:
 - UI source/client uses relative API paths rather than production `localhost` hard-coding;
 - same-origin WebSocket URL is correct for HTTP and HTTPS page origins;
 - no wildcard CORS required by normal built topology.
+
+## 17. Operational intelligence endpoints
+
+Change 010 adds repository-scoped read/probe/policy endpoints:
+
+```text
+GET  /api/repositories/:id/campaigns
+GET  /api/repositories/:id/campaigns/:runId
+GET  /api/repositories/:id/campaigns/:runId/iterations/:iteration
+GET  /api/repositories/:id/campaigns/:runId/timeline
+GET  /api/repositories/:id/executor/capabilities
+POST /api/repositories/:id/executor/probe
+GET  /api/repositories/:id/phase-policy
+GET  /api/repositories/:id/permissions
+PUT  /api/repositories/:id/permissions
+POST /api/repositories/:id/permissions/check
+```
+
+Campaign detail returns structured run/iteration/timeline data and references
+to dispatches, executor runs, Sol wakes, controls, and the effective policy.
+It does not require parsing raw logs. Capability GET returns the latest
+persisted snapshot and history; POST accepts `STATIC`, `NON_INFERENCE`, or an
+explicitly authorized `INFERENCE` level. Settings and the UI default to
+NON_INFERENCE and never spend model quota implicitly.
+
+Permission checks return outcome, rationale, actionable state, and enforcement
+type. An `ASK` result creates a durable decision/event for user attention; it is
+not an indefinite hidden wait.

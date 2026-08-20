@@ -339,3 +339,16 @@ Examples:
 - runtime marked `GOAL_COMPLETE` while a new executor starts.
 
 Use a clear `STATE_INVARIANT_VIOLATION` rather than silently guessing.
+
+## 17. Campaign trace and readiness
+
+The campaign ledger stores redacted structured event references with phase,
+correlation IDs, timestamps, computed durations, retries, recovery, controls,
+and classified failure boundaries. Campaign history is queryable through REST
+and the UI without scraping raw executor output; bounded raw logs remain a
+separate diagnostic surface.
+
+Executor readiness is a separate capability snapshot. Probe level and last
+probe time are always visible, and auth/model state remains UNKNOWN when a
+provider response was not safely obtained. Usage/cost fields are deliberately
+not fabricated by this change.

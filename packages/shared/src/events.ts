@@ -10,7 +10,17 @@ export type EventType =
   | "watcher.control_detected"
   | "watcher.poll_completed"
   | "executor.log"
-  | "loop.state_changed";
+  | "executor.started"
+  | "executor.completed"
+  | "sol.wake_submitted"
+  | "sol.wake_busy"
+  | "sol.wake_retrying"
+  | "sol.wake_failed"
+  | "sol.operation_completed"
+  | "loop.state_changed"
+  | "executor.capability_probed"
+  | "permission.decision"
+  | "budget.expired";
 
 export interface RepositoryMutationEvent {
   type: EventType;
@@ -26,5 +36,12 @@ export interface RepositoryMutationEvent {
     controlId?: string;
     decision?: string;
     logMessage?: string;
+    iteration?: number;
+    dispatchId?: string;
+    resultId?: string;
+    durationMs?: number;
+    phase?: string;
+    failureReason?: string;
+    [key: string]: unknown;
   };
 }

@@ -7,6 +7,7 @@ import {
   type ExecutorResult,
   type SolWakeResultStatus,
   type SolControlDecision,
+  createPhaseBudgetPolicy,
   getActiveActor,
   ValidationError,
   BadRequestError,
@@ -19,6 +20,7 @@ import type { WatcherService } from "../watcher/watcher-service.js";
 import type { ExecutorService } from "../executor/executor-service.js";
 import { BUSY_MAX_RETRIES, BUSY_RETRY_MS, type BrowserManager } from "../browser/browser-manager.js";
 import type { RunStore } from "./run-store.js";
+import type { RunPolicyStore } from "./run-policy-store.js";
 
 export interface LoopServiceOptions {
   repoStore: RepositoryStore;
@@ -28,6 +30,7 @@ export interface LoopServiceOptions {
   executorService: ExecutorService;
   browserManager: BrowserManager;
   solControlStore?: SolControlStore | null;
+  runPolicyStore?: RunPolicyStore;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
 }
 
@@ -41,6 +44,7 @@ export class LoopService {
   private readonly executorService: ExecutorService;
   private readonly browserManager: BrowserManager;
   private readonly solControlStore: SolControlStore | null;
+  private readonly runPolicyStore?: RunPolicyStore;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
 
   /** Wall-clock ceiling timers per repository (item #3). */
@@ -59,6 +63,7 @@ export class LoopService {
     this.executorService = options.executorService;
     this.browserManager = options.browserManager;
     this.solControlStore = options.solControlStore ?? null;
+    this.runPolicyStore = options.runPolicyStore;
     this.eventPublisher = options.eventPublisher;
   }
 
@@ -79,6 +84,7 @@ export class LoopService {
     const runId = crypto.randomUUID();
     const now = new Date().toISOString();
     const maxIterations = params.maxIterations || repo.maxIterations || 20;
+    const effectivePolicy = createPhaseBudgetPolicy({ ...repo, maxIterations });
 
     const runRecord: RunRecord = {
       id: runId,
@@ -97,6 +103,7 @@ export class LoopService {
     };
 
     this.runStore.create(runRecord);
+    this.runPolicyStore?.save(runId, effectivePolicy, now);
     this.publishStateChange(repositoryId, runId, "SOL_PENDING");
     this.scheduleWallClockCeiling(repositoryId, runRecord);
 
@@ -343,6 +350,7 @@ export class LoopService {
       // Check iteration ceiling at boundary – drain semantics (already partially does).
       const maxIterations = activeRun.maxIterations;
       if (activeRun.currentIteration >= maxIterations) {
+        this.publishBudgetExpired(repositoryId, activeRun, "CAMPAIGN_ITERATION_CEILING", "EXECUTOR_ACTIVITY");
         this.runStore.updateStatus(activeRun.id, "DRAINING", { drainReason: 'ITERATION_CEILING' });
         this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
         this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
@@ -358,6 +366,7 @@ export class LoopService {
       // Wall-clock may have been exceeded during this turn – if so, drain now
       // even if iteration not yet exceeded (accelerated-clock test path).
       if (this.isWallClockCeilingExceeded(activeRun)) {
+        this.publishBudgetExpired(repositoryId, activeRun, "CAMPAIGN_WALL_CLOCK_CEILING", "EXECUTOR_ACTIVITY");
         this.runStore.updateStatus(activeRun.id, "DRAINING", { drainReason: 'WALL_CLOCK_CEILING' });
         this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
         this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
@@ -549,9 +558,10 @@ export class LoopService {
       if (op.status === "stalled" || op.status === "completed") continue;
       const activeOp = this.browserManager.getActiveOperation(repoId);
       const count = activeOp?.busyRetryCount ?? 0;
-      if (count >= BUSY_MAX_RETRIES) continue; // exhausted; timeout/stall path handles it
       const activeRun = this.runStore.getActiveRun(repoId);
       if (!activeRun) continue;
+      const busyRetryMax = this.runPolicyStore?.get(activeRun.id)?.sol.busyRetryMax ?? BUSY_MAX_RETRIES;
+      if (count >= busyRetryMax) continue; // exhausted; timeout/stall path handles it
       if (activeRun.status !== "SOL_REVIEWING" && activeRun.status !== "SOL_PENDING") continue;
       if (this.busyRetryTimers.has(repoId)) continue;
       const run = activeRun;
@@ -559,7 +569,7 @@ export class LoopService {
       const handle = setTimeout(() => {
         this.busyRetryTimers.delete(repoId);
         void this.submitSolWakeForRun(repoId, run, resultStatus).catch(() => {});
-      }, BUSY_RETRY_MS);
+      }, this.runPolicyStore?.get(run.id)?.sol.busyRetryDelayMs ?? BUSY_RETRY_MS);
       if ((handle as any).unref) (handle as any).unref();
       this.busyRetryTimers.set(repoId, handle);
     }
@@ -595,7 +605,8 @@ export class LoopService {
     if (
       activeRun.status !== "RECOVERY_REQUIRED" &&
       activeRun.status !== "BLOCKED" &&
-      activeRun.status !== "NEEDS_HUMAN"
+      activeRun.status !== "NEEDS_HUMAN" &&
+      activeRun.status !== "ATTENTION_REQUIRED"
     ) {
       throw new ValidationError(
         `Run ${activeRun.id} is in status ${activeRun.status}, recovery not applicable`
@@ -637,6 +648,7 @@ export class LoopService {
   ): Promise<void> {
     const repo = this.repoStore.get(repositoryId);
     if (!repo) return;
+    const policy = this.runPolicyStore?.get(run.id);
 
     try {
       const wake = await this.browserManager.submitSolWake(repositoryId, {
@@ -645,7 +657,8 @@ export class LoopService {
         iteration: run.currentIteration,
         dispatchId: run.activeDispatchId || null,
         resultStatus,
-        conversationUrl: repo.solConversationUrl
+        conversationUrl: repo.solConversationUrl,
+        completionWaitMs: policy?.sol.completionWaitMs
       });
 
       // Race check: re-read run before writing SOL_REVIEWING — if drain landed while browser was in-flight, respect it
@@ -663,7 +676,7 @@ export class LoopService {
         // BUSY budget is persisted durably in the Sol operation store (item #3); the
         // browser already incremented busyRetryCount before returning 'busy'. Read it back.
         const count = this.browserManager.getActiveOperation(repositoryId)?.busyRetryCount ?? 0;
-        if (count >= BUSY_MAX_RETRIES) {
+        if (count >= (policy?.sol.busyRetryMax ?? BUSY_MAX_RETRIES)) {
           this.clearBusyRetry(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
             lastError: wake.errorMessage || "ChatGPT busy: backpressure (retries exhausted)",
@@ -680,7 +693,7 @@ export class LoopService {
         const handle = setTimeout(() => {
           this.busyRetryTimers.delete(repositoryId);
           void this.submitSolWakeForRun(repositoryId, this.runStore.get(run.id) ?? run, resultStatus);
-        }, BUSY_RETRY_MS);
+        }, policy?.sol.busyRetryDelayMs ?? BUSY_RETRY_MS);
         if ((handle as any).unref) (handle as any).unref();
         this.busyRetryTimers.set(repositoryId, handle);
       } else {
@@ -708,7 +721,7 @@ export class LoopService {
       }
       if (/^BUSY:/.test(errorMessage)) {
         const count = this.browserManager.getActiveOperation(repositoryId)?.busyRetryCount ?? 0;
-        if (count >= BUSY_MAX_RETRIES) {
+        if (count >= (policy?.sol.busyRetryMax ?? BUSY_MAX_RETRIES)) {
           this.clearBusyRetry(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
             lastError: errorMessage,
@@ -725,7 +738,7 @@ export class LoopService {
         const handle = setTimeout(() => {
           this.busyRetryTimers.delete(repositoryId);
           void this.submitSolWakeForRun(repositoryId, this.runStore.get(run.id) ?? run, resultStatus);
-        }, BUSY_RETRY_MS);
+        }, policy?.sol.busyRetryDelayMs ?? BUSY_RETRY_MS);
         if ((handle as any).unref) (handle as any).unref();
         this.busyRetryTimers.set(repositoryId, handle);
         return;
@@ -852,7 +865,8 @@ export class LoopService {
     this.cancelWallClockCeiling(repositoryId);
     const repo = this.repoStore.get(repositoryId);
     if (!repo) return;
-    const maxMs = (repo.maxRuntimeMinutes || 0) * 60 * 1000;
+    const maxRuntimeMinutes = this.runPolicyStore?.get(run.id)?.campaign.maxRuntimeMinutes ?? repo.maxRuntimeMinutes;
+    const maxMs = (maxRuntimeMinutes || 0) * 60 * 1000;
     if (maxMs <= 0) return;
     const started = new Date(run.startedAt).getTime();
     const now = Date.now();
@@ -884,6 +898,7 @@ export class LoopService {
       return;
     }
     const actor = getActiveActor(activeRun.status as any);
+    this.publishBudgetExpired(repositoryId, activeRun, "CAMPAIGN_WALL_CLOCK_CEILING", actor === "EXECUTOR" ? "EXECUTOR_ACTIVITY" : "SOL_REVIEW");
     if (actor === "EXECUTOR" || actor === "SOL") {
       if (activeRun.status !== "DRAINING") {
         this.runStore.updateStatus(activeRun.id, "DRAINING", {
@@ -928,7 +943,8 @@ export class LoopService {
   private isWallClockCeilingExceeded(run: RunRecord): boolean {
     const repo = this.repoStore.get(run.repositoryId);
     if (!repo) return false;
-    const maxMs = (repo.maxRuntimeMinutes || 0) * 60 * 1000;
+    const maxRuntimeMinutes = this.runPolicyStore?.get(run.id)?.campaign.maxRuntimeMinutes ?? repo.maxRuntimeMinutes;
+    const maxMs = (maxRuntimeMinutes || 0) * 60 * 1000;
     if (maxMs <= 0) return false;
     const elapsed = Date.now() - new Date(run.startedAt).getTime();
     return elapsed >= maxMs;
@@ -984,18 +1000,36 @@ export class LoopService {
   private publishStateChange(repositoryId: string, runId: string, loopState: LoopState): void {
     if (this.eventPublisher) {
       try {
+        const run = this.runStore.get(runId);
         this.eventPublisher({
           type: "loop.state_changed",
           at: new Date().toISOString(),
           repositoryId,
           data: {
             runId,
-            loopState
+            loopState,
+            iteration: run?.currentIteration,
+            dispatchId: run?.activeDispatchId ?? undefined
           }
         });
       } catch (err) {
         console.warn("[LoopService] Failed to publish event:", err);
       }
     }
+  }
+
+  private publishBudgetExpired(repositoryId: string, run: RunRecord, reason: string, phase: string): void {
+    this.publishEvent({
+      type: "budget.expired",
+      at: new Date().toISOString(),
+      repositoryId,
+      data: {
+        runId: run.id,
+        iteration: run.currentIteration,
+        failureReason: reason,
+        reason,
+        phase
+      }
+    });
   }
 }

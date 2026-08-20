@@ -35,6 +35,7 @@ Then load focused documents only as the current task requires.
 | How should failures/logs/retries be represented? | `docs/OBSERVABILITY-AND-FAILURES.md` |
 | What must be tested/qualified? | `docs/TEST-STRATEGY.md` |
 | What is staged implementation order? | `docs/ROADMAP.md` |
+| How the historical OpenFlow exploration maps to current main? | `docs/OPENFLOW-EVOLUTION-DELTA.md` |
 
 ## Current high-value invariants
 

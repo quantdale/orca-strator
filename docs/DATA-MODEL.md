@@ -285,3 +285,26 @@ Minimum tests:
 11. controller restart/reopen preserves records;
 12. test DB never touches real `%LOCALAPPDATA%` data;
 13. API/domain model does not accidentally reintroduce a configurable branch field in V1.
+
+## 11. Post-V1 operational intelligence tables
+
+Change 010 adds normalized operational records without replacing the existing
+run/dispatch/executor/Sol tables:
+
+- `campaign_trace_events` stores redacted event references, nullable run/
+  iteration/dispatch/result/control IDs, phase, timestamp, status, failure
+  reason, and optional duration. It is a read-model input, not a duplicate log
+  or full result payload.
+- `run_policies` stores one serialized effective `PhaseBudgetPolicy` per run.
+  It is captured at run creation so later repository edits do not rewrite
+  history.
+- `executor_capability_probes` stores probe level, overall readiness, and a
+  structured capability snapshot for a repository/executor/model/environment.
+- `permission_policies` stores the repository's explicit preset/custom rules.
+- `permission_decisions` stores repository/run/iteration-linked outcomes and
+  honest enforcement type (`NATIVE_EXECUTOR`, `ORCA_ENFORCED`,
+  `ADVISORY_ONLY`, or `UNSUPPORTED`).
+
+Raw executor output remains in bounded log files and the executor-log API. Git
+and result manifests remain durable cross-agent truth; these tables are local
+operational/read-model truth.

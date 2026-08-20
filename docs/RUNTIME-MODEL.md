@@ -451,3 +451,19 @@ The implementation must preserve these invariants:
 11. Only one browser process at a time may own the dedicated persistent automation profile.
 12. Killing one repository's browser operation should not falsely complete or unnecessarily terminate unrelated repository Sol operations.
 13. Local operational state can be reconstructed/audited against durable Git state without relying on chat history.
+
+## 16. Effective phase budgets and permissions
+
+At run creation Orca captures one effective `PhaseBudgetPolicy` in SQLite. It
+contains campaign, Sol, executor, Git, and recovery ceilings. Repository edits
+do not rewrite an active run's policy. Timeout/retry evidence uses distinct
+classified reasons such as `EXECUTOR_START_TIMEOUT`,
+`GIT_POSTFLIGHT_TIMEOUT`, `SOL_COMPLETION_TIMEOUT`, and
+`WALL_CLOCK_CEILING`. The campaign wall-clock ceiling still enters `DRAINING`
+and never kills the active actor.
+
+Autonomy rules are explicit and executor-neutral. `ALLOW`, `ALLOW_ONCE`, `ASK`,
+and `DENY` decisions are recorded with an enforcement label. `ASK` produces
+actionable attention; it is never an invisible indefinite block. Absolute
+invariants (no force-push by default, no dirty-work discard, no secret commit)
+remain in force regardless of preset.

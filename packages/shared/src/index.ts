@@ -9,3 +9,5 @@ export * from "./executor-result.js";
 export * from "./prompt.js";
 export * from "./sol-wake.js";
 export * from "./loop.js";
+export * from "./operational-intelligence.js";
+export * from "./permissions.js";

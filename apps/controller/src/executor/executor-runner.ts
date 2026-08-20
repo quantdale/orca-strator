@@ -176,7 +176,11 @@ export class ExecutorRunner {
   async kill(): Promise<void> {
     this.isKilled = true;
     if (this.child) {
-      await this.options.adapter.killProcessTree(this.child);
+      if (this.options.adapter.cancel) {
+        await this.options.adapter.cancel(this.child, "emergency-kill-or-watchdog");
+      } else {
+        await this.options.adapter.killProcessTree(this.child);
+      }
     }
   }
 

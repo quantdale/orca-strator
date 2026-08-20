@@ -284,3 +284,15 @@ At minimum review security assumptions before:
 - packaging/auto-start/service installation;
 - any secret persistence feature;
 - future multi-user or public exposure.
+
+## 21. Autonomy policy truthfulness
+
+Change 010 records permission outcomes separately from technical enforcement.
+`NATIVE_EXECUTOR` is shown only when the selected adapter advertises a native
+permission API; `ORCA_ENFORCED` is reserved for checks Orca actually
+intercepts. Generic CLI policy is `ADVISORY_ONLY` or `UNSUPPORTED`, never a
+false claim that Orca blocked an action. `ASK` creates a visible actionable
+decision instead of hanging a worker.
+
+Force-push, dirty-tree discard, and secret-commit protections remain absolute
+Orca invariants and cannot be relaxed by a preset.

@@ -212,6 +212,104 @@ export const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_sol_operations_run ON sol_operations(run_id);
       `);
     }
+  },
+  {
+    version: 10,
+    name: "010_create_campaign_trace_and_run_policies",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS campaign_trace_events (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+          iteration INTEGER,
+          phase TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
+          result_id TEXT,
+          control_id TEXT REFERENCES sol_controls(id) ON DELETE SET NULL,
+          at TEXT NOT NULL,
+          duration_ms INTEGER,
+          status TEXT NOT NULL,
+          failure_reason TEXT,
+          data_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_campaign_trace_repo_at
+          ON campaign_trace_events(repository_id, at DESC);
+        CREATE INDEX IF NOT EXISTS idx_campaign_trace_run_iteration
+          ON campaign_trace_events(run_id, iteration, at ASC);
+
+        CREATE TABLE IF NOT EXISTS run_policies (
+          run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+          policy_json TEXT NOT NULL,
+          captured_at TEXT NOT NULL
+        );
+      `);
+    }
+  },
+  {
+    version: 11,
+    name: "011_create_executor_capability_probes",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS executor_capability_probes (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          cli TEXT NOT NULL,
+          model TEXT NOT NULL,
+          environment TEXT NOT NULL CHECK (environment IN ('windows', 'wsl')),
+          probe_level TEXT NOT NULL CHECK (probe_level IN ('STATIC', 'NON_INFERENCE', 'INFERENCE')),
+          overall TEXT NOT NULL,
+          snapshot_json TEXT NOT NULL,
+          probed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_capability_probes_repo_time
+          ON executor_capability_probes(repository_id, probed_at DESC);
+      `);
+    }
+  },
+  {
+    version: 12,
+    name: "012_create_permission_policies_and_decisions",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS permission_policies (
+          repository_id TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+          preset TEXT NOT NULL CHECK (preset IN ('CONSERVATIVE', 'BALANCED', 'UNATTENDED', 'CUSTOM')),
+          policy_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS permission_decisions (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+          iteration INTEGER,
+          action TEXT NOT NULL,
+          outcome TEXT NOT NULL CHECK (outcome IN ('ALLOW', 'ALLOW_ONCE', 'ASK', 'DENY')),
+          enforcement TEXT NOT NULL CHECK (enforcement IN ('NATIVE_EXECUTOR', 'ORCA_ENFORCED', 'ADVISORY_ONLY', 'UNSUPPORTED')),
+          rationale TEXT NOT NULL,
+          actionable INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          resolved_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_permission_decisions_repo_time
+          ON permission_decisions(repository_id, created_at DESC);
+      `);
+    }
+  },
+  {
+    version: 13,
+    name: "013_add_sol_operation_completion_budget",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE sol_operations
+          ADD COLUMN completion_wait_ms INTEGER NOT NULL DEFAULT 1200000;
+      `);
+    }
   }
 ];
 

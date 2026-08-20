@@ -479,3 +479,19 @@ Do not build:
 until the core autonomous loop is proven.
 
 The product is an orchestrator/status/control UI, not another IDE.
+
+## 26. Operational intelligence surface
+
+After V1 hardening, repository detail includes compact responsive sections for:
+
+- recent campaigns and a current structured trace;
+- iteration/phase timestamps, durations, correlation IDs, retry/recovery and
+  failure markers;
+- executor readiness with probe level, CLI/version, environment/Git status,
+  and explicit unknown auth/model state;
+- effective run policy and permission preset/decision summaries.
+
+The `Test executor` action is explicitly labelled no inference and uses the
+NON_INFERENCE probe. Permission summaries show enforcement type so advisory
+generic-CLI policy is not presented as a security guarantee. This surface is
+observability, not a graph/workflow composer.

@@ -9,6 +9,7 @@ import {
   type ExecutorStatusResponse,
   type RepositoryMutationEvent,
   type RepositoryRecord,
+  type PhaseBudgetPolicy,
   ValidationError,
   RepositoryNotFoundError
 } from "@orca/shared";
@@ -16,6 +17,7 @@ import type { RepositoryStore } from "../repositories/repository-store.js";
 import type { DispatchStore } from "../watcher/dispatch-store.js";
 import type { GitClient, GitContext } from "../watcher/git-client.js";
 import type { ExecutorStore } from "./executor-store.js";
+import type { RunPolicyStore } from "../loop/run-policy-store.js";
 import type { ExecutorAdapter } from "./adapters/executor-adapter.js";
 import { WindowsPowerShellAdapter } from "./adapters/windows-adapter.js";
 import { WslAdapter } from "./adapters/wsl-adapter.js";
@@ -38,6 +40,7 @@ export interface ExecutorServiceOptions {
   wslAdapter?: ExecutorAdapter;
   /** Separate executor watchdog in ms; 0/disabled by default. Wall-clock ceiling does NOT kill executor. */
   executorWatchdogMs?: number;
+  runPolicyStore?: RunPolicyStore;
   /** Production wiring: called when an executor turn finishes (valid result or null). */
   onExecutorCompleted?: (
     repositoryId: string,
@@ -59,6 +62,7 @@ export class ExecutorService {
   private readonly windowsAdapter: ExecutorAdapter;
   private readonly wslAdapter: ExecutorAdapter;
   private readonly executorWatchdogMs: number;
+  private readonly runPolicyStore?: RunPolicyStore;
   private readonly onExecutorCompleted?: (
     repositoryId: string,
     dispatchId: string,
@@ -77,6 +81,7 @@ export class ExecutorService {
     this.windowsAdapter = options.windowsAdapter || new WindowsPowerShellAdapter();
     this.wslAdapter = options.wslAdapter || new WslAdapter();
     this.executorWatchdogMs = options.executorWatchdogMs ?? 0;
+    this.runPolicyStore = options.runPolicyStore;
     this.onExecutorCompleted = options.onExecutorCompleted;
     this.eventPublisher = options.eventPublisher;
   }
@@ -101,6 +106,7 @@ export class ExecutorService {
     }
 
     const preflightEvidence = await this.runPreflight(repo);
+    const policy: PhaseBudgetPolicy | null = this.runPolicyStore?.get(dispatch.runId) ?? null;
 
     const now = new Date().toISOString();
     const runAttemptId = crypto.randomUUID();
@@ -123,6 +129,19 @@ export class ExecutorService {
     };
 
     this.executorStore.create(runRecord);
+    this.publishEvent({
+      type: "executor.started",
+      at: now,
+      repositoryId,
+      data: {
+        runId: dispatch.runId,
+        dispatchId: dispatch.id,
+        iteration: dispatch.iteration,
+        executorCli: repo.executorCli,
+        executorModel: repo.executorModel,
+        environment: repo.environment
+      }
+    });
 
     const prompt = generateBootstrapPrompt({
       repositoryName: repo.displayName,
@@ -165,7 +184,7 @@ export class ExecutorService {
         wslDistribution: repo.wslDistribution
       },
       logPath,
-      watchdogMs: this.executorWatchdogMs,
+      watchdogMs: policy?.executor.watchdogMs ?? this.executorWatchdogMs,
       onLog: (line) => {
         this.publishLog(repositoryId, dispatch.id, line);
       },
@@ -184,6 +203,19 @@ export class ExecutorService {
         } else if (details.reason === "WATCHDOG_TIMEOUT" || details.timedOut) {
           finalStatus = "timed_out";
           errorMessage = "Executor watchdog timeout";
+          this.publishEvent({
+            type: "budget.expired",
+            at: finishedAt,
+            repositoryId,
+            data: {
+              runId: dispatch.runId,
+              dispatchId: dispatch.id,
+              iteration: dispatch.iteration,
+              failureReason: "EXECUTOR_WATCHDOG_TIMEOUT",
+              reason: "EXECUTOR_WATCHDOG_TIMEOUT",
+              phase: "EXECUTOR_ACTIVITY"
+            }
+          });
         } else if (exitCode !== null && exitCode !== 0) {
           // Nonzero exit is not authoritative – still attempt result validation (item #7).
           // Keep failed status for now; result validation may still surface a FAILED/BLOCKED manifest.
@@ -209,15 +241,16 @@ export class ExecutorService {
       }
     });
 
-    const started = await this.launchWithRetry(repo, runner);
+    const launchAttempts = policy?.executor.launchAttempts ?? MAX_LAUNCH_ATTEMPTS;
+    const started = await this.launchWithRetry(repo, runner, launchAttempts);
     if (!started) {
       this.activeRunners.delete(repositoryId);
       this.executorStore.updateStatus(runAttemptId, "failed", {
-        errorMessage: "Executor failed to start after retry (contact/launch unavailable).",
+        errorMessage: `Executor failed to start after ${launchAttempts} attempts (contact/launch unavailable).`,
         finishedAt: new Date().toISOString()
       });
       throw new ValidationError(
-        `Executor failed to start for repository ${repositoryId} after ${MAX_LAUNCH_ATTEMPTS} attempts`
+        `Executor failed to start for repository ${repositoryId} after ${launchAttempts} attempts`
       );
     }
 
@@ -234,21 +267,22 @@ export class ExecutorService {
    */
   private async launchWithRetry(
     repo: RepositoryRecord,
-    runner: ExecutorRunner
+    runner: ExecutorRunner,
+    maxAttempts = MAX_LAUNCH_ATTEMPTS
   ): Promise<boolean> {
-    for (let attempt = 1; attempt <= MAX_LAUNCH_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await runner.start();
         return true;
       } catch (err: any) {
         const message = err?.message || String(err);
-        if (attempt < MAX_LAUNCH_ATTEMPTS) {
+        if (attempt < maxAttempts) {
           this.publishEvent({
             type: "executor.log",
             at: new Date().toISOString(),
             repositoryId: repo.id,
             data: {
-              logMessage: `[system] Launch attempt ${attempt}/${MAX_LAUNCH_ATTEMPTS} failed: ${message}; retrying`
+              logMessage: `[system] Launch attempt ${attempt}/${maxAttempts} failed: ${message}; retrying`
             }
           });
           await new Promise<void>((resolve) =>
@@ -261,7 +295,7 @@ export class ExecutorService {
           at: new Date().toISOString(),
           repositoryId: repo.id,
           data: {
-            logMessage: `[system] Launch failed after ${MAX_LAUNCH_ATTEMPTS} attempts: ${message}`
+            logMessage: `[system] Launch failed after ${maxAttempts} attempts: ${message}`
           }
         });
         return false;
@@ -303,6 +337,22 @@ export class ExecutorService {
       // Mark consumed only when a valid, committed result exists (E).
       this.dispatchStore.updateStatus(dispatchId, "consumed");
     }
+
+    const completionDispatch = this.dispatchStore.get(dispatchId);
+    this.publishEvent({
+      type: "executor.completed",
+      at: new Date().toISOString(),
+      repositoryId,
+      data: {
+        runId: completionDispatch?.runId,
+        dispatchId,
+        iteration: completionDispatch?.iteration,
+        resultStatus: result?.status ?? null,
+        resultSha: result?.resultSha ?? null,
+        summary: result?.summary ?? null,
+        failureReason: result ? undefined : "INVALID_OR_INCOMPLETE_RESULT"
+      }
+    });
 
     if (this.onExecutorCompleted) {
       this.onExecutorCompleted(repositoryId, dispatchId, result);
@@ -516,7 +566,7 @@ export class ExecutorService {
       type: "executor.log",
       at: new Date().toISOString(),
       repositoryId,
-      data: { logMessage: line, runId: dispatchId }
+      data: { logMessage: line, dispatchId }
     });
   }
 

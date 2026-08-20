@@ -472,3 +472,86 @@ Do not pull these into V1 unless required for low-cost compatibility seam:
 - GitHub Actions/webhook/MCP as primary dispatcher;
 - cross-machine distributed executors;
 - arbitrary third-party orchestration plugin framework.
+
+---
+
+## Post-V1 evolution campaign (approved sequential changes)
+
+The V1 runtime is hardened and internally machine-qualified under Change 009,
+with external ChatGPT-authenticated wake, Tailscale phone-route, and real model
+inference remaining honestly UNQUALIFIED where credentials/dependencies are not
+available. The next campaign adopts selected OpenFlow-inspired runtime ideas as
+subordinate execution capabilities; it does not change Orca's top-level
+campaign/Sol/Git hierarchy.
+
+The historical exploration is non-binding design input only. The canonical
+reconciliation is [`docs/OPENFLOW-EVOLUTION-DELTA.md`](OPENFLOW-EVOLUTION-DELTA.md).
+
+### Milestone 9 — Operational intelligence and executor capabilities
+
+OpenSpec: `010-operational-intelligence-executor-capabilities`
+
+Status: **complete / MACHINE-QUALIFIED internally**
+
+Deliverables: campaign run ledger/read models; STATIC/NON_INFERENCE executor
+capability probes; capability-aware adapter seam; effective per-run phase
+budgets; executor-neutral autonomy permission policy; responsive history,
+readiness, policy, and permission views. Fast 179/179 tests, real 12/12
+qualification tests, typecheck, build, and lint passed. Provider inference,
+ChatGPT-authenticated wake, and Tailscale phone route remain honestly external
+UNQUALIFIED as before.
+
+### Milestone 10 — Usage telemetry and explicit scheduler policy
+
+OpenSpec: `011-usage-telemetry-scheduler-policy`
+
+Status: **next / OpenSpec to activate**
+
+Deliverables: trustworthy partial usage/cost telemetry, transparent optional
+scheduler limits that do not cap independent repositories by default, and
+explicit user-authored role/model routing foundations.
+
+### Milestone 11 — Typed work packets and writer isolation
+
+OpenSpec: `012-typed-work-packets-isolation`
+
+Status: **planned**
+
+Deliverables: versioned packet/result envelopes, persisted Git worktree/temporary
+branch lifecycle, deterministic integration/reconciliation, and partial-failure
+semantics. Same-repository swarm is forbidden until its qualification gates pass.
+
+### Milestone 12 — Optional same-repository swarm
+
+OpenSpec: `013-optional-same-repository-swarm`
+
+Status: **conditional on Change 012 qualification**
+
+Single-agent remains default; swarm is explicit, bounded, isolated, and returns a
+structured partial result to Sol.
+
+### Milestone 13 — Optional DAG execution strategy
+
+OpenSpec: `014-optional-dag-execution-strategy`
+
+Status: **conditional on stable swarm foundations**
+
+Structured DAG definitions/presets only; no visual composer and no DAG default UX.
+
+### Milestone 14 — Optional rich OpenCode adapter
+
+OpenSpec: `015-optional-rich-opencode-adapter`
+
+Status: **planned / technical evaluation required**
+
+OpenCode remains optional and absent-safe. An unstable API is documented as
+experimental rather than hidden behind brittle hacks.
+
+### Milestone 15 — Execution topology UI and strategy presets
+
+OpenSpec: `016-execution-topology-ui`
+
+Status: **planned after runtime semantics**
+
+The UI visualizes actual single-agent/swarm/DAG state and may add simple reusable
+configuration presets; it does not author graphs.

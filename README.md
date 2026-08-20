@@ -206,9 +206,21 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 - [`docs/OBSERVABILITY-AND-FAILURES.md`](docs/OBSERVABILITY-AND-FAILURES.md)
 - [`docs/TEST-STRATEGY.md`](docs/TEST-STRATEGY.md)
 
-### Active implementation plan
+### Implementation checkpoint
 
-- [`openspec/changes/009-v1-runtime-integration-hardening/`](openspec/changes/009-v1-runtime-integration-hardening/)
+- Completed: [`openspec/changes/010-operational-intelligence-executor-capabilities/`](openspec/changes/010-operational-intelligence-executor-capabilities/)
+- Next: `011-usage-telemetry-scheduler-policy` for trustworthy usage telemetry
+  and explicit scheduler/role policy foundations.
+
+Change 010 is complete and internally machine-qualified; Change 011 activates
+after this checkpoint is committed and pushed.
+
+Post-V1 evolution is being implemented as focused sequential changes. The
+historical OpenFlow-inspired exploration is explicitly non-binding; see the
+[canonical design delta](docs/OPENFLOW-EVOLUTION-DELTA.md). Orca remains a
+persistent repository/goal campaign with Sol-owned completion, Git as durable
+cross-agent truth, and one active writer per repository until a later qualified
+isolation design explicitly enables an optional strategy.
 
 ## Repository hygiene
 

@@ -475,3 +475,24 @@ Include tests/checks for:
 A milestone exits when required behaviors are proven—not when code volume is large.
 
 If a test cannot currently pass because an external dependency/UI changed, record that accurately and decide whether milestone can still be reviewed. Never fake green status to advance roadmap.
+
+## 16. Change 010 operational-intelligence matrix
+
+Focused coverage includes:
+
+- migration/reopen persistence for trace, policy, capability, and permission
+  records;
+- EventBus correlation/redaction and campaign/iteration duration read models;
+- two-repository trace isolation and restart history reconstruction;
+- STATIC probes that never touch the model/provider, NON_INFERENCE local/Git
+  probes, typed CLI/version failures, and explicit inference authorization;
+- generic/Kimi/Codex/test profile capability classification and optional adapter
+  fallback behavior;
+- effective policy snapshots across repository edits, distinct budget reasons,
+  and wall-clock drain/no-kill regression;
+- permission presets, absolute DENY invariants, advisory-vs-native labeling,
+  durable ASK attention, and API/UI presentation.
+
+Real WSL/Git probe coverage is machine-qualified only when a usable WSL
+distribution and repository are actually exercised; otherwise the result stays
+UNQUALIFIED rather than being inferred from a Windows test.

@@ -5,6 +5,21 @@ import type { ExecutorAdapter, ExecutionContext } from "./executor-adapter.js";
 const execFileAsync = promisify(execFile);
 
 export class WindowsPowerShellAdapter implements ExecutorAdapter {
+  capabilities() {
+    return {
+      environment: "windows" as const,
+      headless: "READY" as const,
+      cancellation: "READY" as const,
+      pause: "READY" as const,
+      resume: "NOT_APPLICABLE" as const,
+      structuredEvents: "NOT_APPLICABLE" as const,
+      permissionApi: "UNSUPPORTED" as const,
+      usageTelemetry: "UNKNOWN" as const,
+      sessionResume: "UNSUPPORTED" as const,
+      sessionHistory: "UNSUPPORTED" as const
+    };
+  }
+
   spawn(context: ExecutionContext): ChildProcess {
     return spawn(context.command, context.args, {
       cwd: context.cwd,
@@ -34,5 +49,9 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
         child.kill("SIGTERM");
       } catch {}
     }
+  }
+
+  async cancel(child: ChildProcess, _reason?: string): Promise<void> {
+    await this.killProcessTree(child);
   }
 }

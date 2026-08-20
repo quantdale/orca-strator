@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { RepositoryRecord, LoopState } from "@orca/shared";
 import { apiClient } from "../lib/api-client.js";
+import { OperationalIntelligencePanel } from "./OperationalIntelligencePanel.js";
 
 interface RepositoryDetailProps {
   repository: RepositoryRecord;
@@ -228,7 +229,7 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
                 Stop
               </button>
 
-              {(state === "RECOVERY_REQUIRED" || state === "BLOCKED" || state === "NEEDS_HUMAN") && (
+              {(state === "RECOVERY_REQUIRED" || state === "BLOCKED" || state === "NEEDS_HUMAN" || state === "ATTENTION_REQUIRED") && (
                 <div className="flex items-center gap-2 border-l border-slate-700 pl-3">
                   <button
                     onClick={() => handleRecover("retry")}
@@ -250,6 +251,8 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
           </div>
         )}
       </div>
+
+      <OperationalIntelligencePanel repositoryId={repository.id} />
 
       {/* Main Details Card */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 space-y-6">

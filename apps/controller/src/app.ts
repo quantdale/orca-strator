@@ -28,6 +28,15 @@ import { SqliteSolOperationStore } from './browser/sol-operation-store.js';
 import { RunStore } from './loop/run-store.js';
 import { LoopService } from './loop/loop-service.js';
 import { StartupReconciler } from './loop/startup-reconciler.js';
+import { RunPolicyStore } from './loop/run-policy-store.js';
+import { CampaignLedgerStore } from './ledger/campaign-ledger-store.js';
+import { CampaignLedgerService } from './ledger/campaign-ledger-service.js';
+import { CapabilityStore } from './executor/capability-store.js';
+import { CapabilityProbeService } from './executor/capability-probe-service.js';
+import { PermissionStore } from './permissions/permission-store.js';
+import { PermissionPolicyService } from './permissions/permission-policy-service.js';
+import { campaignRoutes } from './http/routes/campaigns.js';
+import { operationalIntelligenceRoutes } from './http/routes/operational-intelligence.js';
 
 import type { BrowserDriver } from './browser/browser-driver.js';
 
@@ -45,6 +54,13 @@ export interface AppInstance {
   browserManager: BrowserManager;
   runStore: RunStore;
   loopService: LoopService;
+  runPolicyStore: RunPolicyStore;
+  campaignLedgerStore: CampaignLedgerStore;
+  campaignLedgerService: CampaignLedgerService;
+  capabilityStore: CapabilityStore;
+  capabilityProbeService: CapabilityProbeService;
+  permissionStore: PermissionStore;
+  permissionPolicyService: PermissionPolicyService;
 }
 
 export async function buildApp(
@@ -72,9 +88,52 @@ export async function buildApp(
   const runStore = new RunStore(dbContext.db);
   const eventBus = new EventBus();
   const repositoryService = new RepositoryService(store, eventBus);
+  const runPolicyStore = new RunPolicyStore(dbContext.db);
+  const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);
+  const campaignLedgerService = new CampaignLedgerService(
+    dbContext.db,
+    store,
+    runStore,
+    runPolicyStore,
+    campaignLedgerStore
+  );
+  eventBus.subscribe((event) => {
+    campaignLedgerService.recordEvent(event);
+  });
 
   const gitClient = new GitClient();
   const commitInspector = new CommitInspector(gitClient);
+  const capabilityStore = new CapabilityStore(dbContext.db);
+  const capabilityProbeService = new CapabilityProbeService({
+    store: capabilityStore,
+    gitClient,
+    eventPublisher: (event) => eventBus.publish(event)
+  });
+  const permissionStore = new PermissionStore(dbContext.db);
+  const permissionPolicyService = new PermissionPolicyService({
+    store: permissionStore,
+    attentionHandler: (decision) => {
+      if (!decision.runId) return;
+      const run = runStore.get(decision.runId);
+      if (!run || run.repositoryId !== decision.repositoryId) return;
+      runStore.updateStatus(run.id, "ATTENTION_REQUIRED", {
+        lastError: `Permission attention required: ${decision.action}`,
+        finishedAt: new Date().toISOString()
+      });
+      eventBus.publish({
+        type: "loop.state_changed",
+        at: new Date().toISOString(),
+        repositoryId: decision.repositoryId,
+        data: {
+          runId: decision.runId,
+          iteration: decision.iteration ?? undefined,
+          loopState: "ATTENTION_REQUIRED",
+          reason: `Permission attention required: ${decision.action}`
+        }
+      });
+    },
+    eventPublisher: (event) => eventBus.publish(event)
+  });
 
   // Forward declaration so watcher/executor callbacks can reference the loop
   // service once it is constructed (real production wiring, A).
@@ -102,6 +161,7 @@ export async function buildApp(
     executorStore,
     gitClient,
     dataDir: config.dataDir,
+    runPolicyStore,
     onExecutorCompleted: (repositoryId, dispatchId, result) => {
       void loopService.onExecutorCompleted(repositoryId, dispatchId, result);
     },
@@ -128,6 +188,7 @@ export async function buildApp(
       executorService,
       browserManager,
       solControlStore,
+      runPolicyStore,
       eventPublisher: (event) => eventBus.publish(event)
     });
 
@@ -164,6 +225,14 @@ export async function buildApp(
   await fastify.register(executorRoutes(executorService, repositoryService));
   await fastify.register(browserRoutes(browserManager, repositoryService, dispatchStore));
   await fastify.register(runRoutes(loopService, repositoryService));
+  await fastify.register(campaignRoutes(campaignLedgerService, repositoryService));
+  await fastify.register(operationalIntelligenceRoutes(
+    repositoryService,
+    capabilityProbeService,
+    permissionPolicyService,
+    runPolicyStore,
+    runStore
+  ));
   await fastify.register(systemRoutes(config.port, browserManager));
   await fastify.register(websocketRoutes(eventBus));
 
@@ -196,6 +265,13 @@ export async function buildApp(
     wakeStore,
     browserManager,
     runStore,
-    loopService
+    loopService,
+    runPolicyStore,
+    campaignLedgerStore,
+    campaignLedgerService,
+    capabilityStore,
+    capabilityProbeService,
+    permissionStore,
+    permissionPolicyService
   };
 }

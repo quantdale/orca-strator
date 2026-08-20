@@ -334,3 +334,22 @@ Sol inspect/review
 8. Every failure must be observable and recoverable without silently discarding work.
 9. V1 branch behavior is intentionally fixed to `main`; branch orchestration is deferred until multi-session-per-repository work exists.
 10. Desktop and phone use one same-origin UI/API contract; remote phone access does not require broad CORS or a second backend.
+
+## 15. Post-V1 operational foundation
+
+The hardened campaign remains the top-level owner. Change 010 adds a normalized
+campaign trace/read model subscribed to the redacting EventBus, a durable
+executor capability probe, optional feature-detected adapter methods, a
+per-run effective phase-budget snapshot, and an executor-neutral permission
+policy. These are controller services around the existing stores; they do not
+replace Git result manifests, SQLite run state, or Sol's completion authority.
+
+Capability probes are levelled: STATIC checks only CLI/profile metadata,
+NON_INFERENCE may perform harmless local/Git/environment checks, and INFERENCE
+requires explicit authorization. A configured executor/model is never silently
+changed. Generic CLIs remain supported and unadvertised native features are
+reported as unknown/advisory/unsupported.
+
+The next approved changes may introduce typed work packets and isolated
+temporary worktrees, but no same-checkout parallel writers are enabled by this
+foundation.
