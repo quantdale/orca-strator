@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "CHANGE_COMPLETE",
+  "developmentStatus": "IMPLEMENTING",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 12,
-  "activeChange": "013-optional-same-repository-swarm",
+  "activeMilestone": 13,
+  "activeChange": "014-optional-dag-execution-strategy",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 010, Change 011, Change 012, and Change 013 are implemented, folded, committed, and pushed (`eb68985`, `3a52756`, `2343604`, pending Change 013 checkpoint). Change 013 qualifies explicitly enabled, bounded same-repository swarm execution on the qualified worktree/integration primitives while preserving SINGLE_AGENT as the default.",
-    "updatedAt": "2026-08-20T17:44:32+08:00",
-    "lastCompletedTask": "Change 013 optional same-repository swarm: durable strategy/control state, bounded isolated workers, scheduler and permission integration, pause/stop/kill/recovery, deterministic integration and partial results, APIs, canonical spec fold, documentation reconciliation, and qualification complete.",
+    "summary": "Change 010, Change 011, Change 012, and Change 013 are implemented, folded, committed, and pushed (`eb68985`, `3a52756`, `2343604`, `fe3abdb`). Change 014 is active for an optional structured DAG strategy built on the qualified swarm/isolation runtime.",
+    "updatedAt": "2026-08-20T17:47:00+08:00",
+    "lastCompletedTask": "Change 013 optional same-repository swarm: durable strategy/control state, bounded isolated workers, scheduler and permission integration, pause/stop/kill/recovery, deterministic integration and partial results, APIs, canonical spec fold, documentation reconciliation, qualification, commit, and push complete.",
     "lastVerification": "Change 013 gates: npm test 44 files / 187 tests; npm run test:real 6 files / 20 tests; npm run typecheck, npm run build, npm run lint, and git diff --check passed."
   },
-  "nextAction": "Commit and push the Change 013 checkpoint, then create and activate Change 014 for the optional DAG execution strategy; preserve swarm as explicit opt-in while continuing the campaign.",
+  "nextAction": "Implement Change 014 DAG contracts and durable node state, then reuse the Change 013 engine for validated topological execution, controls, integration, and qualification.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",

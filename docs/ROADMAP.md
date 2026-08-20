@@ -540,7 +540,7 @@ conditional WSL execution. Typecheck, build, lint, and diff checks pass.
 
 OpenSpec: `014-optional-dag-execution-strategy`
 
-Status: **next / eligible after stable swarm foundations**
+Status: **implementing / explicitly opt-in**
 
 Structured DAG definitions/presets only; no visual composer and no DAG default UX.
 
