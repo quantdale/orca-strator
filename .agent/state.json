@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "IMPLEMENTING",
+  "developmentStatus": "ROADMAP_COMPLETE",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
   "activeMilestone": 15,
-  "activeChange": "016-execution-topology-ui",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+  "activeChange": null,
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 015 is implemented, folded, qualified as far as available dependencies allow, committed, and pushed. Change 016 is now active for the responsive execution-topology observability UI and explicit strategy-policy presets.",
-    "updatedAt": "2026-08-20T18:39:00+08:00",
-    "lastCompletedTask": "Change 015 optional OpenCode adapter: profile/invocation, optional Windows/WSL adapter delegation, bounded health/OpenAPI V1/V2/hybrid probe, guarded native session/event/permission/provider/subagent/usage operations, capability/usage integration, deterministic HTTP tests, conditional real qualification, canonical spec and documentation reconciliation.",
-    "lastVerification": "Change 015 gates passed before push: npm test 46 files / 194 tests; npm run test:real 7 files / 25 passed with 1 explicit OpenCode external qualification skip; focused OpenCode tests 5/5; npm run typecheck, npm run build, npm run lint, git diff --check, and strict OpenSpec validation passed."
+    "summary": "The approved post-V1 evolution scope through Change 016 is implemented, folded into canonical specs, internally qualified, and ready for fresh recovery. The final UI is a read-only execution-topology projection with explicit non-authoring strategy presets; no visual composer or hidden routing was introduced.",
+    "updatedAt": "2026-08-20T18:55:53+08:00",
+    "lastCompletedTask": "Change 016 execution topology UI: responsive single-agent Sol/dispatch/executor/result/Sol flow, actual SWARM/DAG worker/node/dependency/integration states, truthful usage/failure evidence, and explicit reference-only presets; canonical documentation and OpenSpec tasks reconciled.",
+    "lastVerification": "Change 016 final gates passed: focused UI 3/3; npm test 47 files / 197 tests; npm run test:real 7 files / 25 passed with 1 explicit OpenCode external qualification skip; npm run typecheck, npm run build, npm run lint, git diff --check, state JSON validation, and all 23 OpenSpec items strict-validated with 0 failures."
   },
-  "nextAction": "Implement Change 016 shared preset contracts and the read-model-only topology panel, then add focused responsive/component verification without introducing graph authoring.",
+  "nextAction": "No remaining safe in-scope implementation remains. If authorized external services become available, run the explicitly unqualified ChatGPT/Tailscale/Kimi/Codex and OpenCode qualification tiers without changing product semantics.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",

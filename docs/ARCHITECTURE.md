@@ -420,3 +420,19 @@ experimental; missing or drifting routes produce typed UNKNOWN/UNSUPPORTED
 evidence rather than speculative calls. The probe never spends inference, and
 OpenCode sessions/events never replace SQLite orchestration truth or Git result
 truth.
+
+## Execution topology observability (Change 016)
+
+The UI consumes `CampaignDetail` as a read model and renders the real topology:
+
+```text
+SINGLE_AGENT: Sol -> dispatch -> executor -> result/Git -> Sol
+SWARM/DAG:   Sol -> strategy -> actual packets/nodes -> integration -> Sol
+```
+
+The panel uses durable strategy reports, typed result/node statuses,
+dependencies, integration, and usage references. It uses responsive cards and
+textual dependency chips rather than a graph canvas, so it cannot author nodes,
+decompose goals, or create hidden work. Shared strategy presets are versioned
+policy/reference data only; `SINGLE_AGENT` and repository + goal remain the
+default user experience.

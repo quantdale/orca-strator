@@ -586,4 +586,18 @@ Focused coverage includes:
   ordinary and isolated worker paths;
 - conditional real OpenCode server probing. When no authorized endpoint is
   configured, the real test is explicitly UNQUALIFIED/skipped and does not
-  label OpenCode machine-qualified.
+label OpenCode machine-qualified.
+
+## 22. Change 016 topology UI matrix
+
+Focused coverage includes:
+
+- single-agent Sol/dispatch/executor/result/Sol rendering from incomplete and
+  complete campaign evidence;
+- actual SWARM packet/report/integration rendering with partial/failure states;
+- DAG node dependency, waiting/permission/retry/conflict, and integration
+  rendering without fabricated workers;
+- unknown usage/cost and exact-versus-estimated display;
+- preset catalog presence, explicit no-auto-start semantics, and absence of
+  graph-authoring controls;
+- responsive card-flow markup suitable for narrow phone and desktop layouts.

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import type { CampaignDetail, CampaignSummary, ExecutorCapabilitySnapshot, PhaseBudgetPolicy, AutonomyPermissionPolicy, PermissionDecision, SchedulerDecision, SchedulerPolicy, RoleModelPolicy, UsageSummary } from "@orca/shared";
 import { apiClient } from "../lib/api-client.js";
+import { ExecutionTopologyPanel } from "./ExecutionTopologyPanel.js";
 
 interface OperationalIntelligencePanelProps {
   repositoryId: string;
@@ -203,6 +204,8 @@ export const OperationalIntelligencePanel: React.FC<OperationalIntelligencePanel
           </div>
         )}
       </div>
+
+      <ExecutionTopologyPanel campaign={campaign} />
     </section>
   );
 };

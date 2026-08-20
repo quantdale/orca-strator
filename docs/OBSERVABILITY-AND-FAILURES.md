@@ -414,3 +414,12 @@ An unavailable endpoint, missing OpenAPI document, malformed response, timeout,
 or unsupported operation is reported distinctly as `OPENCODE_UNAVAILABLE`,
 `OPENCODE_API_DRIFT`, or `OPENCODE_API_UNSUPPORTED`. The adapter remains
 experimental because the observed OpenCode API may be hybrid or migrating.
+
+## 23. Topology projection
+
+The UI topology is derived from the campaign ledger/read model and does not
+create new operational truth. A missing dispatch, result, worker, node,
+integration report, or usage metric is rendered as not recorded/UNKNOWN. The
+projection preserves partial successes, dependency waits, permission attention,
+recovery, cancellation, and integration conflict so a strategy cannot appear
+green merely because one child succeeded.

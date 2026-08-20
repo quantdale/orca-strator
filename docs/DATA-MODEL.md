@@ -390,3 +390,13 @@ numeric provider/session fields; missing values remain NULL.
 OpenCode sessions, events, and permissions are not campaign truth. The
 campaign ledger continues to reference normalized events, strategy records,
 typed results, and Git references rather than copying HTTP transcripts.
+
+## 17. Topology and preset projection (Change 016)
+
+The topology UI adds no SQLite table. `ExecutionTopologyView` is a small
+projection vocabulary over `CampaignDetail`; its cards retain IDs, statuses,
+dependencies, durations, executor/model/environment, usage references, and
+durable references without becoming a second source of truth. The shared
+`ExecutionStrategyPreset` catalog is versioned immutable reference data with
+`autoStart: false`; it never creates packets, nodes, model routes, or campaign
+rows.

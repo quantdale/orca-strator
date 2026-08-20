@@ -567,7 +567,21 @@ UNQUALIFIED unless explicitly available.
 
 OpenSpec: `016-execution-topology-ui`
 
-Status: **active / implementation in progress**
+Status: **complete / MACHINE-QUALIFIED internally / read-only observability**
 
-The UI visualizes actual single-agent/swarm/DAG state and may add simple reusable
-configuration presets; it does not author graphs.
+The UI visualizes actual single-agent/swarm/DAG state and adds a small explicit
+policy/reference preset catalog; it does not author graphs. The responsive
+projection exposes Sol, dispatch, executor, result/Git, worker/node,
+dependency, integration, duration, failure, retry/permission status, and
+truthful usage evidence where CampaignDetail provides it. Focused component
+tests cover single-agent, DAG dependency/partial integration, unknown usage,
+and non-authoring preset presentation. Final gates: focused UI 3/3, fast
+47 files / 197 tests, real 7 files / 25 passed with one explicit OpenCode
+external skip, typecheck, build, lint, diff check, and strict OpenSpec
+validation pass.
+
+The post-V1 evolution scope is complete as far as safely possible. Remaining
+qualification blockers are external and remain explicitly UNQUALIFIED: real
+ChatGPT-authenticated wake, Tailscale phone routing, real Kimi/Codex inference,
+and an authorized OpenCode server/provider. They do not invalidate the
+deterministic/internal qualification of the implemented runtime foundations.

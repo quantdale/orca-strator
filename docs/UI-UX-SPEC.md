@@ -518,7 +518,19 @@ data as an observability surface: node IDs, dependencies, state, executor/model,
 budget, controls, integration, and blockers. It must not require users to draw
 or author a graph. A repository + goal still enters `SINGLE_AGENT` unless the
 user explicitly selects another strategy through a future structured control.
-Actual topology visualization remains Change 016 scope.
+
+## Change 016 execution topology
+
+The current UI renders actual `CampaignDetail` evidence as a responsive
+topology projection. Ordinary campaigns show `Sol wake → Dispatch → Executor
+→ Result + Git → Sol review`. Explicit SWARM/DAG campaigns show the strategy,
+actual packet/node cards, dependency chips, typed statuses, integration, and
+usage/cost evidence. Cards wrap vertically on phone-sized viewports and show
+`UNKNOWN` for missing telemetry.
+
+The preset catalog is reference-only and visibly says it never auto-starts,
+decomposes goals, selects models, or authors packets/nodes. There is no
+drag/drop graph editor, canvas authoring, or manual workflow composer.
 
 ## Change 015 OpenCode readiness
 

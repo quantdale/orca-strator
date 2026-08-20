@@ -409,3 +409,12 @@ session features are route-detected and experimental; unsupported/drifting
 operations remain visibly UNKNOWN/UNSUPPORTED. OpenCode is not an Orca core
 dependency, does not replace Git/SQLite truth, and cannot dynamically change
 the user's executor/model.
+
+## D-049 — Topology UI is a read-only projection
+
+Change 016 renders the existing campaign/strategy/packet/node/result/usage
+records as responsive cards and textual dependency links. It does not create a
+graph authoring surface, automatic decomposition, model routing, or a second
+truth store. Presets are immutable explicit policy references with
+`autoStart: false`; `SINGLE_AGENT` remains the default experience and Sol
+retains completion authority.

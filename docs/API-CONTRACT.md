@@ -546,3 +546,17 @@ authorized provider operation supplies evidence.
 Native OpenCode session/event operations are adapter-internal optional calls,
 not a replacement coordination API. Any unsupported or drifting route returns
 a typed error and never changes the durable campaign/run/result contract.
+
+## 23. Execution topology read model (Change 016)
+
+No new graph-authoring API is introduced. The existing campaign detail endpoint
+is the topology read source:
+
+```text
+GET /api/repositories/:id/campaigns/:runId
+```
+
+Its `strategyRuns`, `dagNodes`, typed reports/results, timeline, executor
+records, and usage fields are projected by the UI into single-agent, SWARM, or
+DAG topology cards. The shared preset catalog is static versioned policy data;
+it has no start/decompose/model-routing mutation endpoint.

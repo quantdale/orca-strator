@@ -214,7 +214,7 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 - Completed: [`openspec/changes/013-optional-same-repository-swarm/`](openspec/changes/013-optional-same-repository-swarm/)
 - Completed: [`openspec/changes/014-optional-dag-execution-strategy/`](openspec/changes/014-optional-dag-execution-strategy/)
 - Completed: [`openspec/changes/015-optional-rich-opencode-adapter/`](openspec/changes/015-optional-rich-opencode-adapter/)
-- Active: [`openspec/changes/016-execution-topology-ui/`](openspec/changes/016-execution-topology-ui/)
+- Completed: [`openspec/changes/016-execution-topology-ui/`](openspec/changes/016-execution-topology-ui/)
 
 Change 010, Change 011, and Change 012 are complete and internally
 machine-qualified. Change 012 established typed work packets, isolated
@@ -225,8 +225,10 @@ built on those qualified primitives. Change 014 is complete and internally
 machine-qualified for an optional structured DAG strategy. Change 015 is
 complete with an experimental, absent-safe OpenCode adapter and non-inference
 server probe; its real server/provider tier remains explicitly unqualified
-without an authorized endpoint. Change 016 is next for the execution-topology
-observability UI.
+without an authorized endpoint. Change 016 is complete with the
+execution-topology observability UI and explicit non-authoring strategy
+presets. Final fast qualification is 47 files / 197 tests; the applicable real
+tier is 25 passed with one explicit OpenCode external skip.
 
 Post-V1 evolution is being implemented as focused sequential changes. The
 historical OpenFlow-inspired exploration is explicitly non-binding; see the

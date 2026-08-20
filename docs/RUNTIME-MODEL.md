@@ -557,3 +557,20 @@ usage. API drift is classified and surfaced; it is never silently converted to
 generic success or a different model. `SINGLE_AGENT` remains the normal path,
 and a native session completion still requires the ordinary Git/result and Sol
 completion boundaries.
+
+## 22. Topology is an observability projection
+
+Change 016 does not add a runtime state machine. It projects the existing
+durable sequence and optional strategy records into a responsive view:
+
+```text
+CampaignDetail -> topology cards
+               -> actual worker/node dependencies/status
+               -> integration evidence
+               -> Sol-owned next action
+```
+
+Missing records remain `UNKNOWN`/`QUEUED`; partial, blocked, skipped,
+cancelled, conflict, and recovery states remain distinct. Presets are explicit
+policy hints and never start a strategy, select a model, or change the outer
+loop.
