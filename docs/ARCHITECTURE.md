@@ -362,3 +362,12 @@ default is unlimited across independent repositories. Role resolution is
 user-authored and falls back to the repository's exact configured executor and
 model. None of these facilities changes the single-agent V1 default or grants
 Sol dynamic model-routing authority.
+
+Change 012 supplies the prerequisite typed packet and isolation layer. Each
+potential writer gets a deterministic internal Git branch/worktree under Orca's
+local data directory; no two writers share the persistent checkout. A clean
+worktree may be removed without force, while dirty/unmerged work remains
+recoverable. Deterministic integration cherry-picks validated worker commits to
+main, preserves successful siblings, and returns conflicts/partial failures as
+structured results. Swarm and DAG strategies remain disabled until this layer
+passes its real qualification gate.

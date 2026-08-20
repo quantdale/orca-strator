@@ -210,10 +210,13 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 
 - Completed: [`openspec/changes/010-operational-intelligence-executor-capabilities/`](openspec/changes/010-operational-intelligence-executor-capabilities/)
 - Completed: [`openspec/changes/011-usage-telemetry-scheduler-policy/`](openspec/changes/011-usage-telemetry-scheduler-policy/)
+- Completed: [`openspec/changes/012-typed-work-packets-isolation/`](openspec/changes/012-typed-work-packets-isolation/)
 
-Change 010 and Change 011 are complete and internally machine-qualified; the
-next checkpoint activates Change 012 for typed work packets and qualified
-parallel-writer isolation.
+Change 010, Change 011, and Change 012 are complete and internally
+machine-qualified. Change 012 established typed work packets, isolated
+temporary worktrees/internal branches, deterministic integration, and explicit
+partial-failure results; optional same-repository swarm is now eligible for
+Change 013.
 
 Post-V1 evolution is being implemented as focused sequential changes. The
 historical OpenFlow-inspired exploration is explicitly non-binding; see the

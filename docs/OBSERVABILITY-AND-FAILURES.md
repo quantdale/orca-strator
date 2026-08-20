@@ -365,3 +365,15 @@ policy snapshot, status, limiting dimension, reason, queued time, runnable time,
 and restart recovery state. The default policy is explicitly unlimited for
 independent repositories. Role resolution records whether an explicit
 user-authored rule or repository default supplied the identity.
+
+## 19. Packet and worktree evidence
+
+Packet history records structured requirements, allowed/read paths, dependency
+IDs, selected policy identity, budget, verification expectations, and typed
+result status. Worktree evidence records deterministic branch/path, base and
+worker commit, environment, lifecycle, and cleanup/recovery reason. Dirty
+worktrees become `CLEANUP_REQUIRED` rather than silently disappearing.
+
+Integration reports identify the deterministic order, integrated packet IDs,
+final main commit, partial successes, dependency skips, and conflict blockers.
+Raw worker prose is not the coordination protocol.

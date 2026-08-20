@@ -513,3 +513,21 @@ Focused coverage includes:
 
 No Change 011 test claims provider spend or model inference qualification when a
 reliable provider telemetry source is unavailable.
+
+## 18. Change 012 packet/isolation matrix
+
+Focused coverage includes:
+
+- versioned packet/result schema validation, correlation, restart persistence,
+  safe-path rejection, and typed partial statuses;
+- distinct deterministic worktree paths/branches for one repository;
+- no shared persistent-checkout writer, clean-only release, dirty-work
+  preservation, stale/orphan recovery, and no-force cleanup;
+- deterministic dependency order, missing/cyclic dependency rejection,
+  non-overlap integration, path conflict, Git conflict abort, partial success,
+  and `SKIPPED_DEPENDENCY` behavior;
+- real Windows Git worktree/commit/cherry-pick qualification and real WSL
+  worktree allocation/recovery when Ubuntu is actually available.
+
+The real tier reports WSL as UNQUALIFIED when the required distro/tools are not
+available; Windows results never substitute for WSL evidence.

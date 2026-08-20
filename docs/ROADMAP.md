@@ -517,11 +517,13 @@ telemetry and real model inference remain external/UNQUALIFIED where absent.
 
 OpenSpec: `012-typed-work-packets-isolation`
 
-Status: **next / OpenSpec to activate**
+Status: **complete / MACHINE-QUALIFIED internally**
 
 Deliverables: versioned packet/result envelopes, persisted Git worktree/temporary
 branch lifecycle, deterministic integration/reconciliation, and partial-failure
-semantics. Same-repository swarm is forbidden until its qualification gates pass.
+semantics. Fast 185/185 tests, real 14/14 qualification tests, typecheck, build,
+lint, and diff checks passed. Same-repository swarm was forbidden until these
+qualification gates passed and is now eligible for the next focused change.
 
 ### Milestone 12 — Optional same-repository swarm
 

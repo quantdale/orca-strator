@@ -460,3 +460,25 @@ cost separately. Scheduler responses include the policy snapshot and exact
 limiting dimension/reason for queued or rejected work. The default policy has
 no global/provider/model/repository limit. Role resolution reports
 `EXPLICIT_RULE` or `REPOSITORY_DEFAULT`; it never performs hidden routing.
+
+## 19. Typed packet and isolation endpoints
+
+Change 012 adds focused strategy/qualification endpoints:
+
+```text
+GET  /api/repositories/:id/campaigns/:runId/packets
+POST /api/repositories/:id/campaigns/:runId/packets
+POST /api/repositories/:id/campaigns/:runId/packets/:packetId/result
+POST /api/repositories/:id/campaigns/:runId/packets/:packetId/worktree
+POST /api/repositories/:id/campaigns/:runId/packets/:packetId/worktree/release
+GET  /api/repositories/:id/campaigns/:runId/worktrees
+POST /api/repositories/:id/campaigns/:runId/worktrees/recover
+POST /api/repositories/:id/campaigns/:runId/packets/integrate
+GET  /api/repositories/:id/campaigns/:runId/integrations
+```
+
+Packet/result bodies are versioned structured envelopes. Worktree allocation
+returns branch/path/base SHA provenance; integration returns per-packet
+outcomes, integrated commits, blockers, and partial/conflict status. These
+endpoints do not enable production swarm or change the default single-agent
+loop.

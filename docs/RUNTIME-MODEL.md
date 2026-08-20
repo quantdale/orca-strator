@@ -485,3 +485,18 @@ Role/model policy is explicit configuration only. A matching named rule may
 select an exact future role executor/model; without one, the repository's
 configured primary is returned unchanged. Sol and hidden heuristics cannot
 switch the primary model.
+
+## 18. Typed packets and writer isolation
+
+Typed packets are an internal strategy contract, not a replacement for the
+campaign/Sol dispatch protocol. A packet's result is never a goal-complete
+signal. Before any parallel strategy can write, the packet must own a distinct
+Git worktree/internal branch; the persistent main checkout is reserved for
+deterministic integration.
+
+Integration orders dependencies, detects path overlap, cherry-picks only
+validated branch commits, aborts conflicts safely, and preserves independent
+successes. Worker `COMPLETED`, `FAILED`, `BLOCKED`, `SKIPPED_DEPENDENCY`,
+`CANCELLED`, and `INTEGRATION_CONFLICT` remain distinct. Sol will receive the
+eventual structured iteration result in a later optional strategy; integration
+does not mark the high-level campaign complete.

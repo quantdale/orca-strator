@@ -404,6 +404,84 @@ export const migrations: Migration[] = [
         );
       `);
     }
+  },
+  {
+    version: 17,
+    name: "017_create_work_packets_and_isolated_worktrees",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS work_packets (
+          packet_id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          campaign_id TEXT NOT NULL,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          parent_dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
+          workstream TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('QUEUED', 'STARTING', 'RUNNING', 'WAITING_PERMISSION', 'RETRYING', 'COMPLETED', 'FAILED', 'BLOCKED', 'SKIPPED_DEPENDENCY', 'CANCELLED')),
+          packet_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_work_packets_run_iteration
+          ON work_packets(run_id, iteration, created_at ASC);
+
+        CREATE TABLE IF NOT EXISTS work_packet_results (
+          packet_id TEXT PRIMARY KEY REFERENCES work_packets(packet_id) ON DELETE CASCADE,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('COMPLETED', 'FAILED', 'BLOCKED', 'CANCELLED', 'SKIPPED', 'SKIPPED_DEPENDENCY', 'INTEGRATION_CONFLICT')),
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_work_packet_results_run
+          ON work_packet_results(run_id, iteration, created_at ASC);
+
+        CREATE TABLE IF NOT EXISTS isolated_worktrees (
+          worktree_id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          packet_id TEXT NOT NULL REFERENCES work_packets(packet_id) ON DELETE CASCADE,
+          campaign_id TEXT NOT NULL,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          path TEXT NOT NULL UNIQUE,
+          branch TEXT NOT NULL UNIQUE,
+          environment TEXT NOT NULL CHECK (environment IN ('windows', 'wsl')),
+          wsl_distribution TEXT,
+          base_sha TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('ALLOCATED', 'ACTIVE', 'RELEASED', 'STALE', 'CLEANUP_REQUIRED', 'ORPHANED')),
+          created_at TEXT NOT NULL,
+          released_at TEXT,
+          last_error TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_isolated_worktrees_repo_status
+          ON isolated_worktrees(repository_id, status, created_at DESC);
+      `);
+    }
+  },
+  {
+    version: 18,
+    name: "018_create_integration_reports",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS integration_reports (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          iteration INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('COMPLETED', 'PARTIAL', 'INTEGRATION_CONFLICT', 'BLOCKED')),
+          report_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_integration_reports_run
+          ON integration_reports(run_id, iteration, created_at DESC);
+      `);
+    }
   }
 ];
 

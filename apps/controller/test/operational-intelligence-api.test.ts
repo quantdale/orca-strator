@@ -87,5 +87,21 @@ describe("Operational intelligence and Change 011 policy APIs", () => {
     const resolved = await app.fastify.inject({ method: "POST", url: `/api/repositories/${repositoryId}/role-model-policy/resolve`, payload: { role: "PRIMARY" } });
     expect(resolved.statusCode).toBe(200);
     expect(JSON.parse(resolved.body).resolution).toMatchObject({ source: "REPOSITORY_DEFAULT", executorCli: process.execPath, model: "test-model" });
+
+    const packet = await app.fastify.inject({
+      method: "POST",
+      url: `/api/repositories/${repositoryId}/campaigns/${run.id}/packets`,
+      payload: {
+        workstream: "api-contract",
+        goal: "Exercise typed packet API",
+        allowedPaths: ["src/example.ts"],
+        executor: { role: "PRIMARY", executorCli: process.execPath, model: "test-model", provider: null, source: "REPOSITORY_DEFAULT" }
+      }
+    });
+    expect(packet.statusCode).toBe(201);
+    const packetId = JSON.parse(packet.body).packet.packetId as string;
+    const packets = await app.fastify.inject({ method: "GET", url: `/api/repositories/${repositoryId}/campaigns/${run.id}/packets` });
+    expect(packets.statusCode).toBe(200);
+    expect(JSON.parse(packets.body).packets.find((item: { packetId: string }) => item.packetId === packetId)).toBeTruthy();
   });
 });

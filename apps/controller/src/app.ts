@@ -44,6 +44,11 @@ import { SchedulerPolicyStore } from './scheduler/scheduler-policy-store.js';
 import { SchedulerService } from './scheduler/scheduler-service.js';
 import { RoleModelPolicyStore } from './scheduler/role-model-policy-store.js';
 import { RoleModelPolicyService } from './scheduler/role-model-policy-service.js';
+import { WorkPacketStore } from './packets/work-packet-store.js';
+import { WorkPacketService } from './packets/work-packet-service.js';
+import { WorktreeIsolationService } from './packets/worktree-isolation-service.js';
+import { IntegrationService } from './packets/integration-service.js';
+import { workPacketRoutes } from './http/routes/work-packets.js';
 
 import type { BrowserDriver } from './browser/browser-driver.js';
 
@@ -74,6 +79,10 @@ export interface AppInstance {
   schedulerService: SchedulerService;
   roleModelPolicyStore: RoleModelPolicyStore;
   roleModelPolicyService: RoleModelPolicyService;
+  workPacketStore: WorkPacketStore;
+  workPacketService: WorkPacketService;
+  worktreeIsolationService: WorktreeIsolationService;
+  integrationService: IntegrationService;
 }
 
 export async function buildApp(
@@ -134,6 +143,10 @@ export async function buildApp(
   const schedulerService = new SchedulerService(schedulerPolicyStore);
   const roleModelPolicyStore = new RoleModelPolicyStore(dbContext.db);
   const roleModelPolicyService = new RoleModelPolicyService(roleModelPolicyStore);
+  const workPacketStore = new WorkPacketStore(dbContext.db);
+  const workPacketService = new WorkPacketService(workPacketStore);
+  const worktreeIsolationService = new WorktreeIsolationService(workPacketStore, config.dataDir);
+  const integrationService = new IntegrationService(workPacketStore);
   const permissionPolicyService = new PermissionPolicyService({
     store: permissionStore,
     attentionHandler: (decision) => {
@@ -264,6 +277,14 @@ export async function buildApp(
     schedulerService,
     roleModelPolicyService
   ));
+  await fastify.register(workPacketRoutes(
+    repositoryService,
+    runStore,
+    workPacketService,
+    worktreeIsolationService,
+    integrationService,
+    workPacketStore
+  ));
   await fastify.register(systemRoutes(config.port, browserManager));
   await fastify.register(websocketRoutes(eventBus));
 
@@ -309,6 +330,10 @@ export async function buildApp(
     schedulerPolicyStore,
     schedulerService,
     roleModelPolicyStore,
-    roleModelPolicyService
+    roleModelPolicyService,
+    workPacketStore,
+    workPacketService,
+    worktreeIsolationService,
+    integrationService
   };
 }

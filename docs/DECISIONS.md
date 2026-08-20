@@ -356,6 +356,19 @@ without an Orca-wide cap unless the user configures one.
 rule. Without that rule, the repository's configured primary executor/model is
 returned unchanged. Sol and hidden heuristics cannot switch quotas/models.
 
+## D-044 — Typed packets precede same-repository writers
+
+**Decision:** Any future same-repository fan-out must use versioned structured
+packets/results and distinct isolated worktrees/internal branches. Single-agent
+mode remains the default until real isolation/integration qualification passes.
+
+## D-045 — Integration is a separate phase
+
+**Decision:** A worker branch/result is not iteration completion. Deterministic
+integration to main owns conflict detection, partial success, dependency skips,
+and the structured result returned to Sol. No force-push or dirty-work discard
+is permitted.
+
 ## How to revise a locked decision
 
 If a locked decision must change:

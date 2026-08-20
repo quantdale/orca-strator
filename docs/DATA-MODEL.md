@@ -329,3 +329,21 @@ Change 011 adds three normalized policy/telemetry areas:
 Usage records are referenced by the campaign ledger through structured events,
 not copied into a second trace table. No raw browser/CLI output is scraped to
 invent usage or cost.
+
+## 13. Typed packets, worktrees, and integration tables
+
+Change 012 adds:
+
+- `work_packets`, which stores the versioned structured packet JSON plus
+  repository/campaign/run/iteration/status indexes;
+- `work_packet_results`, which stores one correlated typed result envelope per
+  packet;
+- `isolated_worktrees`, which stores deterministic path/branch/base SHA,
+  environment, lifecycle, ownership, release, and recovery evidence;
+- `integration_reports`, which stores the structured integrated/partial/conflict
+  result and commit provenance.
+
+These rows are local orchestration truth. Worker changes remain Git commits on
+internal branches; the persistent repository `main` checkout remains the
+integration target. No table or cleanup path authorizes force-push, reset, or
+discard of dirty worker/user files.
