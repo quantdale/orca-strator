@@ -136,7 +136,15 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
     delete process.env.ORCA_SLOW_MS;
     delete process.env.ORCA_HARNESS_STATUS;
     delete process.env.ORCA_HARNESS_EXIT_CODE;
-    try { svc.watcherService.stop(); await svc.browserManager.close().catch(() => {}); } finally { svc.dbCtx.close(); fs.rmSync(tempDir, { recursive: true, force: true }); }
+    try {
+      svc.watcherService.stop();
+      await svc.browserManager.close().catch(() => {});
+      // Fix #11: settle async executor callbacks before closing DB — don't close as IDLE swallowing
+      await new Promise((r) => setTimeout(r, 300));
+    } finally {
+      try { svc.dbCtx.close(); } catch {}
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
   });
 
   it("pause mid-execution preserves partial work and resume continues SAME dispatch with recovery=true", async () => {

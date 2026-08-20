@@ -187,9 +187,8 @@ export class LoopService {
         const dIter = this.dispatchStore?.get(dispatchId)?.iteration;
         await this.browserManager.completeSolOperation(repositoryId, preActive!.id, dIter);
       } catch {}
-      const drainRun = this.runStore.getActiveRun(repositoryId);
+      const drainRun = this.runStore.getActiveRun(repositoryId) ?? this.runStore.get(preActive!.id);
       if (!drainRun) return;
-      // Do NOT start executor; mark dispatch superseded and transition to terminal
       if (this.dispatchStore) {
         try { this.dispatchStore.updateStatus(dispatchId, "consumed"); } catch {}
       }
