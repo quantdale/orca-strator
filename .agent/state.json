@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "IMPLEMENTING",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 11,
-  "activeChange": "012-typed-work-packets-isolation",
+  "activeMilestone": 12,
+  "activeChange": "013-optional-same-repository-swarm",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 010, Change 011, and Change 012 are implemented, folded, and internally machine-qualified; Change 012 is ready to commit/push before activating optional same-repository swarm.",
-    "updatedAt": "2026-08-20T15:55:00+08:00",
-    "lastCompletedTask": "Change 012 typed packet/result contracts, persisted isolation lifecycle, deterministic integration/reconciliation, partial-failure semantics, canonical spec fold, documentation reconciliation, and qualification complete.",
+    "summary": "Change 010, Change 011, and Change 012 are implemented, folded, committed, and pushed (`eb68985`, `3a52756`, `2343604`). Change 013 is active for explicitly enabled, bounded same-repository swarm execution on qualified worktree/integration primitives.",
+    "updatedAt": "2026-08-20T16:00:00+08:00",
+    "lastCompletedTask": "Change 012 typed packet/result contracts, persisted isolation lifecycle, deterministic integration/reconciliation, partial-failure semantics, canonical spec fold, documentation reconciliation, qualification, commit, and push complete.",
     "lastVerification": "Change 012 gates: npm test 43 files / 185 tests; npm run test:real 5 files / 14 tests; npm run typecheck, npm run build, npm run lint, and git diff --check passed."
   },
-  "nextAction": "Commit and push the completed Change 012 checkpoint, then create and activate Change 013 for explicitly enabled, bounded same-repository swarm execution.",
+  "nextAction": "Implement Change 013 shared strategy contracts and durable strategy/control records, then build the bounded isolated worker scheduler and deterministic qualification before considering Change 014.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",

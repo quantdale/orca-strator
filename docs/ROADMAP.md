@@ -529,7 +529,7 @@ qualification gates passed and is now eligible for the next focused change.
 
 OpenSpec: `013-optional-same-repository-swarm`
 
-Status: **conditional on Change 012 qualification**
+Status: **implementing / explicitly opt-in**
 
 Single-agent remains default; swarm is explicit, bounded, isolated, and returns a
 structured partial result to Sol.
