@@ -20,6 +20,7 @@ import type { ExecutorStore } from "./executor-store.js";
 import type { RunPolicyStore } from "../loop/run-policy-store.js";
 import type { UsageTelemetryService } from "../usage/usage-telemetry-service.js";
 import type { ExecutorAdapter } from "./adapters/executor-adapter.js";
+import type { OpenCodeAdapter } from "./adapters/opencode-adapter.js";
 import { WindowsPowerShellAdapter } from "./adapters/windows-adapter.js";
 import { WslAdapter } from "./adapters/wsl-adapter.js";
 import { ExecutorRunner } from "./executor-runner.js";
@@ -39,6 +40,7 @@ export interface ExecutorServiceOptions {
   dataDir?: string;
   windowsAdapter?: ExecutorAdapter;
   wslAdapter?: ExecutorAdapter;
+  openCodeAdapter?: OpenCodeAdapter;
   /** Separate executor watchdog in ms; 0/disabled by default. Wall-clock ceiling does NOT kill executor. */
   executorWatchdogMs?: number;
   runPolicyStore?: RunPolicyStore;
@@ -63,6 +65,7 @@ export class ExecutorService {
   private readonly dataDir: string;
   private readonly windowsAdapter: ExecutorAdapter;
   private readonly wslAdapter: ExecutorAdapter;
+  private readonly openCodeAdapter?: OpenCodeAdapter;
   private readonly executorWatchdogMs: number;
   private readonly runPolicyStore?: RunPolicyStore;
   private readonly usageTelemetryService?: UsageTelemetryService;
@@ -83,6 +86,7 @@ export class ExecutorService {
     this.dataDir = options.dataDir || path.resolve(".orca-data");
     this.windowsAdapter = options.windowsAdapter || new WindowsPowerShellAdapter();
     this.wslAdapter = options.wslAdapter || new WslAdapter();
+    this.openCodeAdapter = options.openCodeAdapter;
     this.executorWatchdogMs = options.executorWatchdogMs ?? 0;
     this.runPolicyStore = options.runPolicyStore;
     this.usageTelemetryService = options.usageTelemetryService;
@@ -164,7 +168,9 @@ export class ExecutorService {
       environment: repo.environment
     });
 
-    const adapter = repo.environment === "wsl" ? this.wslAdapter : this.windowsAdapter;
+    const adapter = profile === "opencode" && this.openCodeAdapter
+      ? this.openCodeAdapter
+      : repo.environment === "wsl" ? this.wslAdapter : this.windowsAdapter;
     const runner = new ExecutorRunner({
       adapter,
       context: {

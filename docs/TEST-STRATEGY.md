@@ -569,3 +569,21 @@ The DAG tier covers:
 
 The final real tier records skipped WSL/provider/browser cases honestly and
 does not call them machine-qualified.
+
+## 21. Change 015 optional OpenCode adapter
+
+Focused coverage includes:
+
+- profile detection and documented headless invocation without changing the
+  configured model;
+- absent endpoint/no-network behavior and Settings-safe non-inference probing;
+- deterministic V1/V2/hybrid OpenAPI discovery, route-level readiness, URL
+  redaction, malformed/timeout/unavailable classification, and API drift;
+- guarded session/prompt/wait/cancel/permission/message/SSE operations that
+  require observed routes;
+- structured assistant-message usage extraction with exact-cost-only handling;
+- generic/Kimi/Codex/test regression coverage and optional adapter selection for
+  ordinary and isolated worker paths;
+- conditional real OpenCode server probing. When no authorized endpoint is
+  configured, the real test is explicitly UNQUALIFIED/skipped and does not
+  label OpenCode machine-qualified.

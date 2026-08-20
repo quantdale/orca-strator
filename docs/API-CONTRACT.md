@@ -525,3 +525,24 @@ The service rejects duplicate IDs, unknown dependencies, packet/run mismatch,
 packet dependency mismatch, cycles, and invalid concurrency before worker
 launch. DAG detail is a structured read model; no graph authoring UI or raw
 transcript is required.
+
+## 22. Optional OpenCode capability details (Change 015)
+
+The existing executor capability endpoints also serve an explicitly configured
+OpenCode profile:
+
+```text
+GET  /api/repositories/:id/executor/capabilities
+POST /api/repositories/:id/executor/probe
+```
+
+The persisted snapshot may include `opencode` details: a sanitized endpoint,
+`V1`/`V2`/`HYBRID`/`UNKNOWN` generation, server version, experimental marker,
+and independent route readiness. `POST .../probe` remains the user-triggered
+manual Test executor action; opening Settings does not call the server and no
+probe sends a model request. Auth/model readiness remains UNKNOWN unless an
+authorized provider operation supplies evidence.
+
+Native OpenCode session/event operations are adapter-internal optional calls,
+not a replacement coordination API. Any unsupported or drifting route returns
+a typed error and never changes the durable campaign/run/result contract.

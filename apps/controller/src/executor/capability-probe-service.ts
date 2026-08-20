@@ -13,6 +13,7 @@ import {
 } from "@orca/shared";
 import { resolveProfile } from "./profiles.js";
 import type { CapabilityStore, StoredCapabilityProbe } from "./capability-store.js";
+import type { OpenCodeAdapter } from "./adapters/opencode-adapter.js";
 import type { GitClient, GitContext } from "../watcher/git-client.js";
 import { toWslPath } from "../wsl-path.js";
 
@@ -21,6 +22,7 @@ const execFileAsync = promisify(execFile);
 export interface CapabilityProbeServiceOptions {
   store: CapabilityStore;
   gitClient: GitClient;
+  openCodeAdapter?: OpenCodeAdapter;
   eventPublisher?: (event: {
     type: "executor.capability_probed";
     at: string;
@@ -50,6 +52,10 @@ export class CapabilityProbeService {
     const probedAt = new Date().toISOString();
     const issues: ExecutorCapabilitySnapshot["issues"] = [];
     const invocation = await this.probeInvocation(repository, profile, issues);
+    const openCodeProbe = profile === "opencode" && this.options.openCodeAdapter
+      ? await this.options.openCodeAdapter.probeServer()
+      : null;
+    if (openCodeProbe) issues.push(...openCodeProbe.issues);
     const workingDirectoryAccessible = level === "STATIC"
       ? "UNKNOWN" as const
       : await this.probeWorkingDirectory(repository, issues);
@@ -68,6 +74,17 @@ export class CapabilityProbeService {
       usageTelemetry: "UNKNOWN",
       nativeStatus: "UNKNOWN"
     };
+    if (openCodeProbe) {
+      const routes = openCodeProbe.details.routes;
+      rich.structuredEvents = routes.events;
+      rich.sessionResume = routes.sessions === "READY" && routes.sessionHistory === "READY" ? "READY" : routes.sessions === "UNSUPPORTED" ? "UNSUPPORTED" : "UNKNOWN";
+      rich.subagents = routes.subagents;
+      rich.permissionApi = routes.permissions;
+      rich.nativeCancellation = routes.cancellation;
+      rich.sessionHistory = routes.sessionHistory;
+      rich.usageTelemetry = routes.usage;
+      rich.nativeStatus = routes.health;
+    }
 
     const snapshot: ExecutorCapabilitySnapshot = {
       schemaVersion: 1,
@@ -91,6 +108,7 @@ export class CapabilityProbeService {
       configuredModel: repository.executorModel,
       modelRecognition: testProfile ? "RECOGNIZED" : "UNKNOWN",
       rich,
+      ...(openCodeProbe ? { opencode: openCodeProbe.details } : {}),
       overall: this.overall(installed, workingDirectoryAccessible, git, testProfile, level),
       probeLevel: level,
       probedAt,

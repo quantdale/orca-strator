@@ -297,6 +297,20 @@ decision instead of hanging a worker.
 Force-push, dirty-tree discard, and secret-commit protections remain absolute
 Orca invariants and cannot be relaxed by a preset.
 
+## 24. Optional OpenCode server boundary
+
+OpenCode server access is opt-in and local/explicit. Orca does not install,
+start, expose, or authenticate an OpenCode server automatically. The manual
+probe performs bounded health/OpenAPI GET requests only; it never sends a
+prompt or reads provider secrets. Persisted endpoints are sanitized to remove
+credentials, query strings, and fragments.
+
+An OpenCode permission API is reported as `NATIVE_EXECUTOR` only when the
+observed adapter route supports that operation. Route presence is not a claim
+that every filesystem/network/shell action is enforced by Orca. Missing or
+drifting APIs are `UNKNOWN`/`UNSUPPORTED`, and Orca's no-force-push,
+dirty-work-preservation, and no-secret-commit rules remain absolute.
+
 ## 22. Isolated swarm writers
 
 Change 013's optional swarm workers are restricted to persisted temporary Git

@@ -20,6 +20,7 @@ import type { RunStore } from "../loop/run-store.js";
 import type { GitClient, GitContext } from "../watcher/git-client.js";
 import { GitClient as DefaultGitClient } from "../watcher/git-client.js";
 import type { ExecutorAdapter } from "../executor/adapters/executor-adapter.js";
+import type { OpenCodeAdapter } from "../executor/adapters/opencode-adapter.js";
 import { WindowsPowerShellAdapter } from "../executor/adapters/windows-adapter.js";
 import { WslAdapter } from "../executor/adapters/wsl-adapter.js";
 import { ExecutorRunner, type ExecutorExitReason } from "../executor/executor-runner.js";
@@ -76,6 +77,7 @@ export interface SwarmExecutionServiceOptions {
   dataDir?: string;
   windowsAdapter?: ExecutorAdapter;
   wslAdapter?: ExecutorAdapter;
+  openCodeAdapter?: OpenCodeAdapter;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
 }
 
@@ -94,6 +96,7 @@ export class SwarmExecutionService {
   private readonly dataDir: string;
   private readonly windowsAdapter: ExecutorAdapter;
   private readonly wslAdapter: ExecutorAdapter;
+  private readonly openCodeAdapter?: OpenCodeAdapter;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private readonly active = new Map<string, ActiveStrategy>();
   private readonly hooks = new Map<string, StrategyExecutionHooks>();
@@ -113,6 +116,7 @@ export class SwarmExecutionService {
     this.dataDir = path.resolve(options.dataDir ?? ".orca-data");
     this.windowsAdapter = options.windowsAdapter ?? new WindowsPowerShellAdapter();
     this.wslAdapter = options.wslAdapter ?? new WslAdapter();
+    this.openCodeAdapter = options.openCodeAdapter;
     this.eventPublisher = options.eventPublisher;
   }
 
@@ -685,8 +689,10 @@ export class SwarmExecutionService {
     worktree: { path: string; branch: string; baseSha: string; worktreeId: string },
     holder: ActiveWorker
   ): Promise<WorkPacketResult> {
-    const adapter = repository.environment === "wsl" ? this.wslAdapter : this.windowsAdapter;
     const profile = resolveProfile(packet.executor.executorCli);
+    const adapter = profile === "opencode" && this.openCodeAdapter
+      ? this.openCodeAdapter
+      : repository.environment === "wsl" ? this.wslAdapter : this.windowsAdapter;
     const invocation = buildExecutorInvocation(profile, {
       cli: packet.executor.executorCli,
       model: packet.executor.model,

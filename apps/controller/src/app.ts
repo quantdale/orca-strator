@@ -53,6 +53,7 @@ import { StrategyRunStore } from './strategy/strategy-run-store.js';
 import { DagNodeStore } from './strategy/dag-node-store.js';
 import { SwarmExecutionService } from './strategy/swarm-execution-service.js';
 import { DagExecutionService } from './strategy/dag-execution-service.js';
+import { OpenCodeAdapter } from './executor/adapters/opencode-adapter.js';
 import { swarmRoutes } from './http/routes/swarm.js';
 import { dagRoutes } from './http/routes/dag.js';
 
@@ -77,6 +78,7 @@ export interface AppInstance {
   campaignLedgerService: CampaignLedgerService;
   capabilityStore: CapabilityStore;
   capabilityProbeService: CapabilityProbeService;
+  openCodeAdapter: OpenCodeAdapter;
   permissionStore: PermissionStore;
   permissionPolicyService: PermissionPolicyService;
   usageStore: UsageTelemetryStore;
@@ -147,9 +149,11 @@ export async function buildApp(
 
   const gitClient = new GitClient();
   const commitInspector = new CommitInspector(gitClient);
+  const openCodeAdapter = new OpenCodeAdapter();
   const capabilityProbeService = new CapabilityProbeService({
     store: capabilityStore,
     gitClient,
+    openCodeAdapter,
     eventPublisher: (event) => eventBus.publish(event)
   });
   const permissionStore = new PermissionStore(dbContext.db);
@@ -199,6 +203,7 @@ export async function buildApp(
     usageTelemetryService,
     gitClient,
     dataDir: config.dataDir,
+    openCodeAdapter,
     eventPublisher: (event) => eventBus.publish(event)
   });
   const dagExecutionService = new DagExecutionService({
@@ -237,6 +242,7 @@ export async function buildApp(
     executorStore,
     gitClient,
     dataDir: config.dataDir,
+    openCodeAdapter,
     runPolicyStore,
     usageTelemetryService,
     onExecutorCompleted: (repositoryId, dispatchId, result) => {
@@ -373,6 +379,7 @@ export async function buildApp(
     campaignLedgerService,
     capabilityStore,
     capabilityProbeService,
+    openCodeAdapter,
     permissionStore,
     permissionPolicyService,
     usageStore,

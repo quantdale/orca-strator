@@ -519,3 +519,14 @@ budget, controls, integration, and blockers. It must not require users to draw
 or author a graph. A repository + goal still enters `SINGLE_AGENT` unless the
 user explicitly selects another strategy through a future structured control.
 Actual topology visualization remains Change 016 scope.
+
+## Change 015 OpenCode readiness
+
+The existing Executor capability/readiness panel may show an optional OpenCode
+card when the configured CLI resolves to that profile. It presents the
+sanitized endpoint, experimental badge, observed V1/V2/hybrid generation,
+server version, and independent route readiness for sessions, events,
+permissions, cancellation, and usage. A visible `Test executor` action invokes
+the existing manual probe; rendering the card or opening Settings performs no
+network or inference request. Unknown/unsupported/drifted capabilities are
+shown as such and never as a security guarantee.

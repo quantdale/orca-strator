@@ -400,3 +400,17 @@ status, and structured result references. The DAG detail read model exposes
 node dependency state and effective packet budgets without requiring log
 parsing. Cycle/dependency validation failures are returned as actionable API
 errors before a worker or worktree exists.
+
+## 22. Optional OpenCode adapter evidence
+
+OpenCode health, API generation, route readiness, and classified drift are
+stored in the normal capability snapshot and surfaced through the existing
+capability API/Settings read model. Native SSE events are useful live
+observations only; they are not replayable campaign truth and are not required
+to reconstruct a run. Structured assistant-message token/cost fields may feed
+the existing usage ledger, while absent telemetry remains UNKNOWN.
+
+An unavailable endpoint, missing OpenAPI document, malformed response, timeout,
+or unsupported operation is reported distinctly as `OPENCODE_UNAVAILABLE`,
+`OPENCODE_API_DRIFT`, or `OPENCODE_API_UNSUPPORTED`. The adapter remains
+experimental because the observed OpenCode API may be hybrid or migrating.

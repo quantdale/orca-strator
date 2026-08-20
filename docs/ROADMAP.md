@@ -546,22 +546,28 @@ Structured DAG definitions/presets only; no visual composer and no DAG default U
 Fast 189/189 tests and real 25/25 tests pass, including Windows/Git
 topological execution, integration conflict/partial failure, controls,
 restart recovery, and conditional WSL execution. Typecheck, build, lint, and
-diff checks are required at the final checkpoint.
+diff checks pass.
 
 ### Milestone 14 — Optional rich OpenCode adapter
 
 OpenSpec: `015-optional-rich-opencode-adapter`
 
-Status: **next / technical evaluation required**
+Status: **complete / experimental and externally UNQUALIFIED where absent**
 
 OpenCode remains optional and absent-safe. An unstable API is documented as
 experimental rather than hidden behind brittle hacks.
+
+Delivered: optional profile/invocation, feature-detected non-inference
+health/OpenAPI probe, guarded native session/event/permission/usage seam, and
+deterministic local protocol qualification. No OpenCode package/server is a
+core dependency, and real external server/provider qualification remains
+UNQUALIFIED unless explicitly available.
 
 ### Milestone 15 — Execution topology UI and strategy presets
 
 OpenSpec: `016-execution-topology-ui`
 
-Status: **planned after runtime semantics**
+Status: **next / activate after Change 015 checkpoint**
 
 The UI visualizes actual single-agent/swarm/DAG state and may add simple reusable
 configuration presets; it does not author graphs.

@@ -538,3 +538,22 @@ packet mismatch. Nodes move through `QUEUED`, `WAITING_DEPENDENCY`, `STARTING`,
 `INTEGRATING` while the shared strategy run carries pause/stop/kill/recovery
 state. A worker commit or a green DAG does not complete the campaign; the
 structured DAG result returns to Sol for review and the next action.
+
+## 21. Optional OpenCode execution capability
+
+An explicitly configured OpenCode CLI remains inside the same executor actor
+boundary:
+
+```text
+Sol dispatch -> OpenCodeAdapter -> ExecutorRunner -> structured result/Git
+             -> Sol review
+```
+
+The adapter may additionally use an explicitly configured OpenCode server for
+native session operations, but only after a manual non-inference health/OpenAPI
+probe. Feature readiness is independent for sessions, history, prompt/wait,
+events, cancellation, permissions, model/provider visibility, subagents, and
+usage. API drift is classified and surfaced; it is never silently converted to
+generic success or a different model. `SINGLE_AGENT` remains the normal path,
+and a native session completion still requires the ordinary Git/result and Sol
+completion boundaries.

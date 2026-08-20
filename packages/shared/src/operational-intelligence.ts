@@ -214,6 +214,10 @@ export type CapabilityErrorClass =
   | "INVOCATION_UNSUPPORTED"
   | "AUTH_UNKNOWN"
   | "MODEL_UNKNOWN"
+  | "OPENCODE_ENDPOINT_NOT_CONFIGURED"
+  | "OPENCODE_UNAVAILABLE"
+  | "OPENCODE_API_UNSUPPORTED"
+  | "OPENCODE_API_DRIFT"
   | "PROBE_NOT_AUTHORIZED"
   | "UNKNOWN";
 
@@ -232,6 +236,33 @@ export interface ExecutorRichCapabilities {
   sessionHistory: CapabilityReadiness;
   usageTelemetry: CapabilityReadiness;
   nativeStatus: CapabilityReadiness;
+}
+
+export type OpenCodeApiGeneration = "V1" | "V2" | "HYBRID" | "UNKNOWN";
+
+export interface OpenCodeRouteReadiness {
+  health: CapabilityReadiness;
+  openApiDocument: CapabilityReadiness;
+  events: CapabilityReadiness;
+  sessions: CapabilityReadiness;
+  sessionHistory: CapabilityReadiness;
+  prompt: CapabilityReadiness;
+  wait: CapabilityReadiness;
+  cancellation: CapabilityReadiness;
+  permissions: CapabilityReadiness;
+  modelProviderVisibility: CapabilityReadiness;
+  subagents: CapabilityReadiness;
+  usage: CapabilityReadiness;
+}
+
+export interface OpenCodeCapabilityDetails {
+  adapter: "OPENCODE";
+  experimental: true;
+  endpoint: string | null;
+  apiGeneration: OpenCodeApiGeneration;
+  serverVersion: string | null;
+  routes: OpenCodeRouteReadiness;
+  observedAt: string;
 }
 
 export interface ExecutorCapabilitySnapshot {
@@ -256,6 +287,7 @@ export interface ExecutorCapabilitySnapshot {
   configuredModel: string;
   modelRecognition: ModelRecognition;
   rich: ExecutorRichCapabilities;
+  opencode?: OpenCodeCapabilityDetails;
   overall: CapabilityReadiness;
   probeLevel: ProbeLevel;
   probedAt: string;

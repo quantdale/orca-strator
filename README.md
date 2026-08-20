@@ -213,7 +213,8 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 - Completed: [`openspec/changes/012-typed-work-packets-isolation/`](openspec/changes/012-typed-work-packets-isolation/)
 - Completed: [`openspec/changes/013-optional-same-repository-swarm/`](openspec/changes/013-optional-same-repository-swarm/)
 - Completed: [`openspec/changes/014-optional-dag-execution-strategy/`](openspec/changes/014-optional-dag-execution-strategy/)
-- Next: [`openspec/changes/015-optional-rich-opencode-adapter/`](openspec/changes/015-optional-rich-opencode-adapter/)
+- Completed: [`openspec/changes/015-optional-rich-opencode-adapter/`](openspec/changes/015-optional-rich-opencode-adapter/)
+- Next: [`openspec/changes/016-execution-topology-ui/`](openspec/changes/016-execution-topology-ui/)
 
 Change 010, Change 011, and Change 012 are complete and internally
 machine-qualified. Change 012 established typed work packets, isolated
@@ -221,8 +222,11 @@ temporary worktrees/internal branches, deterministic integration, and explicit
 partial-failure results. Change 013 is complete and internally
 machine-qualified for an explicitly enabled, bounded same-repository swarm
 built on those qualified primitives. Change 014 is complete and internally
-machine-qualified for an optional structured DAG strategy. Change 015 is next
-for a technically evaluated optional OpenCode adapter.
+machine-qualified for an optional structured DAG strategy. Change 015 is
+complete with an experimental, absent-safe OpenCode adapter and non-inference
+server probe; its real server/provider tier remains explicitly unqualified
+without an authorized endpoint. Change 016 is next for the execution-topology
+observability UI.
 
 Post-V1 evolution is being implemented as focused sequential changes. The
 historical OpenFlow-inspired exploration is explicitly non-binding; see the

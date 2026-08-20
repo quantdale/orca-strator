@@ -401,3 +401,22 @@ The DAG service owns node records and topology validation. The Change 013
 execution engine still owns adapters, child processes, budgets, permissions,
 worktrees, controls, and integration. `SINGLE_AGENT` remains the default and
 the UI does not become a graph composer.
+
+## Optional OpenCode adapter (Change 015)
+
+OpenCode is an optional executor profile, not a controller dependency. When a
+repository explicitly selects an `opencode` CLI, the profile builds the
+documented headless `opencode run --model <provider/model> <prompt>` shape and
+the existing `ExecutorRunner` remains responsible for process supervision,
+structured result validation, Git postflight, and Sol wake-up. Kimi, Codex,
+generic CLI, and deterministic test profiles retain their existing adapters.
+
+The optional `OpenCodeAdapter` can inspect an explicitly configured local
+OpenCode server (`ORCA_OPENCODE_SERVER_URL`) through a bounded manual
+health/OpenAPI probe. It recognizes legacy, `/api` V2, hybrid, and unknown
+route sets and exposes guarded native session/event/permission/usage helpers
+only after route discovery. Current OpenCode API migration makes this adapter
+experimental; missing or drifting routes produce typed UNKNOWN/UNSUPPORTED
+evidence rather than speculative calls. The probe never spends inference, and
+OpenCode sessions/events never replace SQLite orchestration truth or Git result
+truth.

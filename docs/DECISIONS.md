@@ -398,3 +398,14 @@ Node dependencies must agree with typed packet dependencies and pass cycle
 validation before launch. DAG execution reuses the qualified swarm worker
 runtime, worktree isolation, scheduler, controls, and integration protocol;
 there is no visual composer and no automatic decomposition/model routing.
+
+## D-048 — OpenCode is an experimental optional adapter
+
+Change 015 recognizes the documented OpenCode CLI/server seam only when the
+user explicitly configures the OpenCode executor. The adapter reuses the
+existing process/result/Git/Sol runtime and probes an explicitly configured
+server without inference. Current legacy plus `/api` migration means native
+session features are route-detected and experimental; unsupported/drifting
+operations remain visibly UNKNOWN/UNSUPPORTED. OpenCode is not an Orca core
+dependency, does not replace Git/SQLite truth, and cannot dynamically change
+the user's executor/model.

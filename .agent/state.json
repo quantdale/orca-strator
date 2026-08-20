@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "CHANGE_COMPLETE",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 13,
-  "activeChange": "014-optional-dag-execution-strategy",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+  "activeMilestone": 14,
+  "activeChange": "015-optional-rich-opencode-adapter",
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 010, Change 011, Change 012, Change 013, and Change 014 are implemented, folded, and qualified; the next checkpoint will push Change 014. Change 014 adds an explicit packet-linked DAG strategy on the qualified swarm/isolation runtime.",
-    "updatedAt": "2026-08-20T18:11:00+08:00",
-    "lastCompletedTask": "Change 014 optional DAG strategy: versioned node contracts, cycle/dependency validation, durable node state, bounded isolated topological execution, controls/recovery, integration/partial results, APIs, canonical spec fold, documentation reconciliation, and qualification complete.",
-    "lastVerification": "Change 014 gates: npm test 45 files / 189 tests; npm run test:real 7 files / 25 tests; focused DAG tests passed; typecheck passed; final build, lint, and diff checks are being completed for the checkpoint."
+    "summary": "Change 010, Change 011, Change 012, Change 013, Change 014, and Change 015 are implemented, folded, and qualified as far as the available machine/external dependencies allow. Change 015 adds an optional experimental OpenCode adapter and non-inference server capability probe without making OpenCode a core dependency.",
+    "updatedAt": "2026-08-20T18:37:00+08:00",
+    "lastCompletedTask": "Change 015 optional OpenCode adapter: profile/invocation, optional Windows/WSL adapter delegation, bounded health/OpenAPI V1/V2/hybrid probe, guarded native session/event/permission/provider/subagent/usage operations, capability/usage integration, deterministic HTTP tests, conditional real qualification, canonical spec and documentation reconciliation.",
+    "lastVerification": "Change 015 gates: npm test 46 files / 194 tests; npm run test:real 7 files / 25 passed with 1 explicit OpenCode external qualification skip; focused OpenCode tests 5/5; npm run typecheck, npm run build, npm run lint, git diff --check, and strict OpenSpec validation passed."
   },
-  "nextAction": "Run the final Change 014 build/lint/diff gates, commit and push the checkpoint, then create and activate Change 015 for the optional rich OpenCode adapter evaluation.",
+  "nextAction": "Commit and push the Change 015 checkpoint, then create and activate Change 016 for execution-topology observability and strategy presets; keep the OpenCode real-server qualification UNQUALIFIED unless an authorized endpoint is supplied.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",
@@ -26,6 +26,12 @@
       "summary": "Real ChatGPT wake and Tailscale phone route require optional external dependencies absent on this machine; they must stay UNQUALIFIED rather than faked.",
       "evidence": "Chromium present and provisionable via browser:install; Kimi/Codex present; ChatGPT auth and Tailscale absent.",
       "nextAction": "When Chromium auth / Tailscale are available, run headed setup smoke and same-origin phone smoke; otherwise leave UNQUALIFIED."
+    },
+    {
+      "code": "OPENCODE_EXTERNAL_UNQUALIFIED",
+      "summary": "The optional real OpenCode server/provider qualification remains UNQUALIFIED because no authorized ORCA_OPENCODE_QUALIFY_URL was supplied; deterministic protocol coverage is green and this does not block the remaining safe UI work.",
+      "evidence": "real-opencode.test.ts is explicitly skipped with an UNQUALIFIED warning when ORCA_OPENCODE_QUALIFY_URL is absent; no OpenCode package or inference was installed or spent.",
+      "nextAction": "When an authorized local OpenCode server is available, set ORCA_OPENCODE_QUALIFY_URL and run npm run test:real."
     }
   ],
   "developmentPolicies": {

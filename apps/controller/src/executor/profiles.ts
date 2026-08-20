@@ -12,7 +12,7 @@
  * harness, register it in PROFILES; nothing else needs to change.
  */
 
-export type ExecutorProfileId = "kimi" | "codex" | "generic" | "test" | "swarm-test";
+export type ExecutorProfileId = "kimi" | "codex" | "generic" | "test" | "swarm-test" | "opencode";
 
 export interface ExecutorInvocation {
   /** Executable to spawn (the resolved cli, possibly a script path). */
@@ -35,6 +35,7 @@ export function resolveProfile(cli: string): ExecutorProfileId {
   if (normalized.includes("orca-test-harness")) return "test";
   if (normalized.includes("kimi")) return "kimi";
   if (normalized.includes("codex")) return "codex";
+  if (normalized.includes("opencode")) return "opencode";
   return "generic";
 }
 
@@ -99,6 +100,15 @@ function buildCodexInvocation(params: BuildInvocationParams): ExecutorInvocation
   };
 }
 
+function buildOpenCodeInvocation(params: BuildInvocationParams): ExecutorInvocation {
+  // OpenCode's documented headless CLI is `opencode run --model <provider/model> <message>`.
+  // The model remains user-owned; this profile only describes invocation shape.
+  return {
+    command: params.cli,
+    args: ["run", "--model", params.model, params.prompt]
+  };
+}
+
 function buildGenericInvocation(params: BuildInvocationParams): ExecutorInvocation {
   // Fallback for custom harnesses. Passes model + prompt as positional args and
   // lets the harness read dispatch/run identity from ORCA_* environment vars.
@@ -111,6 +121,7 @@ function buildGenericInvocation(params: BuildInvocationParams): ExecutorInvocati
 const PROFILES: Record<ExecutorProfileId, (p: BuildInvocationParams) => ExecutorInvocation> = {
   kimi: buildKimiInvocation,
   codex: buildCodexInvocation,
+  opencode: buildOpenCodeInvocation,
   generic: buildGenericInvocation,
   test: buildTestInvocation,
   "swarm-test": buildSwarmTestInvocation

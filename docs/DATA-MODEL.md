@@ -376,3 +376,17 @@ waiting/control reason, timestamps, and the packet result reference.
 DAG node rows are subordinate to the strategy run and packet/result records.
 They do not replace typed work packets, Git worktree provenance, integration
 reports, scheduler decisions, usage metrics, or the enclosing campaign run.
+
+## 16. Optional OpenCode capability evidence (Change 015)
+
+No OpenCode-specific SQLite table is required. The existing
+`executor_capability_probes.snapshot_json` may carry an optional `opencode`
+object containing a sanitized endpoint, experimental flag, observed API
+generation/version, route readiness, and observation time. Probe issues remain
+in the existing classified issue list. Structured native usage is stored in the
+existing `usage_metrics` table only after an explicit adapter operation returns
+numeric provider/session fields; missing values remain NULL.
+
+OpenCode sessions, events, and permissions are not campaign truth. The
+campaign ledger continues to reference normalized events, strategy records,
+typed results, and Git references rather than copying HTTP transcripts.
