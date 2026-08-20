@@ -36,7 +36,7 @@ export async function getChromiumStatus(): Promise<ChromiumStatus> {
     return {
       status: "missing",
       executablePath,
-      details: "Chromium executable not found. Run: npx playwright install chromium (or npm run provision) and ensure playwright-core version matches."
+      details: "Chromium executable not found. Run: npm run browser:install (pinned playwright 1.62.1 matches playwright-core 1.62.1) and ensure versions align."
     };
   } catch (e: any) {
     return {

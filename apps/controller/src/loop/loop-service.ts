@@ -14,10 +14,10 @@ import {
 } from "@orca/shared";
 import type { RepositoryStore } from "../repositories/repository-store.js";
 import type { DispatchStore } from "../watcher/dispatch-store.js";
-import type { SolControlStore } from "../watcher/sol-control-store.js";
+import type { SolControlStore, SolControlRecord } from "../watcher/sol-control-store.js";
 import type { WatcherService } from "../watcher/watcher-service.js";
 import type { ExecutorService } from "../executor/executor-service.js";
-import type { BrowserManager } from "../browser/browser-manager.js";
+import { BUSY_MAX_RETRIES, BUSY_RETRY_MS, type BrowserManager } from "../browser/browser-manager.js";
 import type { RunStore } from "./run-store.js";
 
 export interface LoopServiceOptions {
@@ -49,11 +49,8 @@ export class LoopService {
   private readonly ceilingPending = new Set<string>();
   /** User stop pending drain – graceful. */
   private readonly stopPending = new Set<string>();
-  /** Busy backpressure retry timers/h-counters per repository */
+  /** Busy backpressure retry timers per repository (item #3). Counts live durably in the Sol operation store. */
   private readonly busyRetryTimers = new Map<string, NodeJS.Timeout>();
-  private readonly busyRetryCount = new Map<string, number>();
-  private static readonly BUSY_MAX_RETRIES = 3;
-  private static readonly BUSY_RETRY_MS = 3500;
 
   constructor(options: LoopServiceOptions) {
     this.repoStore = options.repoStore;
@@ -407,39 +404,70 @@ export class LoopService {
     repositoryId: string,
     controlId: string,
     decision: SolControlDecision,
-    runId: string
+    runId: string,
+    _iteration?: number,
+    _relatedDispatchId?: string | null
   ): Promise<void> {
+    // 1. Fetch the durable control record — authoritative for correlation + validation (item #2/#4).
+    let control: SolControlRecord | null = null;
+    if (this.solControlStore) {
+      try {
+        control = this.solControlStore.get(controlId);
+      } catch {}
+    }
+
+    // 2. Resolve the active run for this repository.
+    let activeRun: RunRecord | null;
+    try {
+      activeRun = this.runStore.getActiveRun(repositoryId);
+    } catch {
+      return;
+    }
+
+    // 3. Idempotency: an already-applied/rejected control must not be re-applied or re-consumed.
+    if (control && (control.status === "consumed" || control.status === "rejected")) {
+      return;
+    }
+
+    // 4. STRICT validation BEFORE any mutation/consumption (items #2/#4). A stale control from an
+    //    older iteration of the SAME run must not close the current Sol page, be consumed as a valid
+    //    current decision, or change run state. Invalid/stale controls remain auditable (rejected).
+    const rejectionReason = this.validateSolControl(repositoryId, control, activeRun, decision);
+    if (rejectionReason) {
+      if (this.solControlStore && control) {
+        try {
+          this.solControlStore.updateStatus(controlId, "rejected", rejectionReason);
+        } catch {}
+      }
+      this.publishEvent({
+        type: "watcher.control_rejected",
+        at: new Date().toISOString(),
+        repositoryId,
+        data: { controlId, runId, decision, reason: rejectionReason }
+      } as any);
+      return;
+    }
+
+    // 5. Only now: close the Sol operation and mark the control consumed.
     try {
       await this.browserManager.completeSolOperation(repositoryId, runId);
     } catch {}
-
-    if (this.solControlStore) {
+    if (this.solControlStore && control) {
       try {
-        const existing = this.solControlStore.get(controlId);
-        if (existing && existing.status === "consumed") {
-          return;
-        }
         this.solControlStore.updateStatus(controlId, "consumed");
       } catch {}
     }
 
-    let activeRun: RunRecord | null;
-    try { activeRun = this.runStore.getActiveRun(repositoryId); } catch { return; }
     if (!activeRun) return;
-
-    // Only the run this control references is authoritative.
-    if (activeRun.id !== runId) return;
 
     // If draining due to ceiling/stop while Sol active, honor drain at Sol boundary.
     if (this.isDrainPending(repositoryId, activeRun) || activeRun.status === "DRAINING") {
       const isCeiling = this.isCeilingPendingEffective(repositoryId, activeRun);
       const isStop = this.isStopPendingEffective(repositoryId, activeRun);
-      // If this control is GOAL_COMPLETE during drain, still prefer ceiling/stop semantics? Spec: ceiling takes precedence.
       if (isCeiling) {
         this.ceilingPending.delete(repositoryId);
         this.runStore.clearDrainReason(activeRun.id);
         this.cancelWallClockCeiling(repositoryId);
-        // Allow the control to be recorded as consumed but transition to CEILING_REACHED, not GOAL_COMPLETE.
         this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
           lastError: "Wall-clock ceiling reached (drained at Sol boundary)",
           finishedAt: new Date().toISOString(),
@@ -460,7 +488,6 @@ export class LoopService {
         this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
         return;
       }
-      // DRAINING without explicit pending set (e.g., iteration drain) – already terminal, ignore.
       if (activeRun.status === "DRAINING") return;
     }
 
@@ -483,6 +510,58 @@ export class LoopService {
     this.publishStateChange(repositoryId, activeRun.id, targetState);
     if (targetState === "GOAL_COMPLETE" || targetState === "BLOCKED" || targetState === "NEEDS_HUMAN" || targetState === "PAUSED") {
       this.cancelWallClockCeiling(repositoryId);
+    }
+  }
+
+  /**
+   * Validate a Sol control strictly before consumption (items #2/#4). Mirror of the
+   * dispatch correlation contract: the control must belong to the active run, the
+   * expected Sol iteration, the correct repository, and (when set) the active dispatch.
+   * Returns a rejection reason, or null when the control is valid.
+   */
+  private validateSolControl(
+    repositoryId: string,
+    control: SolControlRecord | null,
+    activeRun: RunRecord | null,
+    _decision: SolControlDecision
+  ): string | null {
+    if (!control) return "control record not found (cannot validate or consume)";
+    if (control.status !== "detected") return `control is already ${control.status}, not consumable`;
+    if (control.repositoryId !== repositoryId) {
+      return `control.repositoryId ${control.repositoryId} does not match ${repositoryId}`;
+    }
+    if (!activeRun) return "no active run for repository (control references an unknown run)";
+    if (control.runId !== activeRun.id) {
+      return `control.runId ${control.runId} does not match active run ${activeRun.id}`;
+    }
+    if (control.iteration !== activeRun.currentIteration) {
+      return `control.iteration ${control.iteration} does not match expected Sol iteration ${activeRun.currentIteration}`;
+    }
+    if (control.relatedDispatchId !== null && control.relatedDispatchId !== activeRun.activeDispatchId) {
+      return `control.relatedDispatchId ${control.relatedDispatchId} does not match active dispatch ${activeRun.activeDispatchId}`;
+    }
+    return null;
+  }
+
+  /** Resume BUSY backpressure scheduling after a restart (item #3). Uses the durable budget. */
+  rehydrateBusyBackpressure(): void {
+    for (const [repoId, op] of this.browserManager.getSolOperations().entries()) {
+      if (op.status === "stalled" || op.status === "completed") continue;
+      const activeOp = this.browserManager.getActiveOperation(repoId);
+      const count = activeOp?.busyRetryCount ?? 0;
+      if (count >= BUSY_MAX_RETRIES) continue; // exhausted; timeout/stall path handles it
+      const activeRun = this.runStore.getActiveRun(repoId);
+      if (!activeRun) continue;
+      if (activeRun.status !== "SOL_REVIEWING" && activeRun.status !== "SOL_PENDING") continue;
+      if (this.busyRetryTimers.has(repoId)) continue;
+      const run = activeRun;
+      const resultStatus = activeOp?.resultStatus ?? "INITIAL";
+      const handle = setTimeout(() => {
+        this.busyRetryTimers.delete(repoId);
+        void this.submitSolWakeForRun(repoId, run, resultStatus).catch(() => {});
+      }, BUSY_RETRY_MS);
+      if ((handle as any).unref) (handle as any).unref();
+      this.busyRetryTimers.set(repoId, handle);
     }
   }
 
@@ -545,7 +624,6 @@ export class LoopService {
   private clearBusyRetry(repositoryId: string): void {
     const t = this.busyRetryTimers.get(repositoryId);
     if (t) { clearTimeout(t); this.busyRetryTimers.delete(repositoryId); }
-    this.busyRetryCount.delete(repositoryId);
   }
   private publishEvent(event: RepositoryMutationEvent): void {
     if (this.eventPublisher) {
@@ -582,9 +660,10 @@ export class LoopService {
         this.runStore.updateStatus(run.id, "SOL_REVIEWING");
         this.publishStateChange(repositoryId, run.id, "SOL_REVIEWING");
       } else if (wake.status === "busy") {
-        const count = (this.busyRetryCount.get(repositoryId) ?? 0) + 1;
-        this.busyRetryCount.set(repositoryId, count);
-        if (count >= LoopService.BUSY_MAX_RETRIES) {
+        // BUSY budget is persisted durably in the Sol operation store (item #3); the
+        // browser already incremented busyRetryCount before returning 'busy'. Read it back.
+        const count = this.browserManager.getActiveOperation(repositoryId)?.busyRetryCount ?? 0;
+        if (count >= BUSY_MAX_RETRIES) {
           this.clearBusyRetry(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
             lastError: wake.errorMessage || "ChatGPT busy: backpressure (retries exhausted)",
@@ -601,7 +680,7 @@ export class LoopService {
         const handle = setTimeout(() => {
           this.busyRetryTimers.delete(repositoryId);
           void this.submitSolWakeForRun(repositoryId, this.runStore.get(run.id) ?? run, resultStatus);
-        }, LoopService.BUSY_RETRY_MS);
+        }, BUSY_RETRY_MS);
         if ((handle as any).unref) (handle as any).unref();
         this.busyRetryTimers.set(repositoryId, handle);
       } else {
@@ -628,9 +707,8 @@ export class LoopService {
         return;
       }
       if (/^BUSY:/.test(errorMessage)) {
-        const count = (this.busyRetryCount.get(repositoryId) ?? 0) + 1;
-        this.busyRetryCount.set(repositoryId, count);
-        if (count >= LoopService.BUSY_MAX_RETRIES) {
+        const count = this.browserManager.getActiveOperation(repositoryId)?.busyRetryCount ?? 0;
+        if (count >= BUSY_MAX_RETRIES) {
           this.clearBusyRetry(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
             lastError: errorMessage,
@@ -647,7 +725,7 @@ export class LoopService {
         const handle = setTimeout(() => {
           this.busyRetryTimers.delete(repositoryId);
           void this.submitSolWakeForRun(repositoryId, this.runStore.get(run.id) ?? run, resultStatus);
-        }, LoopService.BUSY_RETRY_MS);
+        }, BUSY_RETRY_MS);
         if ((handle as any).unref) (handle as any).unref();
         this.busyRetryTimers.set(repositoryId, handle);
         return;
@@ -757,7 +835,6 @@ export class LoopService {
     if (activeRun) this.runStore.clearDrainReason(activeRun.id);
     for (const t of this.busyRetryTimers.values()) clearTimeout(t);
     this.busyRetryTimers.clear();
-    this.busyRetryCount.clear();
     this.cancelWallClockCeiling(repositoryId);
 
     if (activeRun) {

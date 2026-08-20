@@ -68,6 +68,8 @@ export class MockBrowserDriver implements BrowserDriver {
   public pages = new Map<string, MockBrowserPage>();
   /** Persistent record of pages, retained after close, for test assertions. */
   public history = new Map<string, MockBrowserPage>();
+  /** When true, every opened page reports ChatGPT "too many requests" (BUSY) via scoped text. */
+  public forceBusy = false;
 
   async launch(profileDir: string, headless: boolean): Promise<void> {
     this.running = true;
@@ -87,6 +89,11 @@ export class MockBrowserDriver implements BrowserDriver {
       this.history.set(repositoryId, page);
     } else if (page.currentUrl !== url) {
       await page.goto(url);
+    }
+
+    if (this.forceBusy) {
+      page.visibleSelectors.add("[role='dialog']");
+      page.bodyText = "too many requests";
     }
 
     return page;

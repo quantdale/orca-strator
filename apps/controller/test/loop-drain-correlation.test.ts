@@ -155,4 +155,113 @@ describe("LoopService drain + correlation (#1,#2,#16)", () => {
     expect(["DRAINING", "STOPPED", "IDLE"].includes(slowLoop.getStatus("repo-drain").state)).toBe(true);
     expect(slowLoop.getStatus("repo-drain").state).not.toBe("SOL_REVIEWING");
   });
+
+  function seedControl(overrides: Partial<Parameters<typeof solControlStore.create>[0]> & { id: string }): string {
+    const controlId = overrides.id;
+    solControlStore.create({
+      id: controlId,
+      repositoryId: "repo-drain",
+      runId: overrides.runId ?? "run-1",
+      controlId,
+      decision: overrides.decision ?? "GOAL_COMPLETE",
+      iteration: overrides.iteration ?? 1,
+      commitSha: "c".repeat(40),
+      relatedDispatchId: overrides.relatedDispatchId ?? null,
+      status: "detected",
+      rejectionReason: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    return controlId;
+  }
+
+  function ensureDispatch(did: string): void {
+    if (dispatchStore.get(did)) return;
+    dispatchStore.create({
+      id: did, dispatchId: did, repositoryId: "repo-drain", runId: "run-1",
+      iteration: 1, commitSha: "a".repeat(40), baseSha: "b".repeat(40),
+      changePath: "p", goal: "g", instructionsVersion: 1, schemaVersion: 1,
+      type: "dispatch", status: "detected", rejectionReason: null,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    });
+  }
+
+  function setRunReviewing(runId: string, currentIteration: number, activeDispatchId: string | null): void {
+    if (activeDispatchId) ensureDispatch(activeDispatchId);
+    const run = runStore.get(runId)!;
+    runStore.updateStatus(runId, "SOL_REVIEWING", {
+      currentIteration,
+      activeDispatchId,
+      drainReason: run.drainReason
+    });
+  }
+
+  it("valid Sol control (matching run/iteration/dispatch) is consumed and applied", async () => {
+    const run = await loop.startRun("repo-drain", { goal: "valid control" });
+    setRunReviewing(run.id, 1, "disp-x");
+    const cid = seedControl({ id: "ctrl-valid", runId: run.id, iteration: 1, relatedDispatchId: "disp-x", decision: "GOAL_COMPLETE" });
+
+    await loop.onControlDetected("repo-drain", cid, "GOAL_COMPLETE", run.id);
+
+    expect(solControlStore.get(cid)?.status).toBe("consumed");
+    expect(runStore.get(run.id)?.status).toBe("GOAL_COMPLETE");
+  });
+
+  it("previous-iteration GOAL_COMPLETE is rejected (stale) and does not change run state", async () => {
+    const run = await loop.startRun("repo-drain", { goal: "prev iter" });
+    setRunReviewing(run.id, 1, "disp-x");
+    const cid = seedControl({ id: "ctrl-prev", runId: run.id, iteration: 0, relatedDispatchId: "disp-x" });
+
+    await loop.onControlDetected("repo-drain", cid, "GOAL_COMPLETE", run.id);
+
+    expect(solControlStore.get(cid)?.status).toBe("rejected");
+    expect(runStore.get(run.id)?.status).toBe("SOL_REVIEWING");
+  });
+
+  it("future-iteration control is rejected and does not change run state", async () => {
+    const run = await loop.startRun("repo-drain", { goal: "future iter" });
+    setRunReviewing(run.id, 1, "disp-x");
+    const cid = seedControl({ id: "ctrl-future", runId: run.id, iteration: 99, relatedDispatchId: "disp-x" });
+
+    await loop.onControlDetected("repo-drain", cid, "GOAL_COMPLETE", run.id);
+
+    expect(solControlStore.get(cid)?.status).toBe("rejected");
+    expect(runStore.get(run.id)?.status).toBe("SOL_REVIEWING");
+  });
+
+  it("control for a different run is rejected (wrong runId)", async () => {
+    const run = await loop.startRun("repo-drain", { goal: "wrong run" });
+    setRunReviewing(run.id, 1, "disp-x");
+    const cid = seedControl({ id: "ctrl-wrongrun", runId: "some-other-run", iteration: 1, relatedDispatchId: "disp-x" });
+
+    await loop.onControlDetected("repo-drain", cid, "GOAL_COMPLETE", "some-other-run");
+
+    expect(solControlStore.get(cid)?.status).toBe("rejected");
+    expect(runStore.get(run.id)?.status).toBe("SOL_REVIEWING");
+  });
+
+  it("control with wrong relatedDispatchId is rejected", async () => {
+    const run = await loop.startRun("repo-drain", { goal: "wrong dispatch" });
+    setRunReviewing(run.id, 1, "disp-x");
+    const cid = seedControl({ id: "ctrl-wrongdisp", runId: run.id, iteration: 1, relatedDispatchId: "disp-other" });
+
+    await loop.onControlDetected("repo-drain", cid, "GOAL_COMPLETE", run.id);
+
+    expect(solControlStore.get(cid)?.status).toBe("rejected");
+    expect(runStore.get(run.id)?.status).toBe("SOL_REVIEWING");
+  });
+
+  it("duplicated control is a no-op: already-consumed control is not re-applied", async () => {
+    const run = await loop.startRun("repo-drain", { goal: "dup control" });
+    setRunReviewing(run.id, 1, "disp-x");
+    const cid = seedControl({ id: "ctrl-dup", runId: run.id, iteration: 1, relatedDispatchId: "disp-x" });
+
+    await loop.onControlDetected("repo-drain", cid, "GOAL_COMPLETE", run.id);
+    expect(solControlStore.get(cid)?.status).toBe("consumed");
+    expect(runStore.get(run.id)?.status).toBe("GOAL_COMPLETE");
+
+    // Second delivery must not re-apply (e.g., must not resurrect/alter state).
+    await loop.onControlDetected("repo-drain", cid, "GOAL_COMPLETE", run.id);
+    expect(solControlStore.get(cid)?.status).toBe("consumed");
+  });
 });

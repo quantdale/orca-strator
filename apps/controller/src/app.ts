@@ -24,6 +24,7 @@ import { ExecutorStore } from './executor/executor-store.js';
 import { ExecutorService } from './executor/executor-service.js';
 import { SolWakeStore } from './browser/sol-wake-store.js';
 import { BrowserManager } from './browser/browser-manager.js';
+import { SqliteSolOperationStore } from './browser/sol-operation-store.js';
 import { RunStore } from './loop/run-store.js';
 import { LoopService } from './loop/loop-service.js';
 import { StartupReconciler } from './loop/startup-reconciler.js';
@@ -90,8 +91,8 @@ export async function buildApp(
     onDispatchDetected: (repositoryId, dispatchId) => {
       void loopService.onDispatchDetected(repositoryId, dispatchId);
     },
-    onControlDetected: (repositoryId, controlId, decision, runId) => {
-      void loopService.onControlDetected(repositoryId, controlId, decision, runId);
+    onControlDetected: (repositoryId, controlId, decision, runId, iteration, relatedDispatchId) => {
+      void loopService.onControlDetected(repositoryId, controlId, decision, runId, iteration, relatedDispatchId);
     }
   });
 
@@ -113,6 +114,7 @@ export async function buildApp(
       dataDir: config.dataDir,
       driver: overrides.browserDriver,
       wakeStore,
+      solOperationStore: new SqliteSolOperationStore(dbContext.db),
       eventPublisher: (event) => eventBus.publish(event)
     });
 

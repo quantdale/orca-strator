@@ -26,6 +26,12 @@ export class StartupReconciler {
       } catch (e) {
         console.warn("[StartupReconciler] rehydrateFromStore failed:", (e as any)?.message || String(e));
       }
+      // Resume BUSY backpressure scheduling using the durable retry budget (item #3)
+      try {
+        this.loopService.rehydrateBusyBackpressure();
+      } catch (e) {
+        console.warn("[StartupReconciler] rehydrateBusyBackpressure failed:", (e as any)?.message || String(e));
+      }
     }
 
     for (const repo of repos) {

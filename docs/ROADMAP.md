@@ -44,7 +44,7 @@ V1 was reopened as **NOT YET QUALIFIED** and is being hardened under
 | F. Git preflight divergence contract | **IMPLEMENTED** (dirty/localHead/remoteHead/relation inspected, never hard-reset, `ORCA_PREFLIGHT_EVIDENCE` to executor; fast gate `loop-drain-correlation` + real controls) |
 | G. Wall-clock ceiling separation + drain | **MACHINE-QUALIFIED** (dispatch is actor boundary, `drainReason` persisted, wall-clock + SOL rehydrated, Stop/ceiling complete at dispatch/control) |
 | H. Sol control markers | **MACHINE-QUALIFIED** (`Q.APP.1` control half + `loop-drain-correlation` `GOAL_COMPLETE`) |
-| I. Pause/Resume/Stop | **MACHINE-QUALIFIED** (slow harness: pause→`PAUSED` + resume SAME dispatch `ORCA_RECOVERY=true`, graceful Stop drains naturally, Stop/ceiling complete at Sol-boundary dispatch) — `pause` is executor-only (400) |
+| I. Pause/Resume/Stop/Emergency-Kill | **MACHINE-QUALIFIED** (slow harness: pause→`PAUSED` + resume SAME dispatch `ORCA_RECOVERY=true`, graceful Stop drains naturally, Stop/ceiling complete at Sol-boundary dispatch; non-skipped `real-runtime-controls.test.ts` proves per-repo `emergencyKill` terminates only the targeted repo's process tree while a sibling repo stays alive and finishes naturally, dispatch not falsely consumed) — `pause` is executor-only (400) |
 | J. Browser profile ownership | **SIMULATION-TESTED** |
 | K. Playwright provisioning | **MACHINE-QUALIFIED** (`browser:install` + `GET /api/system/provisioning`, Chromium `chromium-1234` present) |
 | L. ChatGPT wake lifecycle | **IMPLEMENTED + bounded BUSY→SOL_STALLED, ATTENTION_REQUIRED distinct** (scoped banners only, no body scrape; transport mocked) |

@@ -13,13 +13,19 @@ import type { BrowserDriver } from "./browser-driver.js";
 import { PlaywrightDriver } from "./playwright-driver.js";
 import { SolWakeSubmitter } from "./sol-wake-submitter.js";
 import type { SolWakeStore } from "./sol-wake-store.js";
+import {
+  type SolOperationRecord,
+  type SolOperationStore,
+  MemorySolOperationStore
+} from "./sol-operation-store.js";
 import { getChromiumStatus, type ChromiumStatus } from "./provisioning.js";
 
 export interface BrowserManagerOptions {
   dataDir: string;
   driver?: BrowserDriver;
   wakeStore: SolWakeStore;
-  submitter?: SolWakeSubmitter;
+  /** Durable Sol-operation store. If omitted, an in-memory fallback is used (no restart durability). */
+  solOperationStore?: SolOperationStore;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
   solTimeoutMs?: number;
   onSolStalled?: (repositoryId: string, runId: string, errorMessage: string) => void | Promise<void>;
@@ -29,26 +35,16 @@ export interface BrowserManagerOptions {
 const WAKE_LOCK_RETRIES = 5;
 const WAKE_LOCK_RETRY_MS = 1500;
 export const DEFAULT_SOL_TIMEOUT_MS = 20 * 60 * 1000;
-
-export interface SolOperationRecord {
-  repositoryId: string;
-  runId: string;
-  iteration: number;
-  wakeId: string;
-  submittedAt: string;
-  deadline: number;
-  retryCount: number;
-  conversationUrl: string;
-  repositoryName: string;
-  dispatchId: string | null;
-  resultStatus: SolWakeResultStatus;
-}
+/** Bounded BUSY backpressure before a wake is reported SOL_STALLED (L, item #3). */
+export const BUSY_MAX_RETRIES = 3;
+export const BUSY_RETRY_MS = 3500;
 
 export class BrowserManager {
   private readonly profileDir: string;
   private readonly lockManager: ProfileLockManager;
   private readonly driver: BrowserDriver;
   private readonly wakeStore: SolWakeStore;
+  private readonly solStore: SolOperationStore;
   private readonly submitter: SolWakeSubmitter;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private isSetupOpen = false;
@@ -63,7 +59,8 @@ export class BrowserManager {
     this.lockManager = new ProfileLockManager(this.profileDir);
     this.driver = options.driver || new PlaywrightDriver();
     this.wakeStore = options.wakeStore;
-    this.submitter = options.submitter || new SolWakeSubmitter();
+    this.solStore = options.solOperationStore || new MemorySolOperationStore();
+    this.submitter = new SolWakeSubmitter();
     this.eventPublisher = options.eventPublisher;
     this.solTimeoutMs = options.solTimeoutMs ?? DEFAULT_SOL_TIMEOUT_MS;
     this.onSolStalled = options.onSolStalled;
@@ -71,6 +68,11 @@ export class BrowserManager {
 
   setSolStalledHandler(handler: (repositoryId: string, runId: string, errorMessage: string) => void | Promise<void>): void {
     this.onSolStalled = handler;
+  }
+
+  /** Read the durable Sol operation for a repository (exact intent + retry budgets). */
+  getActiveOperation(repositoryId: string): SolOperationRecord | null {
+    return this.solStore.get(repositoryId);
   }
 
   async openSetupBrowser(): Promise<void> {
@@ -110,6 +112,11 @@ export class BrowserManager {
    * Submit a Sol wake. Returns the durable wake record. Real ChatGPT transport
    * is handled by the driver/submitter; the loop uses the returned status.
    * Keeps repository page alive until expected Git transition (dispatch or control) arrives.
+   *
+   * The exact wake intent (repositoryName, runId, iteration, dispatchId, resultStatus,
+   * conversationUrl, message) is persisted durably in the Sol-operation store so a
+   * controller restart reproduces the SAME wake intent instead of reconstructing it
+   * (item #1). BUSY backpressure and timeout retry budgets are also persisted (item #3).
    */
   async submitSolWake(
     repositoryId: string,
@@ -122,8 +129,8 @@ export class BrowserManager {
       repositoryName: string;
     }
   ): Promise<SolWakeRecord> {
-    const wakeId = crypto.randomUUID();
     const now = new Date().toISOString();
+    const nowMs = Date.now();
 
     const message = generateSolWakeMessage({
       repositoryName: params.repositoryName,
@@ -133,35 +140,52 @@ export class BrowserManager {
       resultStatus: params.resultStatus
     });
 
-    // Duplicate wake idempotency (L): do not double-submit the SAME wake intent.
-    const existing = this.wakeStore
-      .getByRepository(repositoryId)
-      .find(
-        (w) =>
-          w.runId === params.runId &&
-          w.message === message &&
-          w.status !== "failed" &&
-          w.status !== "busy"
-      );
-    if (existing) {
-      return existing;
+    // Reuse the existing active Sol operation for the SAME wake intent (same run + message),
+    // otherwise create a fresh durable operation. This keeps one wake intent per repo
+    // and makes re-submission (busy retry / restart) byte-for-byte identical.
+    let op = this.solStore.get(repositoryId);
+    if (!op || op.runId !== params.runId || op.message !== message || op.status !== "active") {
+      const wakeId = crypto.randomUUID();
+      const newOp: SolOperationRecord = {
+        repositoryId,
+        runId: params.runId,
+        iteration: params.iteration,
+        wakeId,
+        dispatchId: params.dispatchId ?? null,
+        conversationUrl: params.conversationUrl,
+        repositoryName: params.repositoryName,
+        resultStatus: params.resultStatus,
+        message,
+        submittedAt: null,
+        deadline: nowMs + this.solTimeoutMs,
+        timeoutRetryCount: 0,
+        busyRetryCount: 0,
+        status: "active",
+        createdAt: now,
+        updatedAt: now
+      };
+      this.solStore.upsert(newOp);
+      this.wakeStore.create({
+        id: wakeId,
+        repositoryId,
+        runId: params.runId,
+        dispatchId: params.dispatchId ?? null,
+        conversationUrl: params.conversationUrl,
+        message,
+        status: "pending",
+        errorMessage: null,
+        submittedAt: null,
+        createdAt: now,
+        updatedAt: now
+      });
+      this.registerSolOperation(newOp);
+      op = newOp;
+    } else {
+      // Re-using an existing active operation: keep its wake record, ensure it is active.
+      this.solStore.update(repositoryId, { status: "active", updatedAt: now });
     }
 
-    const wakeRecord: SolWakeRecord = {
-      id: wakeId,
-      repositoryId,
-      runId: params.runId,
-      dispatchId: params.dispatchId ?? null,
-      conversationUrl: params.conversationUrl,
-      message,
-      status: "pending",
-      errorMessage: null,
-      submittedAt: null,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    this.wakeStore.create(wakeRecord);
+    const wakeId = op.wakeId;
 
     // Backpressure: wait for the automated profile lock to free up (L).
     let locked = false;
@@ -191,24 +215,21 @@ export class BrowserManager {
       const submittedAt = new Date().toISOString();
       this.wakeStore.updateStatus(wakeId, "submitted", { submittedAt });
 
+      // Persist the exact intent + reset BUSY budget on a real submit.
+      this.solStore.update(repositoryId, {
+        submittedAt,
+        status: "active",
+        busyRetryCount: 0,
+        updatedAt: submittedAt
+      });
+
       this.publishEvent({
         type: "repository.updated",
         at: submittedAt,
         repositoryId
       });
 
-      // FIX #9: Keep repository page alive until expected Git transition arrives.
-      // Record Sol operation for lifecycle tracking, schedule timeout, do NOT close page here.
-      this.registerSolOperation(repositoryId, {
-        runId: params.runId,
-        iteration: params.iteration,
-        wakeId,
-        submittedAt,
-        conversationUrl: params.conversationUrl,
-        repositoryName: params.repositoryName,
-        dispatchId: params.dispatchId ?? null,
-        resultStatus: params.resultStatus
-      });
+      this.registerSolOperation(this.solStore.get(repositoryId)!);
 
       return this.wakeStore.get(wakeId)!;
     } catch (err: any) {
@@ -217,16 +238,23 @@ export class BrowserManager {
       const needsAttention =
         /ATTENTION_REQUIRED|CHATGPT_AUTH_REQUIRED|verification|cloudflare|captcha|login required/i.test(errorMessage);
       if (isBusy) {
-        // Bounded backpressure: mark busy, do not treat as hard failure, do not bypass limits
+        // Bounded BUSY backpressure: persist the retry budget durably (item #3) so
+        // controller restarts cannot reset the one-time BUSY budget. The loop owns
+        // the retry scheduling and reads this durable counter.
+        const count = (op.busyRetryCount ?? 0) + 1;
+        this.solStore.update(repositoryId, { busyRetryCount: count, status: "active", updatedAt: now });
         this.wakeStore.updateStatus(wakeId, "busy", { errorMessage });
-        // Keep page alive for potential retry after backoff? For now mark busy and return.
+        // Reconstruct in-memory operation so resume/retry sees the durable state.
+        this.registerSolOperation(this.solStore.get(repositoryId)!);
         return this.wakeStore.get(wakeId)!;
       }
       this.wakeStore.updateStatus(wakeId, "failed", { errorMessage });
+      this.solStore.update(repositoryId, { status: "stalled", updatedAt: now });
+      // Persist so rehydrate does not resurrect a failed operation.
+      this.registerSolOperation(this.solStore.get(repositoryId)!);
       throw new Error(needsAttention ? `ATTENTION_REQUIRED: ${errorMessage}` : errorMessage);
     } finally {
       // Do NOT close Chromium here based on activePageCount ==0 check that would race with kept-alive pages.
-      // Only close if driver has no pages and no pending Sol operations and not in setup.
       if (!this.isSetupOpen && this.driver.activePageCount() === 0 && this.solOperations.size === 0) {
         await this.driver.close().catch(() => {});
       }
@@ -251,7 +279,7 @@ export class BrowserManager {
   }
 
   /**
-   * FIX #9: Mark Sol operation complete for a repository when expected Git transition arrives.
+   * Mark Sol operation complete for a repository when expected Git transition arrives.
    * Called by LoopService.onDispatchDetected / onControlDetected. Correlated to run/iteration
    * and expected transition iteration (not just runId) where available.
    */
@@ -267,60 +295,70 @@ export class BrowserManager {
       this.solTimeoutHandles.delete(repositoryId);
     }
     this.solOperations.delete(repositoryId);
+    this.solStore.update(repositoryId, { status: "completed" });
+    try {
+      this.solStore.delete(repositoryId);
+    } catch {}
 
     await this.closeRepositoryPage(repositoryId);
   }
 
   /**
-   * FIX #9: Check for Sol operation timeouts. Used by fake-clock tests and by real timer callback.
-   * If no expected Git transition before deadline, retry once idempotently; if still no transition, SOL_STALLED.
-   * Scoped per repository; one repo's stall never closes unrelated pages.
+   * Check for Sol operation timeouts. Used by fake-clock tests and by real timer callback.
+   * If no expected Git transition before deadline, retry once idempotently (budget persisted
+   * durably, item #1/#3); if still no transition, SOL_STALLED. Scoped per repository; one
+   * repo's stall never closes unrelated pages. BUSY operations are owned by the loop's BUSY
+   * backpressure and are skipped here.
    */
   async checkSolTimeouts(nowMs: number = Date.now()): Promise<void> {
-    const stalled: SolOperationRecord[] = [];
     for (const [repoId, op] of this.solOperations.entries()) {
+      if (op.status === "stalled" || op.status === "completed") continue;
+      const wake = this.wakeStore.get(op.wakeId);
+      // BUSY operations are retried by the loop's backpressure, not the SOL timeout.
+      if (wake && wake.status === "busy") continue;
+
       if (nowMs >= op.deadline) {
-        if (op.retryCount < 1) {
-          // Retry once idempotently: resubmit same wake intent via page resend
-          op.retryCount += 1;
+        if (op.timeoutRetryCount < 1) {
+          op.timeoutRetryCount += 1;
           op.deadline = nowMs + this.solTimeoutMs;
-          // Reschedule timeout handle
+          this.solStore.update(repoId, {
+            timeoutRetryCount: op.timeoutRetryCount,
+            deadline: op.deadline,
+            updatedAt: new Date().toISOString()
+          });
           this.scheduleSolTimeout(repoId, op);
           try {
             await this.retrySolWake(op);
           } catch (e: any) {
-            // Retry failed -> will be caught on next deadline check as stall
             console.warn(`[BrowserManager] Sol retry failed for ${repoId}:`, e?.message || String(e));
           }
         } else {
-          stalled.push(op);
+          await this.stallSolOperation(repoId, op, "Sol operation timed out after one retry with no dispatch or control transition (SOL_STALLED)");
         }
       }
     }
-    for (const op of stalled) {
-      const handle = this.solTimeoutHandles.get(op.repositoryId);
-      if (handle) {
-        clearTimeout(handle);
-        this.solTimeoutHandles.delete(op.repositoryId);
+  }
+
+  private async stallSolOperation(repoId: string, op: SolOperationRecord, errorMessage: string): Promise<void> {
+    const handle = this.solTimeoutHandles.get(repoId);
+    if (handle) {
+      clearTimeout(handle);
+      this.solTimeoutHandles.delete(repoId);
+    }
+    this.solOperations.delete(repoId);
+    this.solStore.update(repoId, { status: "stalled", updatedAt: new Date().toISOString() });
+    try {
+      const wake = this.wakeStore.get(op.wakeId);
+      if (wake && wake.status === "submitted") {
+        this.wakeStore.updateStatus(op.wakeId, "failed", { errorMessage });
       }
-      this.solOperations.delete(op.repositoryId);
-      const errorMessage = `Sol operation timed out after ${this.solTimeoutMs}ms and one retry with no dispatch or control transition (SOL_STALLED)`;
-      // Update wake record if still submitted
+    } catch {}
+    if (this.onSolStalled) {
       try {
-        const wake = this.wakeStore.get(op.wakeId);
-        if (wake && wake.status === "submitted") {
-          this.wakeStore.updateStatus(op.wakeId, "failed", { errorMessage });
-        }
+        await this.onSolStalled(op.repositoryId, op.runId, errorMessage);
       } catch {}
-      // Notify loop to mark run SOL_STALLED
-      if (this.onSolStalled) {
-        try {
-          await this.onSolStalled(op.repositoryId, op.runId, errorMessage);
-        } catch {}
-      }
-      // Close only that repository's page
-      await this.closeRepositoryPage(op.repositoryId);
     }
+    await this.closeRepositoryPage(op.repositoryId);
   }
 
   /** For tests: expose pending operations */
@@ -328,87 +366,68 @@ export class BrowserManager {
     return new Map(this.solOperations);
   }
 
-  /** Rehydrate SOL_REVIEWING / pending Sol operations after restart (Fix #5). No duplicate wakes. */
-  async rehydrateFromStore(runStore: { getActiveRun: (repoId: string)=>any; getByRepository?: (repoId:string)=>any }, opts?: { repoIds?: string[] }): Promise<void> {
-    const ids = opts?.repoIds ?? (this.wakeStore as any)?._repoIds ?? [];
-    // Fallback: iterate wakeStore.getByRepository for known repos via repoIds param
-    const repoIds: string[] = ids.length ? ids : [];
-    // If no explicit list, try to discover from wakeStore by scanning known keys if available
-    // Otherwise rely on caller to pass repoIds; BrowserManager doesn't own RunStore list, we also clear/ rebuild from wakeStore submitted entries
+  /**
+   * Rehydrate SOL_REVIEWING / pending Sol operations after restart (items #1/#3).
+   * Reads the EXACT durable intent from the Sol-operation store — never guesses
+   * resultStatus, repositoryName, iteration, deadline, or retry budgets. A restart
+   * reproduces the same wake intent so COMPLETED stays COMPLETED, never INITIAL.
+   */
+  async rehydrateFromStore(
+    runStore: { getActiveRun: (repoId: string) => any; getByRepository?: (repoId: string) => any },
+    opts?: { repoIds?: string[] }
+  ): Promise<void> {
+    const activeOps = this.solStore.listActive();
+    const repoIds = opts?.repoIds ?? activeOps.map((o) => o.repositoryId);
+
     for (const repoId of repoIds) {
-      const wake = this.wakeStore.getByRepository(repoId).find((w:any)=> w.status==='submitted');
-      if (!wake) continue;
+      const op = this.solStore.get(repoId);
+      if (!op || op.status !== "active") continue;
+
       const run = runStore.getActiveRun(repoId);
-      if (!run) continue;
-      if (run.status !== 'SOL_REVIEWING' && run.status !== 'SOL_PENDING') continue;
+      // Only resume operations that belong to an active run still awaiting Sol.
+      if (!run || (run.status !== "SOL_REVIEWING" && run.status !== "SOL_PENDING")) continue;
       if (this.solOperations.has(repoId)) continue;
-      // reconstruct deadline from submittedAt + timeout
-      const submittedMs = wake.submittedAt ? new Date(wake.submittedAt).getTime() : Date.now();
-      const deadline = submittedMs + this.solTimeoutMs;
+
+      const wake = this.wakeStore.get(op.wakeId);
       const nowMs = Date.now();
-      if (nowMs >= deadline) {
-        // First deadline passed without transition: one permitted retry idempotently
-        if (nowMs < deadline + this.solTimeoutMs) {
-          // Single retry window still open – perform retry idempotently (submitter may use hasSelector/getText only)
+      const isBusy = wake && wake.status === "busy";
+
+      if (isBusy) {
+        // BUSY backpressure is resumed by the loop's rehydrateBusyBackpressure using the
+        // durable busyRetryCount. Just keep the operation in memory so correlation works.
+        this.solOperations.set(repoId, { ...op });
+        continue;
+      }
+
+      if (nowMs >= op.deadline) {
+        if (op.timeoutRetryCount < 1) {
+          // Exactly one permitted timeout retry (budget persisted durably).
+          const newDeadline = nowMs + this.solTimeoutMs;
+          this.solStore.update(repoId, {
+            timeoutRetryCount: op.timeoutRetryCount + 1,
+            deadline: newDeadline,
+            updatedAt: new Date().toISOString()
+          });
+          this.solOperations.set(repoId, { ...op, timeoutRetryCount: op.timeoutRetryCount + 1, deadline: newDeadline });
+          this.scheduleSolTimeout(repoId, this.solOperations.get(repoId)!);
           try {
-            const repoName = run.goal?.slice(0,40) || repoId;
-            // We don't have repo displayName here; use wake message parsing or fallback
-            await this.retrySolWake({
-              repositoryId: repoId,
-              runId: run.id,
-              iteration: run.currentIteration,
-              wakeId: wake.id,
-              submittedAt: wake.submittedAt || new Date().toISOString(),
-              deadline: deadline + this.solTimeoutMs,
-              retryCount: 0,
-              conversationUrl: wake.conversationUrl,
-              repositoryName: repoName,
-              dispatchId: wake.dispatchId,
-              resultStatus: 'INITIAL' as any,
-            });
-            const newDeadline = Date.now() + this.solTimeoutMs;
-            this.solOperations.set(repoId, {
-              repositoryId: repoId,
-              runId: run.id,
-              iteration: run.currentIteration,
-              wakeId: wake.id,
-              submittedAt: new Date().toISOString(),
-              deadline: newDeadline,
-              retryCount: 1,
-              conversationUrl: wake.conversationUrl,
-              repositoryName: repoName,
-              dispatchId: wake.dispatchId,
-              resultStatus: 'INITIAL' as any,
-            });
-            this.scheduleSolTimeout(repoId, this.solOperations.get(repoId)!);
+            await this.retrySolWake(this.solOperations.get(repoId)!);
           } catch {
-            // Retry failed – fall through to stalled if second deadline also passes
-            if (nowMs >= deadline + this.solTimeoutMs) {
-              this.wakeStore.updateStatus(wake.id, 'failed', { errorMessage: 'Sol operation timed out after restart (retry failed) – SOL_STALLED' });
-              if (this.onSolStalled) { try { await this.onSolStalled(repoId, run.id, 'Sol operation timed out after restart – SOL_STALLED'); } catch {} }
+            // Retry failed; will be caught on next deadline check as stall.
+            const curOp = this.solStore.get(repoId);
+            if (curOp && nowMs >= curOp.deadline) {
+              await this.stallSolOperation(repoId, curOp, "Sol operation timed out after restart (retry failed) – SOL_STALLED");
             }
           }
         } else {
-          // Both deadlines passed -> SOL_STALLED
-          this.wakeStore.updateStatus(wake.id, 'failed', { errorMessage: 'Sol operation timed out after restart (no retry window) – SOL_STALLED' });
-          if (this.onSolStalled) { try { await this.onSolStalled(repoId, run.id, 'Sol operation timed out after restart – SOL_STALLED'); } catch {} }
+          // Both deadlines passed with no transition -> SOL_STALLED (do not resurrect).
+          await this.stallSolOperation(repoId, op, "Sol operation timed out after restart (no retry window) – SOL_STALLED");
         }
         continue;
       }
-      // Within first deadline: resume waiting
-      this.solOperations.set(repoId, {
-        repositoryId: repoId,
-        runId: run.id,
-        iteration: run.currentIteration,
-        wakeId: wake.id,
-        submittedAt: wake.submittedAt || new Date().toISOString(),
-        deadline,
-        retryCount: 0,
-        conversationUrl: wake.conversationUrl,
-        repositoryName: run.goal?.slice(0,40)||repoId,
-        dispatchId: wake.dispatchId,
-        resultStatus: 'INITIAL' as any,
-      });
+
+      // Within first deadline: resume waiting with the EXACT persisted intent.
+      this.solOperations.set(repoId, { ...op });
       this.scheduleSolTimeout(repoId, this.solOperations.get(repoId)!);
     }
   }
@@ -434,7 +453,6 @@ export class BrowserManager {
   }
 
   async close(): Promise<void> {
-    // Clear all pending Sol timeouts
     for (const h of this.solTimeoutHandles.values()) clearTimeout(h);
     this.solTimeoutHandles.clear();
     this.solOperations.clear();
@@ -448,38 +466,14 @@ export class BrowserManager {
     }
   }
 
-  private registerSolOperation(
-    repositoryId: string,
-    params: {
-      runId: string;
-      iteration: number;
-      wakeId: string;
-      submittedAt: string;
-      conversationUrl: string;
-      repositoryName: string;
-      dispatchId: string | null;
-      resultStatus: SolWakeResultStatus;
-    }
-  ): void {
-    const deadline = Date.now() + this.solTimeoutMs;
-    const record: SolOperationRecord = {
-      repositoryId,
-      runId: params.runId,
-      iteration: params.iteration,
-      wakeId: params.wakeId,
-      submittedAt: params.submittedAt,
-      deadline,
-      retryCount: 0,
-      conversationUrl: params.conversationUrl,
-      repositoryName: params.repositoryName,
-      dispatchId: params.dispatchId,
-      resultStatus: params.resultStatus
-    };
+  private registerSolOperation(op: SolOperationRecord): void {
     // Clear existing handle for this repo if any
-    const existingHandle = this.solTimeoutHandles.get(repositoryId);
+    const existingHandle = this.solTimeoutHandles.get(op.repositoryId);
     if (existingHandle) clearTimeout(existingHandle);
-    this.solOperations.set(repositoryId, record);
-    this.scheduleSolTimeout(repositoryId, record);
+    this.solOperations.set(op.repositoryId, op);
+    if (op.status === "active") {
+      this.scheduleSolTimeout(op.repositoryId, op);
+    }
   }
 
   private scheduleSolTimeout(repositoryId: string, op: SolOperationRecord): void {
@@ -494,15 +488,8 @@ export class BrowserManager {
 
   private async retrySolWake(op: SolOperationRecord): Promise<void> {
     // Idempotent retry: reuse same message; re-open page if needed and resubmit
-    const message = generateSolWakeMessage({
-      repositoryName: op.repositoryName,
-      runId: op.runId,
-      iteration: op.iteration,
-      dispatchId: op.dispatchId || "none",
-      resultStatus: op.resultStatus
-    });
+    const message = op.message;
     if (!this.driver.isRunning()) {
-      // Re-acquire lock if needed
       if (!this.lockManager.acquire("AUTOMATED")) {
         throw new Error("Cannot retry Sol wake: profile locked");
       }

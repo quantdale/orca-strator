@@ -382,7 +382,9 @@ export class ExecutorService {
     // Do NOT silently accept local-only proof when remote verification is possible but failed (item #6).
     try {
       await this.gitClient.fetch(ctx, "origin", "main");
-      const remoteHead = await this.gitClient.getRemoteHeadSha(repo.githubRemote, "main", ctx);
+      // Under WSL the remote URL must be the Linux mount path, not the Windows path (Finding C).
+      const remoteUrl = repo.environment === "wsl" ? toWslPath(repo.githubRemote) : repo.githubRemote;
+      const remoteHead = await this.gitClient.getRemoteHeadSha(remoteUrl, "main", ctx);
       if (remoteHead) {
         const remoteOk =
           remoteHead === validated.resultSha ||
@@ -411,7 +413,7 @@ export class ExecutorService {
     const result: { dirty: boolean; localHead: string | null; remoteHead: string | null; statusSummary: string } = { dirty: false, localHead: null, remoteHead: null, statusSummary: "" };
     try {
       // #12: WSL remote probe must route through WSL git so WSL-only credentials work
-      const remoteUrl = repo.githubRemote;
+      const remoteUrl = repo.environment === "wsl" ? toWslPath(repo.githubRemote) : repo.githubRemote;
       let remoteHead: string | null = null;
       try {
         remoteHead = await this.gitClient.getRemoteHeadSha(remoteUrl, "main", ctx);

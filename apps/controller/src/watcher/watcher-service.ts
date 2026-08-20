@@ -25,7 +25,9 @@ export interface WatcherServiceOptions {
     repositoryId: string,
     controlId: string,
     decision: SolControlDecision,
-    runId: string
+    runId: string,
+    iteration: number,
+    relatedDispatchId: string | null
   ) => void;
 }
 
@@ -42,7 +44,9 @@ export class WatcherService {
     repositoryId: string,
     controlId: string,
     decision: SolControlDecision,
-    runId: string
+    runId: string,
+    iteration: number,
+    relatedDispatchId: string | null
   ) => void;
 
   private readonly activeTimers = new Map<string, NodeJS.Timeout>();
@@ -151,7 +155,10 @@ export class WatcherService {
 
     let remoteHeadSha: string | null = null;
     try {
-      remoteHeadSha = await this.gitClient.getRemoteHeadSha(repo.githubRemote, "main", ctx);
+      // Under WSL the remote URL must be the Linux mount path, not the Windows
+      // path (Finding C); `git ls-remote` against a Windows path fails in Linux.
+      const remoteUrl = repo.environment === "wsl" ? toWslPath(repo.githubRemote) : repo.githubRemote;
+      remoteHeadSha = await this.gitClient.getRemoteHeadSha(remoteUrl, "main", ctx);
     } catch (err: any) {
       const errorMsg = err.message || "Failed to query remote HEAD";
       this.dispatchStore.upsertWatcherState({
@@ -396,7 +403,9 @@ export class WatcherService {
             repo.id,
             inspection.controlId,
             inspection.control.decision,
-            inspection.control.runId
+            inspection.control.runId,
+            inspection.control.iteration,
+            inspection.control.relatedDispatchId
           );
         }
       }

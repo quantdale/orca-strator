@@ -199,8 +199,8 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
       commitInspector,
       pollIntervalMs: 250,
       onDispatchDetected: (rid, did) => void loopService.onDispatchDetected(rid, did),
-      onControlDetected: (rid, cid, dec, runId) =>
-        void loopService.onControlDetected(rid, cid, dec, runId)
+      onControlDetected: (rid, cid, dec, runId, iter, rel) =>
+        void loopService.onControlDetected(rid, cid, dec, runId, iter, rel)
     });
 
     executorService = new ExecutorService({

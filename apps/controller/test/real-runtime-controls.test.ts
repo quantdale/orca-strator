@@ -99,7 +99,7 @@ function buildServices(tempDir: string): HarnessServices {
     repoStore, dispatchStore, solControlStore, gitClient, commitInspector,
     pollIntervalMs: 250,
     onDispatchDetected: (rid, did) => void loopService.onDispatchDetected(rid, did),
-    onControlDetected: (rid, cid, dec, runId) => void loopService.onControlDetected(rid, cid, dec, runId)
+    onControlDetected: (rid, cid, dec, runId, iter, rel) => void loopService.onControlDetected(rid, cid, dec, runId, iter, rel)
   });
   const executorService = new ExecutorService({
     repoStore, dispatchStore, executorStore, gitClient,
@@ -219,11 +219,10 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
     svc.watcherService.stop();
   }, 90000);
 
-  it.skip("emergency kill isolates per-repo: kill A leaves B to finish naturally", async () => {
-    // SKIPPED: Windows taskkill /T is flaky in parallel harness runs on this host; fast-tier unit
-    // tests prove per-repo isolation logically, real isolation will be documented.
-    void (true);
-    process.env.ORCA_SLOW_MS = "3000";
+  it("emergency kill isolates per-repo: kill A leaves B to finish naturally", async () => {
+    // Long enough that neither harness completes during the kill window, and A is
+    // killed while still mid-execution (no chance to commit a result).
+    process.env.ORCA_SLOW_MS = "8000";
     const a = makeBareAndClone(tempDir, "kill-a");
     const b = makeBareAndClone(tempDir, "kill-b");
     const repoA = makeRepo(a.bareDir, a.cloneDir, "repo-kill-a");
@@ -245,13 +244,28 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
     }
 
     svc.watcherService.start();
-    await waitForCondition(() => svc.loopService.getStatus(repoA.id).state === "EXECUTING" && svc.loopService.getStatus(repoB.id).state === "EXECUTING", 15000);
+    // Wait for A to be EXECUTING and ensure BOTH runners are registered before killing.
+    // The runner registers just after the child process spawns (executor-service.ts:224),
+    // while the 8s harness slow-sleep happens afterward — so this is fast and does NOT let
+    // A finish. It guards the "B still alive" / "A process terminated" assertions against the
+    // EXECUTING-set-before-runner-registered window (loop-service.ts:253-256).
+    await waitForCondition(
+      () =>
+        svc.loopService.getStatus(repoA.id).state === "EXECUTING" &&
+        (svc.executorService as any).activeRunners.has(repoA.id) &&
+        (svc.executorService as any).activeRunners.has(repoB.id),
+      15000
+    );
 
     await svc.loopService.emergencyKill(repoA.id);
     expect(svc.loopService.getStatus(repoA.id).state).toBe("RECOVERY_REQUIRED");
+    // A's executor process tree must be terminated, not merely flagged.
+    expect((svc.executorService as any).activeRunners.has(repoA.id)).toBe(false);
+    // Sibling B must still be alive and running.
     expect(svc.loopService.getStatus(repoB.id).state).toBe("EXECUTING");
+    expect((svc.executorService as any).activeRunners.has(repoB.id)).toBe(true);
 
-    // B must finish naturally even though A was killed — result consumed is proof
+    // B must finish naturally — result consumed is proof the sibling kill did not affect it.
     await waitForCondition(() => svc.dispatchStore.get(dB)?.status === "consumed", 40000);
     expect(svc.dispatchStore.get(dA)?.status).not.toBe("consumed");
     expect(svc.loopService.getStatus(repoA.id).state).toBe("RECOVERY_REQUIRED");
@@ -259,8 +273,10 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
     svc.watcherService.stop();
   }, 90000);
 
-  it.skip("accelerated clock: wall-clock deadline crossed does NOT kill active executor", async () => {
-    process.env.ORCA_SLOW_MS = "2500";
+  it("accelerated clock: wall-clock deadline crossed does NOT kill active executor", async () => {
+    // Slow window clearly longer than the ~1s it takes to spawn + cross the clock, so the
+    // executor is provably still alive when the wall clock crosses (it is NOT killed).
+    process.env.ORCA_SLOW_MS = "6000";
     const { bareDir, cloneDir } = makeBareAndClone(tempDir, "ceiling");
     const repo = makeRepo(bareDir, cloneDir, "repo-ceiling", { maxRuntimeMinutes: 1 });
     svc.repoStore.create(repo);
@@ -275,6 +291,10 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
 
     svc.watcherService.start();
     await waitForCondition(() => svc.loopService.getStatus(repo.id).state === "EXECUTING", 15000);
+    // Runner must be registered (child process spawned) before we cross the clock,
+    // otherwise the "actor NOT killed" assertion races the EXECUTING-set-before-launch
+    // window (loop-service.ts:253-256 set EXECUTING, executor-service.ts:224 registers).
+    await waitForCondition(() => (svc.executorService as any).activeRunners.has(repo.id), 8000);
 
     const active = svc.runStore.getActiveRun(repo.id)!;
     const past = new Date(Date.now() - 5 * 60 * 1000).toISOString();
@@ -284,9 +304,11 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
     const crossed = svc.loopService.checkWallClockCeiling(repo.id);
     expect(crossed).toBe(true);
     expect(svc.loopService.getStatus(repo.id).state).toBe("DRAINING");
+    // Executor must still be alive — wall-clock ceiling must NOT kill the actor.
     expect((svc.executorService as any).activeRunners.has(repo.id)).toBe(true);
 
-    await waitForCondition(() => svc.dispatchStore.get(dispatchId)?.status === "consumed", 30000);
+    // Executor finishes naturally; result committed and consumed; run drains to CEILING_REACHED, no Sol wake.
+    await waitForCondition(() => svc.dispatchStore.get(dispatchId)?.status === "consumed", 40000);
     await waitForCondition(() => svc.loopService.getStatus(repo.id).state === "CEILING_REACHED", 20000);
     expect(svc.wakeStore.getByRepository(repo.id).length - wakesBefore).toBe(0);
 

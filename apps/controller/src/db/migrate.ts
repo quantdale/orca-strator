@@ -184,6 +184,34 @@ export const migrations: Migration[] = [
         ALTER TABLE runs ADD COLUMN drain_reason TEXT CHECK (drain_reason IN ('USER_STOP','WALL_CLOCK_CEILING','ITERATION_CEILING'));
       `);
     }
+  },
+  {
+    version: 9,
+    name: "009_create_sol_operations",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sol_operations (
+          repository_id TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL,
+          iteration INTEGER NOT NULL,
+          wake_id TEXT NOT NULL,
+          dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
+          conversation_url TEXT NOT NULL,
+          repository_name TEXT NOT NULL,
+          result_status TEXT NOT NULL,
+          message TEXT NOT NULL,
+          submitted_at TEXT,
+          deadline INTEGER NOT NULL,
+          timeout_retry_count INTEGER NOT NULL DEFAULT 0,
+          busy_retry_count INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL CHECK (status IN ('active','stalled','completed')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sol_operations_run ON sol_operations(run_id);
+      `);
+    }
   }
 ];
 
