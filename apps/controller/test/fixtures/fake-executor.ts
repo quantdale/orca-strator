@@ -29,6 +29,8 @@ export class FakeChildProcess extends EventEmitter {
     }
 
     const duration = this.behavior.durationMs ?? 100;
+    // Emit spawn so ExecutorRunner.awaitSpawn resolves without fallback (#14)
+    setImmediate(() => this.emit("spawn" as any));
     this.timer = setTimeout(() => {
       this.exitCode = this.behavior.exitCode !== undefined ? this.behavior.exitCode : 0;
       this.emit("exit", this.exitCode);

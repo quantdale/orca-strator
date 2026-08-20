@@ -107,17 +107,13 @@ export class ExecutorRunner {
         settled = true;
         cleanup();
         this.handleLogLine(`[system] Executor spawn error: ${err?.message || String(err)}`);
+        // Clean up log resources after failed launch attempt (#14)
+        if (this.logStream) { try { this.logStream.end(); } catch {} this.logStream = null; }
         reject(err);
       };
       child.once("spawn", onSpawn);
       child.once("error", onError);
-      // Fake adapters and some harnesses never emit 'spawn'; if no error after a tick, assume success.
-      setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve();
-      }, 10);
+      // No fallback timer: real ChildProcess always emits spawn or error
     });
   }
 

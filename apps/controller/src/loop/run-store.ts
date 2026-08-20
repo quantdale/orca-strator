@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { RunRecord, LoopState } from "@orca/shared";
+import type { RunRecord, LoopState, DrainReason } from "@orca/shared";
 
 interface RunRow {
   id: string;
@@ -14,6 +14,7 @@ interface RunRow {
   finished_at: string | null;
   created_at: string;
   updated_at: string;
+  drain_reason?: DrainReason | null;
 }
 
 export class RunStore {
@@ -32,44 +33,72 @@ export class RunStore {
       startedAt: row.started_at,
       finishedAt: row.finished_at,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
+      drainReason: (row.drain_reason as DrainReason | null | undefined) ?? null
     };
   }
 
   create(run: RunRecord): void {
-    const stmt = this.db.prepare(`
+    const hasDrainReason = this.hasColumn("drain_reason");
+    const stmt = this.db.prepare(
+      hasDrainReason
+        ? `
+      INSERT INTO runs (
+        id, repository_id, goal, status,
+        current_iteration, max_iterations,
+        active_dispatch_id, last_error,
+        started_at, finished_at, created_at, updated_at, drain_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+        : `
       INSERT INTO runs (
         id, repository_id, goal, status,
         current_iteration, max_iterations,
         active_dispatch_id, last_error,
         started_at, finished_at, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      run.id,
-      run.repositoryId,
-      run.goal,
-      run.status,
-      run.currentIteration,
-      run.maxIterations,
-      run.activeDispatchId ?? null,
-      run.lastError ?? null,
-      run.startedAt,
-      run.finishedAt ?? null,
-      run.createdAt,
-      run.updatedAt
+    `
     );
+
+    if (hasDrainReason) {
+      stmt.run(
+        run.id,
+        run.repositoryId,
+        run.goal,
+        run.status,
+        run.currentIteration,
+        run.maxIterations,
+        run.activeDispatchId ?? null,
+        run.lastError ?? null,
+        run.startedAt,
+        run.finishedAt ?? null,
+        run.createdAt,
+        run.updatedAt,
+        run.drainReason ?? null
+      );
+    } else {
+      stmt.run(
+        run.id,
+        run.repositoryId,
+        run.goal,
+        run.status,
+        run.currentIteration,
+        run.maxIterations,
+        run.activeDispatchId ?? null,
+        run.lastError ?? null,
+        run.startedAt,
+        run.finishedAt ?? null,
+        run.createdAt,
+        run.updatedAt
+      );
+    }
   }
 
   get(id: string): RunRecord | null {
-    try {
-      const stmt = this.db.prepare("SELECT * FROM runs WHERE id = ?");
-      const row = stmt.get(id) as unknown as RunRow | undefined;
-      return row ? this.mapRow(row) : null;
-    } catch {
-      return null;
-    }
+    // Fix #11: do NOT swallow DB errors — surface them so they aren't misread as IDLE
+    const stmt = this.db.prepare("SELECT * FROM runs WHERE id = ?");
+    const row = stmt.get(id) as unknown as RunRow | undefined;
+    return row ? this.mapRow(row) : null;
   }
 
   getByRepository(repositoryId: string): RunRecord[] {
@@ -81,19 +110,15 @@ export class RunStore {
   }
 
   getActiveRun(repositoryId: string): RunRecord | null {
-    try {
-      const stmt = this.db.prepare(`
+    const stmt = this.db.prepare(`
         SELECT * FROM runs
         WHERE repository_id = ?
           AND status NOT IN ('GOAL_COMPLETE', 'BLOCKED', 'NEEDS_HUMAN', 'STOPPED', 'SOL_STALLED', 'EXECUTOR_UNAVAILABLE', 'ATTENTION_REQUIRED', 'RECOVERY_REQUIRED', 'CEILING_REACHED')
         ORDER BY started_at DESC
         LIMIT 1
       `);
-      const row = stmt.get(repositoryId) as unknown as RunRow | undefined;
-      return row ? this.mapRow(row) : null;
-    } catch {
-      return null;
-    }
+    const row = stmt.get(repositoryId) as unknown as RunRow | undefined;
+    return row ? this.mapRow(row) : null;
   }
 
   /** Most recent run for a repository, regardless of whether it is still active. */
@@ -116,6 +141,7 @@ export class RunStore {
       activeDispatchId?: string | null;
       lastError?: string | null;
       finishedAt?: string | null;
+      drainReason?: DrainReason | null;
     } = {}
   ): void {
     const now = new Date().toISOString();
@@ -130,13 +156,49 @@ export class RunStore {
       updates.lastError !== undefined ? updates.lastError : existing.lastError;
     const finishedAt =
       updates.finishedAt !== undefined ? updates.finishedAt : existing.finishedAt;
+    const drainReason =
+      updates.drainReason !== undefined ? updates.drainReason : existing.drainReason;
+    const hasCol = this.hasColumn("drain_reason");
 
-    const stmt = this.db.prepare(`
+    if (hasCol) {
+      const stmt = this.db.prepare(`
+      UPDATE runs
+      SET status = ?, current_iteration = ?, active_dispatch_id = ?, last_error = ?, finished_at = ?, updated_at = ?, drain_reason = ?
+      WHERE id = ?
+    `);
+      stmt.run(status, currentIteration, activeDispatchId, lastError, finishedAt, now, drainReason, id);
+    } else {
+      const stmt = this.db.prepare(`
       UPDATE runs
       SET status = ?, current_iteration = ?, active_dispatch_id = ?, last_error = ?, finished_at = ?, updated_at = ?
       WHERE id = ?
     `);
+      stmt.run(status, currentIteration, activeDispatchId, lastError, finishedAt, now, id);
+    }
+  }
 
-    stmt.run(status, currentIteration, activeDispatchId, lastError, finishedAt, now, id);
+  setDrainReason(id: string, reason: DrainReason): void {
+    if (!this.hasColumn("drain_reason")) return;
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`UPDATE runs SET drain_reason = ?, updated_at = ? WHERE id = ?`);
+    stmt.run(reason, now, id);
+  }
+
+  clearDrainReason(id: string): void {
+    this.setDrainReason(id, null);
+  }
+
+  getDrainReason(id: string): DrainReason {
+    const row = this.get(id);
+    return (row?.drainReason as DrainReason | null | undefined) ?? null;
+  }
+
+  private hasColumn(col: string): boolean {
+    try {
+      const rows = this.db.prepare(`PRAGMA table_info(runs)`).all() as { name: string }[];
+      return rows.some((r) => r.name === col);
+    } catch {
+      return false;
+    }
   }
 }

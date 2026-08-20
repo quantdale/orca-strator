@@ -24,7 +24,8 @@
     "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
     "test": "vitest run --exclude \"**/real-runtime-{qualification,controls,buildapp}.test.ts\"",
     "test:real": "npm --prefix apps/controller run test:real",
-    "playwright:status": "node -e \"import('./apps/controller/src/browser/provisioning.js').then(m=>m.getChromiumStatus().then(s=>console.log(JSON.stringify(s,null,2))))\"",
+    "browser:install": "npm --prefix apps/controller run browser:install",
+    "playwright:status": "npm --prefix apps/controller run playwright:status",
     "lint": "npm run lint --workspaces --if-present"
   },
   "devDependencies": {

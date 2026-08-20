@@ -41,7 +41,8 @@ describe("RunStore & SQLite Schema (Task 2)", () => {
     startedAt: "2026-08-19T12:00:00.000Z",
     finishedAt: null,
     createdAt: "2026-08-19T12:00:00.000Z",
-    updatedAt: "2026-08-19T12:00:00.000Z"
+    updatedAt: "2026-08-19T12:00:00.000Z",
+    drainReason: null
   };
 
   beforeEach(() => {

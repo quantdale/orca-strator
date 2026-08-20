@@ -18,6 +18,8 @@ export type LoopState =
   | "EXECUTOR_UNAVAILABLE"
   | "RECOVERY_REQUIRED";
 
+export type DrainReason = 'USER_STOP' | 'WALL_CLOCK_CEILING' | 'ITERATION_CEILING' | null;
+
 export interface RunRecord {
   id: string;
   repositoryId: string;
@@ -31,6 +33,7 @@ export interface RunRecord {
   finishedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  drainReason: DrainReason;
 }
 
 export interface StartRunParams {

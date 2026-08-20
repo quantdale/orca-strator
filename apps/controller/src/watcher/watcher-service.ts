@@ -151,7 +151,7 @@ export class WatcherService {
 
     let remoteHeadSha: string | null = null;
     try {
-      remoteHeadSha = await this.gitClient.getRemoteHeadSha(repo.githubRemote, "main");
+      remoteHeadSha = await this.gitClient.getRemoteHeadSha(repo.githubRemote, "main", ctx);
     } catch (err: any) {
       const errorMsg = err.message || "Failed to query remote HEAD";
       this.dispatchStore.upsertWatcherState({

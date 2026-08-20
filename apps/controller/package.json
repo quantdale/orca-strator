@@ -10,7 +10,8 @@
     "typecheck": "npm run build --workspace=@orca/shared && tsc -p tsconfig.json --noEmit",
     "test": "vitest run --exclude \"**/real-runtime-{qualification,controls,buildapp}.test.ts\"",
     "test:real": "vitest run test/real-runtime-qualification.test.ts test/real-runtime-controls.test.ts test/real-runtime-buildapp.test.ts --no-file-parallelism",
-    "playwright:status": "node --loader ts-node/esm -e \"import { getChromiumStatus } from './src/browser/provisioning.ts'; const s = await getChromiumStatus(); console.log(JSON.stringify(s, null, 2));\"",
+    "browser:install": "npx --yes playwright install chromium",
+    "playwright:status": "node -e \"import('./dist/browser/provisioning.js').then(m=>m.getChromiumStatus().then(s=>console.log(JSON.stringify(s,null,2)))).catch(e=>console.error(e.message))\"",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

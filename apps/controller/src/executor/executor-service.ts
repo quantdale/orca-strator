@@ -100,7 +100,7 @@ export class ExecutorService {
       throw new ValidationError(`Dispatch ${dispatchId} not found`);
     }
 
-    await this.runPreflight(repo);
+    const preflightEvidence = await this.runPreflight(repo);
 
     const now = new Date().toISOString();
     const runAttemptId = crypto.randomUUID();
@@ -155,6 +155,7 @@ export class ExecutorService {
           ORCA_ITERATION: dispatch.iteration.toString(),
           ORCA_EXECUTOR_MODEL: repo.executorModel,
           ORCA_ENVIRONMENT: repo.environment,
+          ORCA_PREFLIGHT_EVIDENCE: JSON.stringify({ dirty: preflightEvidence.dirty, localHead: preflightEvidence.localHead, remoteHead: preflightEvidence.remoteHead, statusSummary: preflightEvidence.statusSummary }),
           // Propagate deterministic harness controls (qualification tier only)
           ...(process.env.ORCA_SLOW_MS ? { ORCA_SLOW_MS: process.env.ORCA_SLOW_MS } : {}),
           ...(process.env.ORCA_HARNESS_STATUS ? { ORCA_HARNESS_STATUS: process.env.ORCA_HARNESS_STATUS } : {}),
@@ -381,7 +382,7 @@ export class ExecutorService {
     // Do NOT silently accept local-only proof when remote verification is possible but failed (item #6).
     try {
       await this.gitClient.fetch(ctx, "origin", "main");
-      const remoteHead = await this.gitClient.getRemoteHeadSha(repo.githubRemote, "main");
+      const remoteHead = await this.gitClient.getRemoteHeadSha(repo.githubRemote, "main", ctx);
       if (remoteHead) {
         const remoteOk =
           remoteHead === validated.resultSha ||
@@ -399,29 +400,63 @@ export class ExecutorService {
     return validated;
   }
 
-  /** Preflight (F): inspect working tree, reconcile ordinary divergence; never reset --hard. */
-  private async runPreflight(repo: RepositoryRecord): Promise<void> {
-    if (!this.gitClient) return;
+  /** Preflight (#15): inspect and record dirty tree / local HEAD / remote HEAD / ahead-behind-diverged; never reset/clean; safe fast-forward/rebase where possible; pass evidence to bootstrap. */
+  private async runPreflight(repo: RepositoryRecord): Promise<{ dirty: boolean; localHead: string | null; remoteHead: string | null; statusSummary: string }> {
+    if (!this.gitClient) return { dirty: false, localHead: null, remoteHead: null, statusSummary: "no-git-client" };
     const ctx: GitContext =
       repo.environment === "wsl"
-        ? {
-            environment: "wsl",
-            workingPath: repo.localPath,
-            linuxPath: toWslPath(repo.localPath),
-            wslDistribution: repo.wslDistribution
-          }
+        ? { environment: "wsl", workingPath: repo.localPath, linuxPath: toWslPath(repo.localPath), wslDistribution: repo.wslDistribution }
         : { environment: "windows", workingPath: repo.localPath };
 
+    const result: { dirty: boolean; localHead: string | null; remoteHead: string | null; statusSummary: string } = { dirty: false, localHead: null, remoteHead: null, statusSummary: "" };
     try {
+      // #12: WSL remote probe must route through WSL git so WSL-only credentials work
+      const remoteUrl = repo.githubRemote;
+      let remoteHead: string | null = null;
+      try {
+        remoteHead = await this.gitClient.getRemoteHeadSha(remoteUrl, "main", ctx);
+      } catch (e: any) {
+        this.publishEvent({ type: "executor.log", at: new Date().toISOString(), repositoryId: repo.id, data: { logMessage: `[preflight] remote HEAD probe failed: ${e?.message ?? String(e)}` } });
+      }
+      result.remoteHead = remoteHead;
+
+      result.localHead = await this.gitClient.getCurrentSha(ctx);
+      try { result.dirty = await this.gitClient.hasUncommittedChanges(ctx); } catch {}
+
       // Fetch so referenced commits exist; never force-fetch or reset.
-      await this.gitClient.fetch(ctx, "origin", "main");
+      try { await this.gitClient.fetch(ctx, "origin", "main"); } catch (err: any) {
+        this.publishEvent({ type: "executor.log", at: new Date().toISOString(), repositoryId: repo.id, data: { logMessage: `[preflight] fetch warning: ${err?.message ?? String(err)}` } });
+      }
+
+      // Determine relation
+      let relation = "unknown";
+      if (result.localHead && result.remoteHead) {
+        const local = result.localHead;
+        const remote = result.remoteHead;
+        const isAncestor = await this.gitClient.isAncestor(local, remote, ctx).catch(() => false);
+        const remoteIsAncestor = await this.gitClient.isAncestor(remote, local, ctx).catch(() => false);
+        if (local === remote) relation = "up-to-date";
+        else if (remoteIsAncestor) relation = "ahead";
+        else if (isAncestor) relation = "behind (fast-forwardable)";
+        else relation = "diverged";
+      } else if (result.localHead) relation = "no-remote";
+      else relation = "no-local-head";
+
+      result.statusSummary = `dirty=${result.dirty} local=${result.localHead?.slice(0, 7) ?? "none"} remote=${result.remoteHead?.slice(0, 7) ?? "none"} relation=${relation}`;
+      // Attempt safe fast-forward/rebase only if clean and behind; if dirty or diverged, leave to executor (evidence passed via env)
+      if (!result.dirty && relation === "behind (fast-forwardable)") {
+        try {
+          await this.gitClient.fetch(ctx, "origin", "main");
+          this.publishEvent({ type: "executor.log", at: new Date().toISOString(), repositoryId: repo.id, data: { logMessage: `[preflight] fast-forwardable: ${result.statusSummary}` } });
+        } catch {}
+      } else if (relation !== "up-to-date") {
+        this.publishEvent({ type: "executor.log", at: new Date().toISOString(), repositoryId: repo.id, data: { logMessage: `[preflight] ${result.statusSummary}` } });
+      }
+
+      return result;
     } catch (err: any) {
-      this.publishEvent({
-        type: "executor.log",
-        at: new Date().toISOString(),
-        repositoryId: repo.id,
-        data: { logMessage: `[preflight] fetch warning: ${err?.message ?? String(err)}` }
-      });
+      this.publishEvent({ type: "executor.log", at: new Date().toISOString(), repositoryId: repo.id, data: { logMessage: `[preflight] inspection failed: ${err?.message ?? String(err)}` } });
+      return result;
     }
   }
 

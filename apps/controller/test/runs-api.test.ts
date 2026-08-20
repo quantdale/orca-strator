@@ -100,28 +100,18 @@ describe("Run REST Endpoints (Task 5)", () => {
     expect(statusRes.json().status.activeActor).toBe("SOL");
   });
 
-  it("5.T3 POST /api/repositories/:id/runs/pause and /resume work", async () => {
+  it("5.T3 POST /api/repositories/:id/runs/pause is executor-only (SOL_REVIEWING yields 400), pause requires EXECUTING", async () => {
     await appInstance.fastify.inject({
       method: "POST",
       url: `/api/repositories/${mockRepo.id}/runs/start`,
-      payload: {
-        goal: "Control run"
-      }
+      payload: { goal: "Control run" }
     });
-
-    const pauseRes = await appInstance.fastify.inject({
+    // Pause while Sol is reviewing should be rejected (executor-only, Fix #6)
+    const pauseWhileSol = await appInstance.fastify.inject({
       method: "POST",
       url: `/api/repositories/${mockRepo.id}/runs/pause`
     });
-    expect(pauseRes.statusCode).toBe(200);
-    expect(pauseRes.json().status).toBe("paused");
-
-    const resumeRes = await appInstance.fastify.inject({
-      method: "POST",
-      url: `/api/repositories/${mockRepo.id}/runs/resume`
-    });
-    expect(resumeRes.statusCode).toBe(200);
-    expect(resumeRes.json().status).toBe("resumed");
+    expect(pauseWhileSol.statusCode).toBe(400);
   });
 
   it("5.T4 POST /api/repositories/:id/runs/stop stops active run", async () => {

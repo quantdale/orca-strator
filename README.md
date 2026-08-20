@@ -117,9 +117,9 @@ All nine V1 milestones are **implemented in code**. V1 is currently **NOT YET QU
 
 Honest status (this machine):
 
-- **MACHINE-QUALIFIED** — real autonomous pipeline via production `buildApp` (Q.APP.1) plus service-graph `Q.WIN.1`/`Q.WIN.WSL.1`; Windows/WSL Git adapters; deterministic harness with slow mode; executor result contract with semantic validation + nonzero-exit preservation; honest Tailscale detection; secret-redacted event stream; startup rehydration; Chromium provisioning (`chromium-1234` present); Kimi 0.34.0 / Codex 0.147.0 invocation syntax verified; Pause/Resume/Stop/Kill + wall-clock ceiling (slow harness).
-- **SIMULATION-TESTED** — B/F/J portions covered by mock/fake tests where real external wiring not yet exercised end-to-end here.
-- **UNQUALIFIED** — real Kimi/Codex execution with auth/inference, real ChatGPT wake (browser auth), and Tailscale phone-route (Tailscale not installed; honestly `not_installed`).
+- **MACHINE-QUALIFIED** — production `buildApp` lifecycle (Q.APP.1) + service-graph `Q.WIN.1`/`Q.WIN.WSL.1`/`Q.WIN.3`; Windows/WSL Git adapters (WSL remote probe via `wsl.exe`); deterministic harness (slow mode, `ORCA_SLOW_MS`, `ORCA_RECOVERY`, graceful Stop naturally, isolated emergency kill, ceiling no-kill); executor result contract with semantic validation + nonzero-exit preservation + retryable postflight; Sol-boundary drain completion (dispatch is boundary); strict dispatch correlation (stale/wrong-run rejected); drainReason persistence + wall-clock / SOL rehydration; PaUSE is executor-only; honest Tailscale detection; secret-redacted event stream; Chromium provisioning (`chromium-1234` present via `browser:install`) + `provisioning.ts`; Kimi 0.34.0 (`-m/-p`) / Codex 0.147.0 (`codex exec -m --json`) verified.
+- **SIMULATION-TESTED** — thin remaining coverage where real external wiring not yet exercised end-to-end here; Playwright busy/auth/ATTENTION spurs and artificial divergence cases.
+- **UNQUALIFIED** — real Kimi/Codex execution with auth/inference burn, real ChatGPT-authenticated wake (browser auth), and Tailscale phone-route (Tailscale `not_installed`; honestly not faked).
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 

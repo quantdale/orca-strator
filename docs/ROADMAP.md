@@ -38,17 +38,19 @@ V1 was reopened as **NOT YET QUALIFIED** and is being hardened under
 | --- | --- |
 | A. Production buildApp lifecycle (watcher auto-start, enabled/disabled, shutdown) | **MACHINE-QUALIFIED** (`Q.APP.1`) |
 | A/C/E/Q.1-4/Q.10 service-graph pipeline (watcher→loop→executor→result→loop→Sol) | **MACHINE-QUALIFIED** (`Q.WIN.1`, `Q.WIN.WSL.1`, `Q.WIN.3`) |
-| C. Windows/WSL Git adapters | **MACHINE-QUALIFIED** |
-| D. Executor profiles + launch handshake | **MACHINE-QUALIFIED** (Kimi 0.34.0 `-m -p`, Codex 0.147.0 `exec -m --json`, WSL node v18 verified; no quota burn) |
-| E. Executor result contract (manifest + postflight) | **MACHINE-QUALIFIED** (includes semantic validation, nonzero-exit preservation) |
-| G. Wall-clock ceiling separation + drain | **MACHINE-QUALIFIED** (accelerated-clock + slow harness) |
-| H. Sol control markers | **MACHINE-QUALIFIED** (`Q.APP.1` control half) |
-| I. Pause/Resume/Stop/Kill | **MACHINE-QUALIFIED** (slow harness: partial preserved, SAME dispatch, recovery, isolation) |
-| K. Playwright provisioning | **MACHINE-QUALIFIED** (Chromium `chromium-1234` present + `GET /api/system/provisioning`) |
-| M/N/O. Startup rehydration / status / secret-redacted logs | **MACHINE-QUALIFIED** |
+| C. Windows/WSL Git adapters (WSL remote probe via `wsl.exe`) | **MACHINE-QUALIFIED** (WSL-aware `GitClient.getRemoteHeadSha(ctx)`) |
+| D. Executor profiles + launch handshake | **MACHINE-QUALIFIED** (Kimi 0.34.0 `-m -p`, Codex 0.147.0 `exec -m --json`, WSL node v18 verified; 3× ENOENT retry, single post-spawn, once-only callback) |
+| E. Executor result contract (manifest + postflight) | **MACHINE-QUALIFIED** (semantic runId/dispatchId/iteration/baseSha/cli/model/env + ancestry + retryable postflight) |
+| F. Git preflight divergence contract | **IMPLEMENTED** (dirty/localHead/remoteHead/relation inspected, never hard-reset, `ORCA_PREFLIGHT_EVIDENCE` to executor; fast gate `loop-drain-correlation` + real controls) |
+| G. Wall-clock ceiling separation + drain | **MACHINE-QUALIFIED** (dispatch is actor boundary, `drainReason` persisted, wall-clock + SOL rehydrated, Stop/ceiling complete at dispatch/control) |
+| H. Sol control markers | **MACHINE-QUALIFIED** (`Q.APP.1` control half + `loop-drain-correlation` `GOAL_COMPLETE`) |
+| I. Pause/Resume/Stop/Kill | **MACHINE-QUALIFIED** (slow harness: pause→`PAUSED` + resume SAME dispatch `ORCA_RECOVERY=true`, graceful Stop drains naturally, emergency kill isolates) — `pause` is executor-only (400) |
+| J. Browser profile ownership | **SIMULATION-TESTED** |
+| K. Playwright provisioning | **MACHINE-QUALIFIED** (`browser:install` + `GET /api/system/provisioning`, Chromium `chromium-1234` present) |
+| L. ChatGPT wake lifecycle | **IMPLEMENTED + bounded BUSY→SOL_STALLED, ATTENTION_REQUIRED distinct** (scoped banners only, no body scrape; transport mocked) |
+| M/N/O. Startup rehydration / status / secret-redacted logs | **MACHINE-QUALIFIED** (includes `reconciledCount` tolerance for DB-closed surfaced errors) |
 | P. Tailscale status truthfulness | **MACHINE-QUALIFIED** (honestly `not_installed` here) |
-| L. ChatGPT wake lifecycle (Sol coordinator) | **IMPLEMENTED** (page-lifecycle coordinator + timeout/retry/busy/auth; transport boundary mocked) |
-| B/F/J | **SIMULATION-TESTED** (thin remaining coverage) |
+| B | **SIMULATION-TESTED** (poll/rev-list/idempotency) |
 | Q.9 Tailscale phone route, ChatGPT auth, real model inference burn | **UNQUALIFIED** (external deps absent; explicitly not faked) |
 
 The production buildApp gate (`Q.APP.1`) and the service-graph gate (`Q.WIN.1/WSL.1/3`) together prove the pipeline; neither is conflated with the other. Remaining `UNQUALIFIED` items are the truly external ChatGPT/Tailscale/inference dependencies.

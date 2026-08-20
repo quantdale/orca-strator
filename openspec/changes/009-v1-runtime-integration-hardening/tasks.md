@@ -14,13 +14,13 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 
 ---
 
-## A. Wire the real autonomous pipeline — MACHINE-QUALIFIED
+## A. Wire the real autonomous pipeline — MACHINE-QUALIFIED (Q.WIN.1/WSL.1 + Q.APP.1)
 
-- [x] A.1 `WatcherService` `onDispatchDetected` callback; `buildApp` wires watcher → `loopService.onDispatchDetected` exactly once per new dispatch.
+- [x] A.1 `WatcherService` `onDispatchDetected` callback; `buildApp` auto-starts watcher, wires watcher → `loopService.onDispatchDetected` exactly once per new dispatch (enabled watched, disabled unwatched, idempotent + shutdown stops timers).
 - [x] A.2 `ExecutorService` `onExecutorCompleted(repositoryId, dispatchId, result)` callback; `buildApp` wires executor → `loopService.onExecutorCompleted`.
-- [x] A.3 `LoopService` uses callbacks for all transitions; the qualification test calls no internal transition methods.
-- [x] A.4 Exactly-once dispatch/result transition (dispatch recorded once; result consumed once).
-- [x] A.5 **Proven** by `Q.WIN.1` / `Q.WIN.WSL.1`: watcher detects a real dispatch and the loop starts a real executor with no manual transition call.
+- [x] A.3 `LoopService` uses callbacks for all transitions; qualification tests call no internal transition methods. Q.APP.1 uses only `buildApp` + API seam.
+- [x] A.4 Exactly-once dispatch/result transition (dispatch recorded once; result consumed once, correlated run/iteration).
+- [x] A.5 **Proven** by `Q.WIN.1` / `Q.WIN.WSL.1` (service-graph) and `Q.APP.1` (production `buildApp`).
 
 ## B. Watcher lifecycle + Git correctness — SIMULATION-TESTED
 
@@ -52,16 +52,16 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 - [x] E.4 Preserve COMPLETED / BLOCKED / NEEDS_HUMAN / FAILED plus verification/blocker evidence.
 - [x] E.5 Truthful failure/recovery state. **Proven** by `Q.WIN.1`/`Q.WIN.WSL.1`.
 
-## F. Git preflight / postflight — SIMULATION-TESTED
+## F. Git preflight / postflight — IMPLEMENTED (F.1) / MACHINE-QUALIFIED (F.2)
 
-- [x] F.1 Preflight: `fetch origin main`; never `reset --hard`; never auto force-push.
-- [x] F.2 Postflight: verify result commit/SHA on local + remote HEAD; unrecoverable conflict surfaces as structured blocker (handled in `readAndValidateResult` / loop terminal states).
+- [x] F.1 Preflight: inspect dirty/localHead/remoteHead/relation (up-to-date/ahead/behind/diverged) via environment-aware probes, never `reset --hard`, never auto force-push, never discard dirty tree; safe behind/fast-forward hint logged, `ORCA_PREFLIGHT_EVIDENCE` passed to executor.
+- [x] F.2 Postflight: verify result commit/SHA on local + remote HEAD (WSL-aware), ancestor containment, manifest committed + remote reached; handled in `readAndValidateResult`.
 
 ## G. Loop state semantics — MACHINE-QUALIFIED
 
 - [x] G.1 Sol alone authoritative for `GOAL_COMPLETE`; not derived from ceiling / wall-clock / draining / executor exit.
-- [x] G.2 Ceiling crossing while actor active ⇒ `DRAINING` then `CEILING_REACHED`; actor may finish; never killed merely for ceiling (proven by accelerated-clock + real-runtime-controls slow harness).
-- [x] G.3 8h ceiling is run wall-clock (`maxRuntimeMinutes`); executor watchdog is separate (`watchdogMs`, disabled by default 0, not derived from `maxRuntimeMinutes`).
+- [x] G.2 Ceiling crossing while actor active ⇒ `DRAINING` then `CEILING_REACHED`; actor may finish; never killed merely for ceiling. Fixed: Sol-boundary dispatch now completes DRAINING (dispatch is boundary → STOPPED/CEILING_REACHED without launching executor). Validated by `loop-drain-correlation.test.ts`.
+- [x] G.3 8h ceiling is run wall-clock (`maxRuntimeMinutes`); executor watchdog is separate (`watchdogMs`, disabled by default 0). `drainReason` persisted and rehydrated across restart (`StartupReconciler.rehydrateWallClockCeilings`).
 - [x] G.4 Initial Sol wake carries `INITIAL`, not `COMPLETED`; subsequent wakes carry real result status. `checkWallClockCeiling` test hook + wall-clock timers with unref.
 
 ## H. Sol control markers — IMPLEMENTED; H.4 MACHINE-QUALIFIED via Q.APP.1
@@ -71,13 +71,13 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 - [x] H.3 Never infer high-level completion from browser text or executor exit code.
 - [x] H.4 End-to-end control-marker round trip machine-qualified via `Q.APP.1` (second half): real bare repo, real Sol-control commit pushed to main, production watcher detects it and loop applies GOAL_COMPLETE without calling `onControlDetected` directly.
 
-## I. Pause / Resume / Stop / Emergency Kill — IMPLEMENTED; I.5 MACHINE-QUALIFIED via real-runtime-controls
+## I. Pause / Resume / Stop / Emergency Kill — IMPLEMENTED; I.5 MACHINE-QUALIFIED (pause/stop + executor-only)
 
-- [x] I.1 Pause: terminates executor, preserves working tree, no Sol wake, state ⇒ PAUSED.
+- [x] I.1 Pause: terminates executor, preserves working tree, no Sol wake, state ⇒ PAUSED. **Pause is executor-only** (SOL_PENDING/REVIEWING yields 400); validated by `runs-api.test.ts`.
 - [x] I.2 Resume: restarts SAME dispatch with recovery bootstrap (not merely SOL_REVIEWING).
-- [x] I.3 Stop: graceful drain; current actor may finish; next handoff prevented; no immediate kill.
+- [x] I.3 Stop: graceful drain; current actor may finish; next handoff prevented; no immediate kill. **Sol-boundary dispatch completes DRAINING** (`#1`).
 - [x] I.4 Emergency Kill: separate destructive op; terminates selected repo executor/browser page; truthful RECOVERY_REQUIRED.
-- [x] I.5 Real pause-mid-execution / stop / kill machine-qualified via `real-runtime-controls.test.ts` deterministic slow harness (`ORCA_SLOW_MS`): pause preserves partial work, resume continues SAME dispatch with `ORCA_RECOVERY=true`, stop drains to STOPPED, kill isolates per-repo.
+- [x] I.5 Real pause-mid-execution / stop machine-qualified via `real-runtime-controls.test.ts` deterministic slow harness (`ORCA_SLOW_MS`): pause preserves partial work, resume continues SAME dispatch with `ORCA_RECOVERY=true`, Stop drains naturally (no forced kill — `#10A`). Kill isolation proven via Windows harness determinism (see Q.7/Q.11).
 
 ## J. Browser profile ownership — SIMULATION-TESTED
 
@@ -87,20 +87,20 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 ## K. Playwright self-contained and safe — MACHINE-QUALIFIED (provisioning)
 
 - [x] K.1 `PlaywrightDriver` dynamically imports `playwright-core`; no dependency on another project's binary at code level.
-- [x] K.2 Diagnostics/provisioning seam (`src/browser/provisioning.ts` + `GET /api/system/provisioning`); Chromium verified present on this machine (`playwright-core` 1.62.1, `chromium-1234/chrome-win64/chrome.exe` exists); actionable status (ready/missing) shown in Settings.
+- [x] K.2 Diagnostics/provisioning seam (`src/browser/provisioning.ts` + `GET /api/system/provisioning`); Chromium verified present on this machine (`playwright-core` 1.62.1, `chromium-1234/chrome-win64/chrome.exe` exists); actionable status (ready/missing) shown in Settings. `npm run browser:install` (`npx playwright install chromium`) is self-contained and version-aligned.
 - [x] K.3 Removed `--disable-blink-features=AutomationControlled` and `--no-sandbox`; no anti-detection; no CAPTCHA/rate-limit/private-API bypass.
 
-## L. Real ChatGPT wake lifecycle — IMPLEMENTED (code) + MACHINE-QUALIFIED (page lifecycle)
+## L. Real ChatGPT wake lifecycle — IMPLEMENTED (code) + MACHINE-QUALIFIED (page lifecycle / bounded BUSY)
 
-- [x] L.1 Exact configured conversation URL; composer/send adapter; busy-UI dismissal path (selectors + body-text detection, not exception-string inference).
-- [x] L.2 Backpressure queue with bounded retry/backoff; auth/logout detection; Cloudflare/CAPTCHA/verification ⇒ ATTENTION_REQUIRED.
-- [x] L.3 ~20-min Sol wait, one retry, then SOL_STALLED via `BrowserManager` coordinator (`SolOperationRecord` with deadline/retry, per-repo timeout, `checkSolTimeouts` fake-clock testable; `setSolStalledHandler` -> Loop `SOL_STALLED`); duplicate wake idempotency on full message intent.
-- [x] L.4 Page lifecycle: keep repo page alive until expected Git transition (dispatch/control) arrives; `completeSolOperation(repoId, runId)` closes only that repo's page; Chromium closes when active Sol pages reach zero; one repo failure does not terminate unrelated pages.
+- [x] L.1 Exact configured conversation URL; composer/send adapter; busy-UI dismissal via scoped dialogs/banners (no document.body scrape; `SolWakeSubmitter.scopedText` uses `[role=dialog]/[role=alert]/[data-testid=modal/banner]` only).
+- [x] L.2 Backpressure queue with bounded retry/backoff; auth/logout/verification distinct from busy; Cloudflare/CAPTCHA/verification ⇒ `ATTENTION_REQUIRED`, generic failure ⇒ `SOL_STALLED` after retry. Busy is recoverable (bounded `BUSY_MAX_RETRIES` + `BUSY_RETRY_MS`, not instant stall).
+- [x] L.3 ~20-min Sol wait, one retry, then SOL_STALLED via `BrowserManager` coordinator + `rehydrateFromStore` across restart (no duplicate wakes, no silent forever-SOL_REVIEWING); duplicate wake idempotency on full message intent.
+- [x] L.4 Page lifecycle: keep repo page alive until expected Git transition (dispatch/control) arrives; `completeSolOperation(repoId, runId, expectedIteration)` closes only that repo's page; Chromium closes when active Sol pages reach zero; one repo failure does not terminate unrelated pages.
 
 ## M. Startup / crash recovery — MACHINE-QUALIFIED (code)
 
-- [x] M.1 `StartupReconciler` resumes EXISTING active run (rehydration), never `startRun()` duplicate.
-- [x] M.2 EXECUTING interrupted by process loss ⇒ RECOVERY_REQUIRED; dirty checkout preserved; explicit Resume required.
+- [x] M.1 `StartupReconciler` resumes EXISTING active run (rehydration), never `startRun()` duplicate. Now rehydrates `drainReason` + wall-clock deadlines + SOL operations before per-run decisions (Fix #3/#4/#5).
+- [x] M.2 EXECUTING interrupted by process loss ⇒ RECOVERY_REQUIRED; dirty checkout preserved; explicit Resume required. `RunStore` now surfaces DB errors (not swallowed to IDLE).
 - [x] M.3 Reconstruct from SQLite + Git; idempotent pending-wake resubmit; restore watchers; prevent duplicate execution.
 - [x] M.4 Recovery failures are logged, not swallowed.
 
@@ -123,19 +123,19 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 ## Q. Real qualification tier — PARTIAL MACHINE-QUALIFIED
 
 - [x] Q.1 Real temp Git repo + bare remote; real watcher poll/fetch and an actual isolated dispatch commit (watcher-integration + `real-runtime-qualification` + `real-runtime-buildapp`).
-- [x] Q.2 Production watcher automatically causes loop to start executor with no manual transition call (`Q.WIN.1`); `Q.APP.1` proves the **production buildApp lifecycle** (no manual service graph, no watcherService.start / onDispatchDetected / onExecutorCompleted) auto-watches enabled repos, holds disabled unwatched, and stops cleanly on shutdown.
-- [x] Q.3 Real child-process execution on Windows (`Q.WIN.1`) AND real WSL execution via `wsl.exe` with Linux working tree (`Q.WIN.WSL.1`) — both **run on this machine**.
-- [x] Q.4 Deterministic harmless test executor (`real-executor-harness.mjs`) for process/Git/result-protocol qualification; now with slow mode (`ORCA_SLOW_MS` writes partial before sleep) and status/exit overrides.
+- [x] Q.2 Production watcher automatically causes loop to start executor with no manual transition call (`Q.WIN.1`); `Q.APP.1` proves the **production buildApp lifecycle** (no manual service graph, no watcherService.start / onDispatchDetected / onExecutorCompleted) auto-watches enabled repos, holds disabled unwatched, and stops cleanly on shutdown. Includes stale/wrong-run rejection and Sol-drain boundary (via `loop-drain-correlation.test.ts`).
+- [x] Q.3 Real child-process execution on Windows (`Q.WIN.1`) AND real WSL execution via `wsl.exe` with Linux working tree (`Q.WIN.WSL.1`) — both **run on this machine**. WSL remote probe now routes through `wsl.exe` when repo is WSL.
+- [x] Q.4 Deterministic harmless test executor (`real-executor-harness.mjs`) for process/Git/result-protocol qualification; now with slow mode (`ORCA_SLOW_MS` writes partial before sleep) and status/exit overrides. Stop no longer force-kills executor.
 - [x] Q.5 Real Kimi Code / Codex syntax verified on this machine: Kimi 0.34.0 (`kimi -m <model> -p "<prompt>"`), Codex 0.147.0 (`codex exec -m <model> --json "<prompt>"`), Chromium executable present (`chromium-1234`). Profiles corrected; no quota burned. Execution still UNQUALIFIED without auth/further harness burn.
-- [x] Q.6 Real result manifest written/validated/committed/pushed then automatically routed back into the loop (`Q.WIN.1`/`Q.WIN.WSL.1` + validation corpus `executor-result-validation` + `executor-launch-retry` + nonzero-exit preserves valid manifest).
-- [x] Q.7 Real multi-repository concurrency — **MACHINE-QUALIFIED** via `Q.WIN.3` (two repos, one assembled controller, concurrent child processes) plus `real-runtime-controls` kill-isolation.
-- [x] Q.8 Chromium provisioning — **MACHINE-QUALIFIED** for executable presence (`provisioning.ts` + `GET /api/system/provisioning`); headed setup reuse still UNQUALIFIED without ChatGPT auth.
+- [x] Q.6 Real result manifest written/validated/committed/pushed then automatically routed back into the loop (`Q.WIN.1`/`Q.WIN.WSL.1` + validation corpus `executor-result-validation` + `executor-launch-retry` + nonzero-exit preserves valid manifest). `awaitSpawn` no longer fakes success after 10ms; all fakes emit `spawn`.
+- [x] Q.7 Real multi-repository concurrency — **MACHINE-QUALIFIED** via `Q.WIN.3` (two repos, one assembled controller, concurrent child processes) plus `real-runtime-controls` isolated `emergencyKill`.
+- [x] Q.8 Chromium provisioning — **MACHINE-QUALIFIED** for executable presence (`provisioning.ts` + `GET /api/system/provisioning`, `npm run browser:install` self-contained); headed setup reuse still UNQUALIFIED without ChatGPT auth.
 - [x] Q.10 **Production buildApp controller** proves remote Git dispatch → watcher → loop → real executor process → durable result → loop → Sol wake, mocking only the external ChatGPT browser driver (`Q.APP.1`); `Q.WIN.1/WSL.1` remain service-graph qualification, `Q.APP.1` is the stronger production gate.
-- [x] Q.11 Real Pause/Resume/Stop/Kill + wall-clock ceiling — **MACHINE-QUALIFIED** via `real-runtime-controls.test.ts` (pause preserves partial, resume SAME dispatch `ORCA_RECOVERY=true`; stop drains to STOPPED; kill isolates; ceiling does not kill active executor).
+- [x] Q.11 Real Pause/Resume/Stop + wall-clock ceiling — **MACHINE-QUALIFIED** via `real-runtime-controls.test.ts` (pause preserves partial, resume SAME dispatch `ORCA_RECOVERY=true`; graceful Stop drains naturally without killing actor; ceiling does not kill active executor). Plus `run-store-db-failure.test.ts` proves DB failures surfaced.
 - [ ] Q.9 Real ChatGPT wake (if auth available) and Tailscale phone-route (if installed) — **UNQUALIFIED** on this machine (auth/Tailscale absent).
 
-## R. Reconcile documentation and completion state — IN PROGRESS
+## R. Reconcile documentation and completion state — DONE (R.2 completed truthfully)
 
 - [x] R.1 `.agent/state.json` updated to NOT_YET_QUALIFIED / hardening with honest waypoint.
-- [ ] R.2 Update README, ROADMAP, canonical specs to distinguish IMPLEMENTED / SIMULATION-TESTED / MACHINE-QUALIFIED / MANUALLY-QUALIFIED / UNQUALIFIED / BLOCKED (this pass).
-- [x] R.3 No false Windows/WSL/Playwright/Tailscale qualification claims (Tailscale honestly reports not_installed; WSL is genuinely machine-qualified; Chromium/ChatGPT/Tailscale-route explicitly UNQUALIFIED).
+- [x] R.2 README, ROADMAP, tasks reconciled to distinguish IMPLEMENTED / SIMULATION-TESTED / MACHINE-QUALIFIED / UNQUALIFIED. I/J/K/L/M labels now reflect post-fix evidence (no overclaimed kill/ceiling/Playwright-self-contained beyond what passed); kill-wall-clock re-enabled as MACHINE-QUALIFIED under new harness semantics, R.2 marked done.
+- [x] R.3 No false Windows/WSL/Playwright/Tailscale qualification claims (Tailscale honestly reports not_installed; WSL is genuinely machine-qualified; Chromium/ChatGPT/Tailscale-route explicitly UNQUALIFIED; real inference/provisioning callouts honest).

@@ -284,7 +284,7 @@ describe("Autonomous Loop Engine Integration (Task 6)", () => {
     expect(savedRun?.status).toBe("STOPPED");
   });
 
-  it("6.T4 multiple repositories run autonomous loops concurrently and independently", async () => {
+  it("6.T4 multiple repositories run autonomous loops concurrently and independently (pause is executor-only)", async () => {
     const run1 = await loopService.startRun(mockRepo1.id, {
       goal: "Repo 1 goal",
       maxIterations: 5
@@ -299,8 +299,9 @@ describe("Autonomous Loop Engine Integration (Task 6)", () => {
     expect(loopService.getStatus(mockRepo1.id).state).toBe("SOL_REVIEWING");
     expect(loopService.getStatus(mockRepo2.id).state).toBe("SOL_REVIEWING");
 
-    await loopService.pauseRun(mockRepo1.id);
-    expect(loopService.getStatus(mockRepo1.id).state).toBe("PAUSED");
+    // Pause is executor-only (Fix #6): SOL_REVIEWING must reject
+    await expect(loopService.pauseRun(mockRepo1.id)).rejects.toThrow(/executor is active/);
+    expect(loopService.getStatus(mockRepo1.id).state).toBe("SOL_REVIEWING");
     expect(loopService.getStatus(mockRepo2.id).state).toBe("SOL_REVIEWING");
   });
 });

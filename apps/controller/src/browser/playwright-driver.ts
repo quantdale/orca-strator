@@ -50,14 +50,6 @@ export class PlaywrightPageWrapper implements BrowserPage {
     }
   }
 
-  async getBodyText(): Promise<string> {
-    try {
-      return (await this.page.locator("body").textContent()) ?? "";
-    } catch {
-      return "";
-    }
-  }
-
   async dismissIfPresent(selector: string): Promise<boolean> {
     try {
       const loc = this.page.locator(selector).first();

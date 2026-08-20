@@ -73,13 +73,33 @@ export class GitClient {
     return this.runProc("git", args, ctx ? ctx.workingPath : undefined);
   }
 
-  async getRemoteHeadSha(remoteUrl: string, branch: string = "main"): Promise<string | null> {
+  async getRemoteHeadSha(
+    remoteUrlOrCtx: string | GitContext,
+    branch: string = "main",
+    ctx?: GitContext
+  ): Promise<string | null> {
+    // Fix #12: WSL repositories must probe remote via wsl git so WSL-only credentials work
+    let remoteUrl: string;
+    let probeCtx: GitContext | undefined;
+    if (typeof remoteUrlOrCtx === "string" && typeof ctx === "object" && ctx !== null) {
+      remoteUrl = remoteUrlOrCtx;
+      probeCtx = ctx;
+    } else if (typeof remoteUrlOrCtx === "object" && remoteUrlOrCtx !== null) {
+      // Called as getRemoteHeadSha(ctx, branch) - remote inferred from ctx
+      remoteUrl = (remoteUrlOrCtx as any).remoteUrl ?? branch;
+      probeCtx = remoteUrlOrCtx as GitContext;
+      branch = "main";
+    } else {
+      remoteUrl = remoteUrlOrCtx as string;
+    }
+
     try {
-      const output = await this.runProc("git", [
-        "ls-remote",
-        remoteUrl,
-        `refs/heads/${branch}`
-      ]);
+      let output: string;
+      if (probeCtx && probeCtx.environment === "wsl") {
+        output = await this.runGit(["ls-remote", remoteUrl, `refs/heads/${branch}`], probeCtx);
+      } else {
+        output = await this.runProc("git", ["ls-remote", remoteUrl, `refs/heads/${branch}`]);
+      }
       if (!output) return null;
       const match = output.match(/^([0-9a-fA-F]{40})\s+/);
       return match && match[1] ? match[1].toLowerCase() : null;

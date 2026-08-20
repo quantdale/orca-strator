@@ -253,15 +253,14 @@ export class BrowserManager {
   /**
    * FIX #9: Mark Sol operation complete for a repository when expected Git transition arrives.
    * Called by LoopService.onDispatchDetected / onControlDetected. Correlated to run/iteration
-   * via the stored SolOperationRecord; if runId mismatches, no-op (stale).
-   * Closes only that repository's page; if no active Sol pages remain, closes Chromium.
+   * and expected transition iteration (not just runId) where available.
    */
-  async completeSolOperation(repositoryId: string, runId?: string): Promise<void> {
+  async completeSolOperation(repositoryId: string, runId?: string, expectedIteration?: number): Promise<void> {
     const op = this.solOperations.get(repositoryId);
     if (!op) return;
-    if (runId && op.runId !== runId) return; // correlated to correct run only
+    if (runId && op.runId !== runId) return;
+    if (expectedIteration !== undefined && op.iteration + 1 !== expectedIteration) return;
 
-    // Clear timeout handle for this repository
     const handle = this.solTimeoutHandles.get(repositoryId);
     if (handle) {
       clearTimeout(handle);
@@ -327,6 +326,91 @@ export class BrowserManager {
   /** For tests: expose pending operations */
   getSolOperations(): Map<string, SolOperationRecord> {
     return new Map(this.solOperations);
+  }
+
+  /** Rehydrate SOL_REVIEWING / pending Sol operations after restart (Fix #5). No duplicate wakes. */
+  async rehydrateFromStore(runStore: { getActiveRun: (repoId: string)=>any; getByRepository?: (repoId:string)=>any }, opts?: { repoIds?: string[] }): Promise<void> {
+    const ids = opts?.repoIds ?? (this.wakeStore as any)?._repoIds ?? [];
+    // Fallback: iterate wakeStore.getByRepository for known repos via repoIds param
+    const repoIds: string[] = ids.length ? ids : [];
+    // If no explicit list, try to discover from wakeStore by scanning known keys if available
+    // Otherwise rely on caller to pass repoIds; BrowserManager doesn't own RunStore list, we also clear/ rebuild from wakeStore submitted entries
+    for (const repoId of repoIds) {
+      const wake = this.wakeStore.getByRepository(repoId).find((w:any)=> w.status==='submitted');
+      if (!wake) continue;
+      const run = runStore.getActiveRun(repoId);
+      if (!run) continue;
+      if (run.status !== 'SOL_REVIEWING' && run.status !== 'SOL_PENDING') continue;
+      if (this.solOperations.has(repoId)) continue;
+      // reconstruct deadline from submittedAt + timeout
+      const submittedMs = wake.submittedAt ? new Date(wake.submittedAt).getTime() : Date.now();
+      const deadline = submittedMs + this.solTimeoutMs;
+      const nowMs = Date.now();
+      if (nowMs >= deadline) {
+        // First deadline passed without transition: one permitted retry idempotently
+        if (nowMs < deadline + this.solTimeoutMs) {
+          // Single retry window still open – perform retry idempotently (submitter may use hasSelector/getText only)
+          try {
+            const repoName = run.goal?.slice(0,40) || repoId;
+            // We don't have repo displayName here; use wake message parsing or fallback
+            await this.retrySolWake({
+              repositoryId: repoId,
+              runId: run.id,
+              iteration: run.currentIteration,
+              wakeId: wake.id,
+              submittedAt: wake.submittedAt || new Date().toISOString(),
+              deadline: deadline + this.solTimeoutMs,
+              retryCount: 0,
+              conversationUrl: wake.conversationUrl,
+              repositoryName: repoName,
+              dispatchId: wake.dispatchId,
+              resultStatus: 'INITIAL' as any,
+            });
+            const newDeadline = Date.now() + this.solTimeoutMs;
+            this.solOperations.set(repoId, {
+              repositoryId: repoId,
+              runId: run.id,
+              iteration: run.currentIteration,
+              wakeId: wake.id,
+              submittedAt: new Date().toISOString(),
+              deadline: newDeadline,
+              retryCount: 1,
+              conversationUrl: wake.conversationUrl,
+              repositoryName: repoName,
+              dispatchId: wake.dispatchId,
+              resultStatus: 'INITIAL' as any,
+            });
+            this.scheduleSolTimeout(repoId, this.solOperations.get(repoId)!);
+          } catch {
+            // Retry failed – fall through to stalled if second deadline also passes
+            if (nowMs >= deadline + this.solTimeoutMs) {
+              this.wakeStore.updateStatus(wake.id, 'failed', { errorMessage: 'Sol operation timed out after restart (retry failed) – SOL_STALLED' });
+              if (this.onSolStalled) { try { await this.onSolStalled(repoId, run.id, 'Sol operation timed out after restart – SOL_STALLED'); } catch {} }
+            }
+          }
+        } else {
+          // Both deadlines passed -> SOL_STALLED
+          this.wakeStore.updateStatus(wake.id, 'failed', { errorMessage: 'Sol operation timed out after restart (no retry window) – SOL_STALLED' });
+          if (this.onSolStalled) { try { await this.onSolStalled(repoId, run.id, 'Sol operation timed out after restart – SOL_STALLED'); } catch {} }
+        }
+        continue;
+      }
+      // Within first deadline: resume waiting
+      this.solOperations.set(repoId, {
+        repositoryId: repoId,
+        runId: run.id,
+        iteration: run.currentIteration,
+        wakeId: wake.id,
+        submittedAt: wake.submittedAt || new Date().toISOString(),
+        deadline,
+        retryCount: 0,
+        conversationUrl: wake.conversationUrl,
+        repositoryName: run.goal?.slice(0,40)||repoId,
+        dispatchId: wake.dispatchId,
+        resultStatus: 'INITIAL' as any,
+      });
+      this.scheduleSolTimeout(repoId, this.solOperations.get(repoId)!);
+    }
   }
 
   /** For tests: inject fake time without real timeout */

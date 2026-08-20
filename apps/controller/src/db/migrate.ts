@@ -175,6 +175,15 @@ export const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_sol_controls_control ON sol_controls(control_id);
       `);
     }
+  },
+  {
+    version: 8,
+    name: "008_add_drain_reason",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE runs ADD COLUMN drain_reason TEXT CHECK (drain_reason IN ('USER_STOP','WALL_CLOCK_CEILING','ITERATION_CEILING'));
+      `);
+    }
   }
 ];
 

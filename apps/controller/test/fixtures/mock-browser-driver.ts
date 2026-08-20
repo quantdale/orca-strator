@@ -43,10 +43,6 @@ export class MockBrowserPage implements BrowserPage {
     return null;
   }
 
-  async getBodyText(): Promise<string> {
-    return this.bodyText;
-  }
-
   async dismissIfPresent(selector: string): Promise<boolean> {
     if (this.visibleSelectors.has(selector)) {
       this.visibleSelectors.delete(selector);

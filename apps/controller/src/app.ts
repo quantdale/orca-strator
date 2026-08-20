@@ -140,7 +140,7 @@ export async function buildApp(
     }
   });
 
-  const reconciler = new StartupReconciler(store, runStore, loopService);
+  const reconciler = new StartupReconciler(store, runStore, loopService, browserManager);
   await reconciler.reconcile();
 
   // Production watcher lifecycle (Fix #1): every existing enabled repository
