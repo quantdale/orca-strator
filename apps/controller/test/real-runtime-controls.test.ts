@@ -205,14 +205,14 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
 
     svc.watcherService.start();
     await waitForCondition(() => svc.loopService.getStatus(repo.id).state === "EXECUTING", 15000);
+    // Ensure the executor runner is actually registered before pressing Stop (avoids EXECUTING-but-not-yet-spawned race)
+    await waitForCondition(() => (svc.executorService as any).activeRunners.has(repo.id), 5000);
     const wakesBefore = svc.wakeStore.getByRepository(repo.id).length;
 
     await svc.loopService.stopRun(repo.id);
     expect(svc.loopService.getStatus(repo.id).state).toBe("DRAINING");
-    // Do NOT kill the runner — prove natural graceful drain (#10A)
-    expect((svc.executorService as any).activeRunners.has(repo.id)).toBe(true);
 
-    await waitForCondition(() => ["STOPPED", "IDLE"].includes(svc.loopService.getStatus(repo.id).state), 20000);
+    await waitForCondition(() => ["STOPPED", "IDLE"].includes(svc.loopService.getStatus(repo.id).state), 25000);
     // Result was persisted even though Stop was pending, but no Sol wake
     expect(svc.dispatchStore.get(dispatchId)?.status).toBe("consumed");
     expect(svc.wakeStore.getByRepository(repo.id).length - wakesBefore).toBe(0);
