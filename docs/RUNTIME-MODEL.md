@@ -467,3 +467,21 @@ and `DENY` decisions are recorded with an enforcement label. `ASK` produces
 actionable attention; it is never an invisible indefinite block. Absolute
 invariants (no force-push by default, no dirty-work discard, no secret commit)
 remain in force regardless of preset.
+
+## 17. Usage and scheduler policy
+
+Usage is optional evidence, not a completion signal. A native adapter/provider
+may publish structured tokens, latency, retry/rate-limit, and cost values. A
+generic adapter with no reliable source remains `UNKNOWN`; absence is never
+converted into zero usage or estimated cost.
+
+The scheduler is an explicit admission foundation for future intra-repository
+fan-out. Null limits mean unlimited, so independent repositories do not wait on
+an Orca-wide cap by default. A queued decision names the configured limit and
+records when it becomes runnable. Recovery marks unconfirmed leases
+`STALE_RECOVERABLE`; it never treats a lost lease as completed work.
+
+Role/model policy is explicit configuration only. A matching named rule may
+select an exact future role executor/model; without one, the repository's
+configured primary is returned unchanged. Sol and hidden heuristics cannot
+switch the primary model.

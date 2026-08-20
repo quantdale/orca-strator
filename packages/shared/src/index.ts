@@ -11,3 +11,6 @@ export * from "./sol-wake.js";
 export * from "./loop.js";
 export * from "./operational-intelligence.js";
 export * from "./permissions.js";
+export * from "./usage-telemetry.js";
+export * from "./scheduler-policy.js";
+export * from "./role-model-policy.js";

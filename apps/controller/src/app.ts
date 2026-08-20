@@ -37,6 +37,13 @@ import { PermissionStore } from './permissions/permission-store.js';
 import { PermissionPolicyService } from './permissions/permission-policy-service.js';
 import { campaignRoutes } from './http/routes/campaigns.js';
 import { operationalIntelligenceRoutes } from './http/routes/operational-intelligence.js';
+import { usageSchedulerRoutes } from './http/routes/usage-scheduler.js';
+import { UsageTelemetryStore } from './usage/usage-telemetry-store.js';
+import { UsageTelemetryService } from './usage/usage-telemetry-service.js';
+import { SchedulerPolicyStore } from './scheduler/scheduler-policy-store.js';
+import { SchedulerService } from './scheduler/scheduler-service.js';
+import { RoleModelPolicyStore } from './scheduler/role-model-policy-store.js';
+import { RoleModelPolicyService } from './scheduler/role-model-policy-service.js';
 
 import type { BrowserDriver } from './browser/browser-driver.js';
 
@@ -61,6 +68,12 @@ export interface AppInstance {
   capabilityProbeService: CapabilityProbeService;
   permissionStore: PermissionStore;
   permissionPolicyService: PermissionPolicyService;
+  usageStore: UsageTelemetryStore;
+  usageTelemetryService: UsageTelemetryService;
+  schedulerPolicyStore: SchedulerPolicyStore;
+  schedulerService: SchedulerService;
+  roleModelPolicyStore: RoleModelPolicyStore;
+  roleModelPolicyService: RoleModelPolicyService;
 }
 
 export async function buildApp(
@@ -88,14 +101,22 @@ export async function buildApp(
   const runStore = new RunStore(dbContext.db);
   const eventBus = new EventBus();
   const repositoryService = new RepositoryService(store, eventBus);
+  const capabilityStore = new CapabilityStore(dbContext.db);
   const runPolicyStore = new RunPolicyStore(dbContext.db);
   const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);
+  const usageStore = new UsageTelemetryStore(dbContext.db);
+  const usageTelemetryService = new UsageTelemetryService(
+    usageStore,
+    (event) => eventBus.publish(event),
+    (repositoryId) => capabilityStore.markUsageTelemetry(repositoryId, "READY")
+  );
   const campaignLedgerService = new CampaignLedgerService(
     dbContext.db,
     store,
     runStore,
     runPolicyStore,
-    campaignLedgerStore
+    campaignLedgerStore,
+    usageStore
   );
   eventBus.subscribe((event) => {
     campaignLedgerService.recordEvent(event);
@@ -103,13 +124,16 @@ export async function buildApp(
 
   const gitClient = new GitClient();
   const commitInspector = new CommitInspector(gitClient);
-  const capabilityStore = new CapabilityStore(dbContext.db);
   const capabilityProbeService = new CapabilityProbeService({
     store: capabilityStore,
     gitClient,
     eventPublisher: (event) => eventBus.publish(event)
   });
   const permissionStore = new PermissionStore(dbContext.db);
+  const schedulerPolicyStore = new SchedulerPolicyStore(dbContext.db);
+  const schedulerService = new SchedulerService(schedulerPolicyStore);
+  const roleModelPolicyStore = new RoleModelPolicyStore(dbContext.db);
+  const roleModelPolicyService = new RoleModelPolicyService(roleModelPolicyStore);
   const permissionPolicyService = new PermissionPolicyService({
     store: permissionStore,
     attentionHandler: (decision) => {
@@ -162,6 +186,7 @@ export async function buildApp(
     gitClient,
     dataDir: config.dataDir,
     runPolicyStore,
+    usageTelemetryService,
     onExecutorCompleted: (repositoryId, dispatchId, result) => {
       void loopService.onExecutorCompleted(repositoryId, dispatchId, result);
     },
@@ -233,6 +258,12 @@ export async function buildApp(
     runPolicyStore,
     runStore
   ));
+  await fastify.register(usageSchedulerRoutes(
+    repositoryService,
+    usageTelemetryService,
+    schedulerService,
+    roleModelPolicyService
+  ));
   await fastify.register(systemRoutes(config.port, browserManager));
   await fastify.register(websocketRoutes(eventBus));
 
@@ -272,6 +303,12 @@ export async function buildApp(
     capabilityStore,
     capabilityProbeService,
     permissionStore,
-    permissionPolicyService
+    permissionPolicyService,
+    usageStore,
+    usageTelemetryService,
+    schedulerPolicyStore,
+    schedulerService,
+    roleModelPolicyStore,
+    roleModelPolicyService
   };
 }

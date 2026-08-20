@@ -496,3 +496,20 @@ Focused coverage includes:
 Real WSL/Git probe coverage is machine-qualified only when a usable WSL
 distribution and repository are actually exercised; otherwise the result stays
 UNQUALIFIED rather than being inferred from a Windows test.
+
+## 17. Change 011 usage/scheduler/role matrix
+
+Focused coverage includes:
+
+- exact, estimated, partial, unknown, and invalid usage records;
+- adapter usage capture only from structured native data, with no UI scraping;
+- campaign/iteration usage correlation and SQLite restart persistence;
+- unlimited default admission across independent repositories;
+- explicit total/provider/model limits, queue reasons, runnable timestamps,
+  release, and stale admission recovery;
+- role rule exact resolution, repository-default fallback, duplicate/PRIMARY
+  rejection, and no dynamic routing;
+- API/UI display of unknown usage and transparent policy identity.
+
+No Change 011 test claims provider spend or model inference qualification when a
+reliable provider telemetry source is unavailable.

@@ -338,6 +338,24 @@ packets, isolated temporary worktrees/branches, integration semantics, crash
 recovery, and deterministic qualification are complete. Single-agent remains
 the default strategy.
 
+## D-041 — Usage is evidence, never inference
+
+**Decision:** Persist usage and cost only from reliable structured
+executor/provider sources. Unknown remains unknown; estimated cost is visibly
+estimated; Orca never scrapes fragile UI output or invents token/cost values.
+
+## D-042 — Scheduler limits are explicit and unlimited by default
+
+**Decision:** The scheduler foundation records transparent admission/queue
+decisions, but nullable limits mean independent repositories remain runnable
+without an Orca-wide cap unless the user configures one.
+
+## D-043 — Role/model routing is user-authored only
+
+**Decision:** A named role may resolve to an exact user-authored executor/model
+rule. Without that rule, the repository's configured primary executor/model is
+returned unchanged. Sol and hidden heuristics cannot switch quotas/models.
+
 ## How to revise a locked decision
 
 If a locked decision must change:

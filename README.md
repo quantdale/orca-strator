@@ -209,11 +209,11 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 ### Implementation checkpoint
 
 - Completed: [`openspec/changes/010-operational-intelligence-executor-capabilities/`](openspec/changes/010-operational-intelligence-executor-capabilities/)
-- Next: `011-usage-telemetry-scheduler-policy` for trustworthy usage telemetry
-  and explicit scheduler/role policy foundations.
+- Completed: [`openspec/changes/011-usage-telemetry-scheduler-policy/`](openspec/changes/011-usage-telemetry-scheduler-policy/)
 
-Change 010 is complete and internally machine-qualified; Change 011 activates
-after this checkpoint is committed and pushed.
+Change 010 and Change 011 are complete and internally machine-qualified; the
+next checkpoint activates Change 012 for typed work packets and qualified
+parallel-writer isolation.
 
 Post-V1 evolution is being implemented as focused sequential changes. The
 historical OpenFlow-inspired exploration is explicitly non-binding; see the

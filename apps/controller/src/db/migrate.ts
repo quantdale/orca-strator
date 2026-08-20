@@ -310,6 +310,100 @@ export const migrations: Migration[] = [
           ADD COLUMN completion_wait_ms INTEGER NOT NULL DEFAULT 1200000;
       `);
     }
+  },
+  {
+    version: 14,
+    name: "014_create_usage_metrics",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS usage_metrics (
+          id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+          iteration INTEGER,
+          dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
+          executor_run_id TEXT REFERENCES executor_runs(id) ON DELETE SET NULL,
+          executor TEXT NOT NULL,
+          provider TEXT,
+          model TEXT NOT NULL,
+          input_tokens REAL,
+          cached_input_tokens REAL,
+          output_tokens REAL,
+          reasoning_tokens REAL,
+          request_count REAL,
+          latency_ms REAL,
+          retry_count REAL,
+          rate_limit_events REAL,
+          exact_cost REAL,
+          estimated_cost REAL,
+          currency TEXT,
+          cost_status TEXT NOT NULL CHECK (cost_status IN ('EXACT', 'ESTIMATED', 'UNKNOWN')),
+          source TEXT NOT NULL CHECK (source IN ('NATIVE_EXECUTOR', 'PROVIDER_RESPONSE', 'STRUCTURED_RESULT', 'UNKNOWN')),
+          recorded_at TEXT NOT NULL,
+          notes TEXT,
+          CHECK (NOT (exact_cost IS NOT NULL AND estimated_cost IS NOT NULL)),
+          CHECK (cost_status != 'EXACT' OR exact_cost IS NOT NULL),
+          CHECK (cost_status != 'ESTIMATED' OR estimated_cost IS NOT NULL),
+          CHECK (cost_status != 'UNKNOWN' OR (exact_cost IS NULL AND estimated_cost IS NULL))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_usage_metrics_repo_time
+          ON usage_metrics(repository_id, recorded_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_usage_metrics_run_iteration
+          ON usage_metrics(run_id, iteration, recorded_at ASC);
+      `);
+    }
+  },
+  {
+    version: 15,
+    name: "015_create_scheduler_policy_and_decisions",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS scheduler_policies (
+          id TEXT PRIMARY KEY CHECK (id = 'default'),
+          policy_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS scheduler_decisions (
+          id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+          iteration INTEGER,
+          executor TEXT NOT NULL,
+          provider TEXT,
+          model TEXT NOT NULL,
+          kind TEXT NOT NULL CHECK (kind IN ('PRIMARY_EXECUTOR', 'SUBAGENT')),
+          status TEXT NOT NULL CHECK (status IN ('ADMITTED', 'QUEUED', 'REJECTED', 'RELEASED', 'STALE_RECOVERABLE')),
+          blocked_by TEXT,
+          reason TEXT NOT NULL,
+          queued_at TEXT,
+          runnable_at TEXT,
+          resolved_at TEXT,
+          policy_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_scheduler_decisions_created
+          ON scheduler_decisions(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_scheduler_decisions_request
+          ON scheduler_decisions(request_id, created_at DESC);
+      `);
+    }
+  },
+  {
+    version: 16,
+    name: "016_create_role_model_policies",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS role_model_policies (
+          repository_id TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+          policy_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+    }
   }
 ];
 

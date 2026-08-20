@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import type { CampaignDetail, CampaignSummary, ExecutorCapabilitySnapshot, PhaseBudgetPolicy, AutonomyPermissionPolicy, PermissionDecision } from "@orca/shared";
+import type { CampaignDetail, CampaignSummary, ExecutorCapabilitySnapshot, PhaseBudgetPolicy, AutonomyPermissionPolicy, PermissionDecision, SchedulerDecision, SchedulerPolicy, RoleModelPolicy, UsageSummary } from "@orca/shared";
 import { apiClient } from "../lib/api-client.js";
 
 interface OperationalIntelligencePanelProps {
@@ -19,22 +19,34 @@ export const OperationalIntelligencePanel: React.FC<OperationalIntelligencePanel
   const [policy, setPolicy] = useState<PhaseBudgetPolicy | null>(null);
   const [permissionPolicy, setPermissionPolicy] = useState<AutonomyPermissionPolicy | null>(null);
   const [decisions, setDecisions] = useState<PermissionDecision[]>([]);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [schedulerPolicy, setSchedulerPolicy] = useState<SchedulerPolicy | null>(null);
+  const [schedulerDecisions, setSchedulerDecisions] = useState<SchedulerDecision[]>([]);
+  const [rolePolicy, setRolePolicy] = useState<RoleModelPolicy | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [campaignResult, capabilityResult, policyResult, permissionResult] = await Promise.all([
+      const [campaignResult, capabilityResult, policyResult, permissionResult, usageResult, schedulerResult, schedulerDecisionResult, roleResult] = await Promise.all([
         apiClient.listCampaigns(repositoryId),
         apiClient.getExecutorCapabilities(repositoryId),
         apiClient.getPhasePolicy(repositoryId),
-        apiClient.getPermissions(repositoryId)
+        apiClient.getPermissions(repositoryId),
+        apiClient.getUsage(repositoryId),
+        apiClient.getSchedulerPolicy(),
+        apiClient.getSchedulerDecisions(),
+        apiClient.getRoleModelPolicy(repositoryId)
       ]);
       setCampaigns(campaignResult.campaigns);
       setCapability(capabilityResult.capability);
       setPolicy(policyResult.policy);
       setPermissionPolicy(permissionResult.policy);
       setDecisions(permissionResult.decisions);
+      setUsage(usageResult.summary);
+      setSchedulerPolicy(schedulerResult.policy);
+      setSchedulerDecisions(schedulerDecisionResult.decisions.filter((decision) => decision.repositoryId === repositoryId));
+      setRolePolicy(roleResult.policy);
       const latest = campaignResult.campaigns[0];
       if (latest) {
         const detail = await apiClient.getCampaign(repositoryId, latest.run.id);
@@ -124,6 +136,41 @@ export const OperationalIntelligencePanel: React.FC<OperationalIntelligencePanel
             {decisions.length === 0 && <span className="text-xs text-slate-600">No decisions recorded.</span>}
           </div>
           <p className="mt-3 text-[10px] text-slate-600">Generic CLIs are advisory unless a native permission API is advertised.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Usage telemetry</h4>
+          <p className="mt-3 text-xs text-slate-500">Only structured provider/executor values are counted.</p>
+          <dl className="mt-3 space-y-2 text-xs">
+            <div className="flex justify-between"><dt className="text-slate-500">Metrics</dt><dd className="text-slate-200">{usage?.metricCount ?? 0} · {usage?.unknownMetricCount ?? 0} unknown</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">Tokens</dt><dd className="text-slate-200">{usage?.inputTokens === null || usage?.inputTokens === undefined ? "UNKNOWN" : usage.inputTokens} in / {usage?.outputTokens === null || usage?.outputTokens === undefined ? "UNKNOWN" : usage.outputTokens} out</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">Cost</dt><dd className="text-right text-slate-200">{usage?.exactCost !== null && usage?.exactCost !== undefined ? `EXACT ${usage.exactCost}` : usage?.estimatedCost !== null && usage?.estimatedCost !== undefined ? `ESTIMATED ${usage.estimatedCost}` : "UNKNOWN"}</dd></div>
+          </dl>
+        </div>
+
+        <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Scheduler policy</h4>
+            <span className="rounded border border-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{schedulerPolicy?.preset ?? "—"}</span>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">Null limits are unlimited; independent repositories are not globally capped.</p>
+          <div className="mt-3 space-y-1.5 text-xs text-slate-300">
+            <div>Total sessions: {schedulerPolicy?.totalActiveInferenceSessions ?? "UNLIMITED"}</div>
+            <div>Provider/model: {schedulerPolicy?.perProviderConcurrency ?? "UNLIMITED"} / {schedulerPolicy?.perModelConcurrency ?? "UNLIMITED"}</div>
+            <div>Decisions: {schedulerDecisions.length} · queued {schedulerDecisions.filter((decision) => decision.status === "QUEUED").length}</div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Explicit role/model policy</h4>
+          <p className="mt-3 text-xs text-slate-500">No rule means the repository configuration remains primary.</p>
+          <div className="mt-3 space-y-1.5 text-xs text-slate-300">
+            <div>Primary: repository default</div>
+            <div>Explicit roles: {rolePolicy?.rules.length ?? 0}</div>
+            {rolePolicy?.rules.slice(0, 3).map((rule) => <div key={rule.role} className="font-mono text-[10px] text-cyan-300">{rule.role} → {rule.executorCli} / {rule.model}</div>)}
+          </div>
         </div>
       </div>
 

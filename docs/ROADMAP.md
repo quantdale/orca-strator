@@ -505,17 +505,19 @@ UNQUALIFIED as before.
 
 OpenSpec: `011-usage-telemetry-scheduler-policy`
 
-Status: **next / OpenSpec to activate**
+Status: **complete / MACHINE-QUALIFIED internally**
 
 Deliverables: trustworthy partial usage/cost telemetry, transparent optional
 scheduler limits that do not cap independent repositories by default, and
-explicit user-authored role/model routing foundations.
+explicit user-authored role/model routing foundations. Fast 183/183 tests,
+real 12/12 qualification tests, typecheck, build, and lint passed. Provider
+telemetry and real model inference remain external/UNQUALIFIED where absent.
 
 ### Milestone 11 — Typed work packets and writer isolation
 
 OpenSpec: `012-typed-work-packets-isolation`
 
-Status: **planned**
+Status: **next / OpenSpec to activate**
 
 Deliverables: versioned packet/result envelopes, persisted Git worktree/temporary
 branch lifecycle, deterministic integration/reconciliation, and partial-failure

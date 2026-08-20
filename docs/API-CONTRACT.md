@@ -436,3 +436,27 @@ NON_INFERENCE and never spend model quota implicitly.
 Permission checks return outcome, rationale, actionable state, and enforcement
 type. An `ASK` result creates a durable decision/event for user attention; it is
 not an indefinite hidden wait.
+
+## 18. Usage and explicit scheduling endpoints
+
+Change 011 adds:
+
+```text
+GET  /api/repositories/:id/usage
+GET  /api/repositories/:id/campaigns/:runId/usage
+GET  /api/scheduler/policy
+PUT  /api/scheduler/policy
+GET  /api/scheduler/decisions
+POST /api/scheduler/admission
+POST /api/scheduler/release
+POST /api/scheduler/recover
+GET  /api/repositories/:id/role-model-policy
+PUT  /api/repositories/:id/role-model-policy
+POST /api/repositories/:id/role-model-policy/resolve
+```
+
+Usage responses preserve null/unknown fields and expose exact versus estimated
+cost separately. Scheduler responses include the policy snapshot and exact
+limiting dimension/reason for queued or rejected work. The default policy has
+no global/provider/model/repository limit. Role resolution reports
+`EXPLICIT_RULE` or `REPOSITORY_DEFAULT`; it never performs hidden routing.

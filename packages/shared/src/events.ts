@@ -19,6 +19,7 @@ export type EventType =
   | "sol.operation_completed"
   | "loop.state_changed"
   | "executor.capability_probed"
+  | "executor.usage_recorded"
   | "permission.decision"
   | "budget.expired";
 

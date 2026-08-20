@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "IMPLEMENTING",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 9,
-  "activeChange": "010-operational-intelligence-executor-capabilities",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+  "activeMilestone": 10,
+  "activeChange": "011-usage-telemetry-scheduler-policy",
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 010 is implemented and folded into canonical operational-intelligence specs. The durable campaign ledger/read models, honest STATIC/NON_INFERENCE capability probes, capability-aware adapter seam, effective phase budgets, and executor-neutral permission policy preserve Change 009 behavior. The remaining ChatGPT-authenticated wake, Tailscale phone route, and real inference burn remain honestly UNQUALIFIED.",
-    "updatedAt": "2026-08-20T15:10:00+08:00",
-    "lastCompletedTask": "Change 010 implementation, focused Windows/WSL qualification, canonical spec fold, and documentation reconciliation complete.",
-    "lastVerification": "npm test GREEN: 41 files / 179 tests; npm run test:real GREEN: 4 files / 12 tests including Windows and WSL capability probes; npm run typecheck, npm run build, npm run lint, and git diff --check passed."
+    "summary": "Change 010 is implemented, folded, committed as eb68985, and pushed to origin/main. Change 011 is implemented and folded into canonical usage/scheduler specs; it preserves unlimited independent-repository defaults, trustworthy unknown telemetry, and explicit user-owned role routing.",
+    "updatedAt": "2026-08-20T15:35:00+08:00",
+    "lastCompletedTask": "Change 011 implementation, focused usage/scheduler/role tests, API/UI integration, canonical spec fold, and documentation reconciliation complete.",
+    "lastVerification": "Change 011 gates: npm test 42 files / 183 tests; npm run test:real 4 files / 12 tests; npm run typecheck, npm run build, npm run lint, and git diff --check passed."
   },
-  "nextAction": "Commit and push the completed Change 010 checkpoint to main, then create and activate Change 011 for trustworthy usage telemetry, explicit scheduler policy, and explicit user-authored role/model policy foundations.",
+  "nextAction": "Commit and push the completed Change 011 checkpoint to main, then create and activate Change 012 for typed work packets, isolated worktrees, integration/reconciliation, and partial-failure semantics.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",

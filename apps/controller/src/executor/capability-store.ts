@@ -67,6 +67,20 @@ export class CapabilityStore {
     return rows.map((row) => this.map(row));
   }
 
+  markUsageTelemetry(repositoryId: string, readiness: "READY" | "UNKNOWN"): void {
+    const latest = this.latest(repositoryId);
+    if (!latest) return;
+    const snapshot = {
+      ...latest.snapshot,
+      rich: { ...latest.snapshot.rich, usageTelemetry: readiness }
+    };
+    this.db.prepare(`
+      UPDATE executor_capability_probes
+      SET snapshot_json = ?
+      WHERE id = ?
+    `).run(JSON.stringify(snapshot), latest.id);
+  }
+
   private map(row: CapabilityRow): StoredCapabilityProbe {
     let snapshot: ExecutorCapabilitySnapshot;
     try {

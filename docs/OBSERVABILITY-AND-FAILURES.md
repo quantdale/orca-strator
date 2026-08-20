@@ -352,3 +352,16 @@ Executor readiness is a separate capability snapshot. Probe level and last
 probe time are always visible, and auth/model state remains UNKNOWN when a
 provider response was not safely obtained. Usage/cost fields are deliberately
 not fabricated by this change.
+
+## 18. Usage and scheduler evidence
+
+Change 011 adds structured `usage_metrics` and scheduler decision records to the
+operational evidence model. Usage values identify executor/provider/model and
+retain nullable partial fields. Exact and estimated cost are separate statuses;
+an unavailable provider metric is `UNKNOWN`, not a fabricated zero.
+
+Scheduler queue evidence includes request ID, repository/run/iteration,
+policy snapshot, status, limiting dimension, reason, queued time, runnable time,
+and restart recovery state. The default policy is explicitly unlimited for
+independent repositories. Role resolution records whether an explicit
+user-authored rule or repository default supplied the identity.

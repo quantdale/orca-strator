@@ -18,6 +18,7 @@ import type { DispatchStore } from "../watcher/dispatch-store.js";
 import type { GitClient, GitContext } from "../watcher/git-client.js";
 import type { ExecutorStore } from "./executor-store.js";
 import type { RunPolicyStore } from "../loop/run-policy-store.js";
+import type { UsageTelemetryService } from "../usage/usage-telemetry-service.js";
 import type { ExecutorAdapter } from "./adapters/executor-adapter.js";
 import { WindowsPowerShellAdapter } from "./adapters/windows-adapter.js";
 import { WslAdapter } from "./adapters/wsl-adapter.js";
@@ -41,6 +42,7 @@ export interface ExecutorServiceOptions {
   /** Separate executor watchdog in ms; 0/disabled by default. Wall-clock ceiling does NOT kill executor. */
   executorWatchdogMs?: number;
   runPolicyStore?: RunPolicyStore;
+  usageTelemetryService?: UsageTelemetryService;
   /** Production wiring: called when an executor turn finishes (valid result or null). */
   onExecutorCompleted?: (
     repositoryId: string,
@@ -63,6 +65,7 @@ export class ExecutorService {
   private readonly wslAdapter: ExecutorAdapter;
   private readonly executorWatchdogMs: number;
   private readonly runPolicyStore?: RunPolicyStore;
+  private readonly usageTelemetryService?: UsageTelemetryService;
   private readonly onExecutorCompleted?: (
     repositoryId: string,
     dispatchId: string,
@@ -82,6 +85,7 @@ export class ExecutorService {
     this.wslAdapter = options.wslAdapter || new WslAdapter();
     this.executorWatchdogMs = options.executorWatchdogMs ?? 0;
     this.runPolicyStore = options.runPolicyStore;
+    this.usageTelemetryService = options.usageTelemetryService;
     this.onExecutorCompleted = options.onExecutorCompleted;
     this.eventPublisher = options.eventPublisher;
   }
@@ -160,8 +164,9 @@ export class ExecutorService {
       environment: repo.environment
     });
 
+    const adapter = repo.environment === "wsl" ? this.wslAdapter : this.windowsAdapter;
     const runner = new ExecutorRunner({
-      adapter: repo.environment === "wsl" ? this.wslAdapter : this.windowsAdapter,
+      adapter,
       context: {
         command: invocation.command,
         args: invocation.args,
@@ -233,11 +238,11 @@ export class ExecutorService {
         // Handle async completion with safe guard against closed DB (test teardown).
         if (details.reason === "PAUSED" || details.wasPaused) {
           // Persist result if present but do NOT wake Sol; leave PAUSED for resume.
-          this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode).catch(() => {});
+          this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch(() => {});
           return;
         }
 
-        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode).catch(() => {});
+        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch(() => {});
       }
     });
 
@@ -314,7 +319,9 @@ export class ExecutorService {
     dispatchId: string,
     finalStatus: "completed" | "failed" | "timed_out" | "paused" | "killed",
     _details: { timedOut: boolean; wasKilled: boolean; wasPaused: boolean; reason?: string },
-    exitCode?: number | null
+    exitCode?: number | null,
+    adapter?: ExecutorAdapter,
+    executorRunId?: string
   ): Promise<void> {
     // PAUSED is not an error completion path – just persist if present, do not trigger recovery.
     if (finalStatus === "paused") {
@@ -353,6 +360,22 @@ export class ExecutorService {
         failureReason: result ? undefined : "INVALID_OR_INCOMPLETE_RESULT"
       }
     });
+
+    if (adapter && executorRunId && this.usageTelemetryService) {
+      const repo = this.repoStore.get(repositoryId);
+      const dispatch = this.dispatchStore.get(dispatchId);
+      if (repo && dispatch) {
+        await this.usageTelemetryService.captureAdapterUsage(adapter, {
+          repositoryId,
+          runId: dispatch.runId,
+          iteration: dispatch.iteration,
+          dispatchId,
+          executorRunId,
+          executor: repo.executorCli,
+          model: repo.executorModel
+        });
+      }
+    }
 
     if (this.onExecutorCompleted) {
       this.onExecutorCompleted(repositoryId, dispatchId, result);

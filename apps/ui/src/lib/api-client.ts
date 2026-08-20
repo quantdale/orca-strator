@@ -13,7 +13,13 @@ import type {
   AutonomyPermissionPolicy,
   PermissionDecision,
   PermissionAction,
-  PermissionEvaluation
+  PermissionEvaluation,
+  UsageMetric,
+  UsageSummary,
+  SchedulerDecision,
+  SchedulerPolicy,
+  RoleModelPolicy,
+  RoleModelResolution
 } from "@orca/shared";
 
 export class ApiError extends Error {
@@ -194,6 +200,35 @@ export function createApiClient(baseUrl = "") {
         body: JSON.stringify({ action })
       });
       return handleResponse<{ evaluation: PermissionEvaluation }>(res);
+    },
+
+    async getUsage(id: string): Promise<{ metrics: UsageMetric[]; summary: UsageSummary }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/usage`);
+      return handleResponse<{ metrics: UsageMetric[]; summary: UsageSummary }>(res);
+    },
+
+    async getSchedulerPolicy(): Promise<{ policy: SchedulerPolicy }> {
+      const res = await fetch(`${cleanBase}/api/scheduler/policy`);
+      return handleResponse<{ policy: SchedulerPolicy }>(res);
+    },
+
+    async getSchedulerDecisions(): Promise<{ decisions: SchedulerDecision[] }> {
+      const res = await fetch(`${cleanBase}/api/scheduler/decisions`);
+      return handleResponse<{ decisions: SchedulerDecision[] }>(res);
+    },
+
+    async getRoleModelPolicy(id: string): Promise<{ policy: RoleModelPolicy }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/role-model-policy`);
+      return handleResponse<{ policy: RoleModelPolicy }>(res);
+    },
+
+    async resolveRoleModel(id: string, role = "PRIMARY"): Promise<{ resolution: RoleModelResolution }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/role-model-policy/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role })
+      });
+      return handleResponse<{ resolution: RoleModelResolution }>(res);
     }
   };
 }

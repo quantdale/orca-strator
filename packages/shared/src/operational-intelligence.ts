@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RepositoryRecord } from "./repository.js";
 import type { RunRecord } from "./loop.js";
+import type { UsageMetric, UsageSummary } from "./usage-telemetry.js";
 
 export type TracePhase =
   | "CAMPAIGN"
@@ -45,6 +46,7 @@ export interface CampaignSummary {
   latestEventAt: string | null;
   latestPhase: TracePhase | null;
   latestFailureReason: string | null;
+  usageSummary: UsageSummary;
 }
 
 export interface CampaignIterationSummary {
@@ -54,6 +56,7 @@ export interface CampaignIterationSummary {
   phases: TracePhase[];
   status: TraceStatus;
   latestEventAt: string | null;
+  usageSummary: UsageSummary;
 }
 
 export interface CampaignDetail {
@@ -67,6 +70,8 @@ export interface CampaignDetail {
   wakes: Record<string, unknown>[];
   controls: Record<string, unknown>[];
   effectivePolicy: PhaseBudgetPolicy | null;
+  usage: UsageMetric[];
+  usageSummary: UsageSummary;
 }
 
 export type BudgetFailureReason =

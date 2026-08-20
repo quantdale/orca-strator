@@ -495,3 +495,11 @@ The `Test executor` action is explicitly labelled no inference and uses the
 NON_INFERENCE probe. Permission summaries show enforcement type so advisory
 generic-CLI policy is not presented as a security guarantee. This surface is
 observability, not a graph/workflow composer.
+
+Change 011 extends the operational intelligence surface with usage telemetry
+showing known/unknown metrics, token totals, and exact versus estimated/unknown
+cost; scheduler policy showing unlimited defaults, configured limits, and
+queued decision counts/reasons; and explicit role/model policy showing the
+repository default primary and named user-authored rules. These are
+observability and policy surfaces, not a graph editor or automatic model
+router.

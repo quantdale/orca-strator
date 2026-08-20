@@ -1,3 +1,4 @@
+import { summarizeUsage } from "@orca/shared";
 import type {
   CampaignDetail,
   CampaignIterationSummary,
@@ -12,6 +13,7 @@ import type { RunStore } from "../loop/run-store.js";
 import type { RunPolicyStore } from "../loop/run-policy-store.js";
 import type { CampaignLedgerStore } from "./campaign-ledger-store.js";
 import type { DatabaseSync } from "node:sqlite";
+import type { UsageTelemetryStore } from "../usage/usage-telemetry-store.js";
 
 interface DispatchLike { id?: string; runId?: string; iteration?: number; }
 interface ControlLike { id?: string; controlId?: string; runId?: string; iteration?: number; relatedDispatchId?: string | null; }
@@ -22,7 +24,8 @@ export class CampaignLedgerService {
     private readonly repositoryStore: RepositoryStore,
     private readonly runStore: RunStore,
     private readonly runPolicyStore: RunPolicyStore,
-    private readonly ledgerStore: CampaignLedgerStore
+    private readonly ledgerStore: CampaignLedgerStore,
+    private readonly usageStore?: UsageTelemetryStore
   ) {}
 
   /** EventBus already redacts secrets before this listener receives the event. */
@@ -80,6 +83,7 @@ export class CampaignLedgerService {
     const timeline = this.withPhaseDurations(this.ledgerStore.listByRun(runId), run.finishedAt);
     const summary = this.buildSummary(runId, timeline);
     const iterations = this.buildIterations(timeline);
+    const usage = this.usageStore?.listByRun(runId) ?? [];
     const rows = (table: string) => this.db.prepare(`SELECT * FROM ${table} WHERE run_id = ? ORDER BY created_at ASC`).all(runId) as unknown as Record<string, unknown>[];
     return {
       repository,
@@ -91,7 +95,9 @@ export class CampaignLedgerService {
       executorRuns: rows("executor_runs"),
       wakes: rows("sol_wakes"),
       controls: rows("sol_controls"),
-      effectivePolicy: this.runPolicyStore.get(runId)
+      effectivePolicy: this.runPolicyStore.get(runId),
+      usage,
+      usageSummary: summarizeUsage(usage)
     };
   }
 
@@ -104,7 +110,8 @@ export class CampaignLedgerService {
       durationMs: null,
       phases: [],
       status: "INFO",
-      latestEventAt: null
+      latestEventAt: null,
+      usageSummary: summarizeUsage([])
     };
   }
 
@@ -117,6 +124,7 @@ export class CampaignLedgerService {
     const run = this.runStore.get(runId)!;
     const latest = timeline[timeline.length - 1] ?? null;
     const latestFailure = [...timeline].reverse().find((event) => event.failureReason)?.failureReason ?? null;
+    const usage = this.usageStore?.listByRun(runId) ?? [];
     return {
       repositoryId: run.repositoryId,
       run,
@@ -125,7 +133,8 @@ export class CampaignLedgerService {
       durationMs: this.durationBetween(run.startedAt, run.finishedAt ?? (latest?.at ?? null)),
       latestEventAt: latest?.at ?? null,
       latestPhase: latest?.phase ?? null,
-      latestFailureReason: latestFailure
+      latestFailureReason: latestFailure,
+      usageSummary: summarizeUsage(usage)
     };
   }
 
@@ -146,7 +155,8 @@ export class CampaignLedgerService {
         durationMs: this.durationBetween(events[0]?.at ?? null, events[events.length - 1]?.at ?? null),
         phases: [...new Set(events.map((event) => event.phase))],
         status,
-        latestEventAt: events[events.length - 1]?.at ?? null
+        latestEventAt: events[events.length - 1]?.at ?? null,
+        usageSummary: summarizeUsage(this.usageStore?.listByIteration(events[0]?.runId ?? "", iteration) ?? [])
       };
     });
   }
@@ -179,6 +189,7 @@ export class CampaignLedgerService {
     if (event.type === "sol.wake_failed") return "RECOVERY";
     if (event.type === "sol.operation_completed") return "SOL_REVIEW";
     if (event.type === "executor.capability_probed") return "EXECUTOR_LAUNCH";
+    if (event.type === "executor.usage_recorded") return "EXECUTOR_ACTIVITY";
     if (event.type === "permission.decision") return "PERMISSION";
     if (event.type === "budget.expired") return "BUDGET";
     if (event.type === "loop.state_changed") {

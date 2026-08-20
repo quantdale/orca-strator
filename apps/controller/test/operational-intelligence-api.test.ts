@@ -6,7 +6,7 @@ import { buildApp, type AppInstance } from "../src/app.js";
 import { loadConfig } from "../src/config/load-config.js";
 import type { RunRecord } from "@orca/shared";
 
-describe("Change 010 operational intelligence API", () => {
+describe("Operational intelligence and Change 011 policy APIs", () => {
   let tempDir: string;
   let app: AppInstance;
 
@@ -71,5 +71,21 @@ describe("Change 010 operational intelligence API", () => {
     const capabilities = await app.fastify.inject({ method: "GET", url: `/api/repositories/${repositoryId}/executor/capabilities` });
     expect(capabilities.statusCode).toBe(200);
     expect(JSON.parse(capabilities.body).capability).toBeNull();
+
+    const usage = await app.fastify.inject({ method: "GET", url: `/api/repositories/${repositoryId}/usage` });
+    expect(usage.statusCode).toBe(200);
+    expect(JSON.parse(usage.body).summary.unknownMetricCount).toBe(0);
+
+    const scheduler = await app.fastify.inject({ method: "GET", url: "/api/scheduler/policy" });
+    expect(scheduler.statusCode).toBe(200);
+    expect(JSON.parse(scheduler.body).policy.totalActiveInferenceSessions).toBeNull();
+
+    const roles = await app.fastify.inject({ method: "GET", url: `/api/repositories/${repositoryId}/role-model-policy` });
+    expect(roles.statusCode).toBe(200);
+    expect(JSON.parse(roles.body).policy.rules).toHaveLength(0);
+
+    const resolved = await app.fastify.inject({ method: "POST", url: `/api/repositories/${repositoryId}/role-model-policy/resolve`, payload: { role: "PRIMARY" } });
+    expect(resolved.statusCode).toBe(200);
+    expect(JSON.parse(resolved.body).resolution).toMatchObject({ source: "REPOSITORY_DEFAULT", executorCli: process.execPath, model: "test-model" });
   });
 });

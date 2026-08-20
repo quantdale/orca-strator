@@ -353,3 +353,12 @@ reported as unknown/advisory/unsupported.
 The next approved changes may introduce typed work packets and isolated
 temporary worktrees, but no same-checkout parallel writers are enabled by this
 foundation.
+
+Change 011 adds trustworthy usage metrics, an explicit scheduler admission
+foundation, and repository-scoped role/model policy. Usage is captured only
+through a native/structured adapter hook; generic V1 adapters therefore report
+unknown rather than fabricated zeroes. Scheduler limits are nullable and the
+default is unlimited across independent repositories. Role resolution is
+user-authored and falls back to the repository's exact configured executor and
+model. None of these facilities changes the single-agent V1 default or grants
+Sol dynamic model-routing authority.

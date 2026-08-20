@@ -308,3 +308,24 @@ run/dispatch/executor/Sol tables:
 Raw executor output remains in bounded log files and the executor-log API. Git
 and result manifests remain durable cross-agent truth; these tables are local
 operational/read-model truth.
+
+## 12. Usage, scheduler, and explicit role policy tables
+
+Change 011 adds three normalized policy/telemetry areas:
+
+- `usage_metrics` stores only structured executor/provider values, with nullable
+  token/latency/retry/rate-limit fields and separate `EXACT`, `ESTIMATED`, and
+  `UNKNOWN` cost status. It links to repository/run/iteration/dispatch and
+  executor-run where those identities are available.
+- `scheduler_policies` stores one explicit application policy. Null limits mean
+  unlimited; the default therefore does not cap independent repositories.
+- `scheduler_decisions` stores admission status, request identity, policy
+  snapshot, limiting dimension, reason, queued/runnable/resolved timestamps,
+  and stale-recovery evidence.
+- `role_model_policies` stores repository-scoped user-authored future role
+  rules. A missing rule does not overwrite repository executor configuration;
+  resolution falls back to that exact configured executor/model.
+
+Usage records are referenced by the campaign ledger through structured events,
+not copied into a second trace table. No raw browser/CLI output is scraped to
+invent usage or cost.
