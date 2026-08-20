@@ -159,15 +159,20 @@ export class LoopService {
     const wasDraining = preActive?.status === "DRAINING" || this.isDrainPending(repositoryId, preActive);
 
     // Strict correlation: dispatch must belong to the active run and expected iteration
+    // Do this inside a guard that catches DB-closed errors after teardown (Fix #11)
     if (preActive && this.dispatchStore) {
-      const d = this.dispatchStore.get(dispatchId);
-      const validCorrelation = d &&
-        d.repositoryId === repositoryId &&
-        d.runId === preActive.id &&
-        d.status === "detected" &&
-        d.iteration === preActive.currentIteration + 1;
+      let validCorrelation: boolean;
+      try {
+        const d = this.dispatchStore.get(dispatchId);
+        validCorrelation = !!d &&
+          d.repositoryId === repositoryId &&
+          d.runId === preActive.id &&
+          d.status === "detected" &&
+          d.iteration === preActive.currentIteration + 1;
+      } catch {
+        return;
+      }
       if (!validCorrelation) {
-        // Stale/wrong-run dispatch: classify observably and do NOT mutate run or close Sol operation
         this.publishEvent({
           type: "watcher.dispatch_rejected",
           at: new Date().toISOString(),
@@ -231,10 +236,12 @@ export class LoopService {
     }
 
     // Re-validate correlation against the refreshed active run (race guard)
-    if (this.dispatchStore) {
-      const d2 = this.dispatchStore.get(dispatchId);
-      if (!d2 || d2.runId !== activeRun.id || d2.iteration !== activeRun.currentIteration + 1) return;
-    }
+    try {
+      if (this.dispatchStore) {
+        const d2 = this.dispatchStore.get(dispatchId);
+        if (!d2 || d2.runId !== activeRun.id || d2.iteration !== activeRun.currentIteration + 1) return;
+      }
+    } catch { return; }
 
     const dispatch = this.dispatchStore?.get(dispatchId)!;
     const nextIteration = dispatch.iteration;
@@ -271,7 +278,12 @@ export class LoopService {
     dispatchId: string,
     result: ExecutorResult | null
   ): Promise<void> {
-    const activeRun = this.runStore.getActiveRun(repositoryId);
+    let activeRun: RunRecord | null;
+    try {
+      activeRun = this.runStore.getActiveRun(repositoryId);
+    } catch {
+      return; // DB closed during teardown (Fix #11: surfaced but we gracefully exit)
+    }
     if (!activeRun) return;
 
     // A stop or other terminal transition may have landed while the executor ran.
@@ -397,20 +409,22 @@ export class LoopService {
     decision: SolControlDecision,
     runId: string
   ): Promise<void> {
-    // FIX #9: Control marker is the expected Git transition for the pending Sol operation
     try {
       await this.browserManager.completeSolOperation(repositoryId, runId);
     } catch {}
 
     if (this.solControlStore) {
-      const existing = this.solControlStore.get(controlId);
-      if (existing && existing.status === "consumed") {
-        return; // idempotent
-      }
-      this.solControlStore.updateStatus(controlId, "consumed");
+      try {
+        const existing = this.solControlStore.get(controlId);
+        if (existing && existing.status === "consumed") {
+          return;
+        }
+        this.solControlStore.updateStatus(controlId, "consumed");
+      } catch {}
     }
 
-    const activeRun = this.runStore.getActiveRun(repositoryId);
+    let activeRun: RunRecord | null;
+    try { activeRun = this.runStore.getActiveRun(repositoryId); } catch { return; }
     if (!activeRun) return;
 
     // Only the run this control references is authoritative.

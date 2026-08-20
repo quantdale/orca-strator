@@ -139,8 +139,12 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
     try {
       svc.watcherService.stop();
       await svc.browserManager.close().catch(() => {});
-      // Fix #11: settle async executor callbacks before closing DB — don't close as IDLE swallowing
-      await new Promise((r) => setTimeout(r, 300));
+      // Settle async executor/loop callbacks before closing DB (Fix #11: DB errors now surface)
+      await new Promise((r) => setTimeout(r, 600));
+      // Ensure no active runners remain (avoid post-close onDispatchDetected -> DB closed)
+      for (const runner of Array.from((svc.executorService as any).activeRunners?.values() ?? [])) {
+        try { await (runner as any).kill?.(); } catch {}
+      }
     } finally {
       try { svc.dbCtx.close(); } catch {}
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
