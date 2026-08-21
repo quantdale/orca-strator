@@ -420,3 +420,23 @@ durable references without becoming a second source of truth. The shared
 `ExecutionStrategyPreset` catalog is versioned immutable reference data with
 `autoStart: false`; it never creates packets, nodes, model routes, or campaign
 rows.
+
+## 18. Change 018 persistence notes
+
+Change 018 adds no new tables. Durable postflight/retry truth reuses existing
+stores: blocked publications persist evidence on the strategy-run row and run
+recovery fields (`lastError`/`RECOVERY_REQUIRED`), leave the authorizing
+dispatch unconsumed so postflight retry can find the iteration, and record
+structured `loop.postflight_blocked` / retry events in the campaign trace.
+Manifest publication provenance (post-reconciliation final commit SHA plus the
+pre-reconciliation integration SHA) lives in the published result manifest on
+Git, not in a new local table.
+
+Two existing tables gain behavior rather than schema: `permission_decisions`
+rows are durable and resolvable — resolution persists the user outcome
+(`ALLOW`/`ALLOW_ONCE`/`DENY`) and `resolved_at` on the decision row — and their
+enforcement labeling follows capability-probe evidence (`NATIVE_EXECUTOR` when
+the rich permission API is READY, otherwise `ADVISORY_ONLY`). Scheduler lease
+recovery at startup marks persisted `ADMITTED` rows `STALE_RECOVERABLE`, and
+startup reconciliation marks orphaned active executor runs failed; both reuse
+the existing status vocabularies.

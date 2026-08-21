@@ -224,7 +224,17 @@ Preferred Change 001 success:
 
 Unknown ID -> `404 REPOSITORY_NOT_FOUND`.
 
-Later milestones add active-run deletion guards.
+Active-run deletion guard:
+
+```text
+409 REPOSITORY_ACTIVE_RUN
+```
+
+A repository cannot be deleted while a run is active for it (`runStore`
+active-run definition; terminal historical runs remain deletable). Deleting
+mid-run would cascade away run/dispatch/executor rows that the executor child
+process and loop timers still reference, so the controller refuses with the
+standard error envelope before mutating anything.
 
 ## 9. Error envelope
 
@@ -252,20 +262,44 @@ Initial error codes:
 ```text
 VALIDATION_ERROR
 REPOSITORY_NOT_FOUND
+ROUTE_NOT_FOUND
 BAD_REQUEST
 INTERNAL_ERROR
 DATABASE_ERROR
+REPOSITORY_ACTIVE_RUN
+PERMISSION_DECISION_NOT_FOUND
+PERMISSION_DECISION_ALREADY_RESOLVED
+RUN_NOT_PAUSED
 ```
 
 Recommended status mapping:
 
 ```text
 400 BAD_REQUEST            malformed request/body/path semantics
-422 VALIDATION_ERROR       readable but invalid domain configuration
-404 REPOSITORY_NOT_FOUND
+409 REPOSITORY_ACTIVE_RUN / PERMISSION_DECISION_ALREADY_RESOLVED / RUN_NOT_PAUSED
+422 VALIDATION_ERROR       readable but invalid domain configuration/input
+404 REPOSITORY_NOT_FOUND / PERMISSION_DECISION_NOT_FOUND / ROUTE_NOT_FOUND
 500 INTERNAL_ERROR
 500 DATABASE_ERROR         optional distinction; otherwise INTERNAL_ERROR
 ```
+
+Truthful not-found/validation conventions beyond the repository CRUD routes:
+
+- Campaign, swarm, DAG, and work-packet routes return `404` with the standard
+  envelope when the scoped sub-resource does not exist or belongs to another
+  campaign/repository. These use a machine-readable `DomainError` code (the
+  code value is `REPOSITORY_NOT_FOUND` for scoping misses) with a message that
+  names the actual missing resource ("Campaign not found", "DAG strategy run
+  not found for campaign", ...). They are never misreported as empty success
+  shapes.
+- Readable-but-invalid input returns `422 VALIDATION_ERROR`; for example a
+  non-integer/non-positive iteration path parameter on the campaign iteration
+  endpoint.
+- The permission-resolve route returns `404 PERMISSION_DECISION_NOT_FOUND`
+  when the decision ID is unknown or belongs to a different repository, and
+  `409 PERMISSION_DECISION_ALREADY_RESOLVED` for a duplicate resolution.
+- Campaign resume of a run that is not `PAUSED` returns `409 RUN_NOT_PAUSED`
+  instead of a silent no-op success.
 
 ## 10. Validation examples
 
@@ -424,6 +458,7 @@ GET  /api/repositories/:id/phase-policy
 GET  /api/repositories/:id/permissions
 PUT  /api/repositories/:id/permissions
 POST /api/repositories/:id/permissions/check
+POST /api/repositories/:id/permissions/decisions/:decisionId/resolve
 ```
 
 Campaign detail returns structured run/iteration/timeline data and references
@@ -436,6 +471,38 @@ NON_INFERENCE and never spend model quota implicitly.
 Permission checks return outcome, rationale, actionable state, and enforcement
 type. An `ASK` result creates a durable decision/event for user attention; it is
 not an indefinite hidden wait.
+
+Permission decisions are durable rows and are resolvable. The resolve endpoint
+accepts:
+
+```json
+{ "outcome": "ALLOW" | "ALLOW_ONCE" | "DENY" }
+```
+
+and returns `{ "decision": { "...": "PermissionDecision" } }` with the
+persisted outcome and `resolvedAt`. An invalid outcome is `422
+VALIDATION_ERROR`; an unknown decision ID, or one belonging to a different
+repository, is `404 PERMISSION_DECISION_NOT_FOUND`; resolving an
+already-resolved decision is `409 PERMISSION_DECISION_ALREADY_RESOLVED`.
+
+Enforcement labeling follows capability evidence: when the latest capability
+probe reports the rich `permissionApi` readiness as `READY`, evaluations use
+`NATIVE_EXECUTOR` enforcement; otherwise they are `ADVISORY_ONLY`. Absolute
+actions remain `ORCA_ENFORCED` regardless.
+
+### Executor logs
+
+```text
+GET /api/repositories/:id/executor/logs?runAttemptId=<id>
+```
+
+Success `200`: `{ "logs": string[] }`.
+
+While an executor attempt is active the response serves that runner's buffered
+output. With no active runner it serves the persisted log tail (up to 200
+lines) from `<dataDir>/logs/<repositoryId>/` — the latest persisted attempt by
+default, or the attempt selected by the optional `runAttemptId` query
+parameter.
 
 ## 18. Usage and explicit scheduling endpoints
 

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
+import type { PermissionDecision, RunRecord } from "@orca/shared";
 import { buildApp, type AppInstance } from "../src/app.js";
 import { loadConfig } from "../src/config/load-config.js";
 
@@ -237,5 +239,119 @@ describe("Controller REST API (Tests 5)", () => {
     expect(() =>
       loadConfig({ host: "" })
     ).toThrow(/Invalid configuration: host must be a non-empty string/);
+  });
+
+  const createRepoId = async (): Promise<string> => {
+    const res = await appInstance.fastify.inject({
+      method: "POST",
+      url: "/api/repositories",
+      payload: {
+        displayName: "Review Fixtures",
+        githubRemote: "https://github.com/quantdale/fixtures.git",
+        localPath: "D:\\Projects\\Fixtures",
+        environment: "windows",
+        executorCli: "kimi",
+        executorModel: "deepseek-v4-flash",
+        solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab"
+      }
+    });
+    expect(res.statusCode).toBe(201);
+    return JSON.parse(res.body).repository.id;
+  };
+
+  it("5.T11 GET /executor/logs rejects runAttemptId values that are not UUIDs", async () => {
+    const repoId = await createRepoId();
+
+    const traversalRes = await appInstance.fastify.inject({
+      method: "GET",
+      url: `/api/repositories/${repoId}/executor/logs?runAttemptId=${encodeURIComponent("../../secrets")}`
+    });
+    expect(traversalRes.statusCode).toBe(422);
+    expect(traversalRes.json().error.code).toBe("VALIDATION_ERROR");
+
+    const garbageRes = await appInstance.fastify.inject({
+      method: "GET",
+      url: `/api/repositories/${repoId}/executor/logs?runAttemptId=${encodeURIComponent("not-a-uuid")}`
+    });
+    expect(garbageRes.statusCode).toBe(422);
+    expect(garbageRes.json().error.code).toBe("VALIDATION_ERROR");
+
+    // Positive control: UUID-shaped IDs pass validation (unknown file => empty tail).
+    const uuidRes = await appInstance.fastify.inject({
+      method: "GET",
+      url: `/api/repositories/${repoId}/executor/logs?runAttemptId=${crypto.randomUUID()}`
+    });
+    expect(uuidRes.statusCode).toBe(200);
+    expect(uuidRes.json().logs).toEqual([]);
+  });
+
+  it("5.T12 resolving an already-resolved permission decision returns 409", async () => {
+    const repoId = await createRepoId();
+    const now = new Date().toISOString();
+    const decision: PermissionDecision = {
+      id: crypto.randomUUID(),
+      repositoryId: repoId,
+      runId: null,
+      iteration: null,
+      action: "SHELL_COMMAND",
+      outcome: "ASK",
+      enforcement: "ORCA_ENFORCED",
+      rationale: "test ask decision",
+      actionable: true,
+      createdAt: now,
+      resolvedAt: null
+    };
+    appInstance.permissionStore.saveDecision(decision);
+
+    const resolveUrl = `/api/repositories/${repoId}/permissions/decisions/${decision.id}/resolve`;
+    const firstRes = await appInstance.fastify.inject({
+      method: "POST",
+      url: resolveUrl,
+      payload: { outcome: "ALLOW_ONCE" }
+    });
+    expect(firstRes.statusCode).toBe(200);
+    expect(JSON.parse(firstRes.body).decision.outcome).toBe("ALLOW_ONCE");
+
+    const secondRes = await appInstance.fastify.inject({
+      method: "POST",
+      url: resolveUrl,
+      payload: { outcome: "DENY" }
+    });
+    expect(secondRes.statusCode).toBe(409);
+    expect(secondRes.json().error.code).toBe("PERMISSION_DECISION_ALREADY_RESOLVED");
+
+    // The original resolution was not rewritten.
+    expect(appInstance.permissionStore.getDecision(decision.id)?.outcome).toBe("ALLOW_ONCE");
+    expect(appInstance.permissionStore.getDecision(decision.id)?.resolvedAt).toBe(
+      JSON.parse(firstRes.body).decision.resolvedAt
+    );
+  });
+
+  it("5.T13 resume of an active non-paused run returns 409 RUN_NOT_PAUSED", async () => {
+    const repoId = await createRepoId();
+    const now = new Date().toISOString();
+    const run: RunRecord = {
+      id: crypto.randomUUID(),
+      repositoryId: repoId,
+      goal: "resume conflict test",
+      status: "EXECUTING",
+      currentIteration: 1,
+      maxIterations: 20,
+      activeDispatchId: null,
+      lastError: null,
+      startedAt: now,
+      finishedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      drainReason: null
+    };
+    appInstance.runStore.create(run);
+
+    const res = await appInstance.fastify.inject({
+      method: "POST",
+      url: `/api/repositories/${repoId}/runs/resume`
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("RUN_NOT_PAUSED");
   });
 });

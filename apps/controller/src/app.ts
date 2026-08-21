@@ -317,6 +317,7 @@ export async function buildApp(
     runStore,
     loopService,
     browserManager,
+    executorStore,
   );
   await reconciler.reconcile();
   await dagExecutionService.recoverAll();

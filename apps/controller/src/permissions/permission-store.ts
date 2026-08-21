@@ -89,15 +89,20 @@ export class PermissionStore {
     return row ? mapDecision(row) : null;
   }
 
-  /** Settle a pending (typically ASK) decision with the user's outcome. */
+  /**
+   * Settle a pending (typically ASK) decision with the user's outcome.
+   * Returns null when the decision does not exist or was already resolved —
+   * an already-resolved decision must not be rewritten.
+   */
   resolveDecision(
     id: string,
     outcome: Exclude<PermissionOutcome, "ASK">,
     resolvedAt = new Date().toISOString()
   ): PermissionDecision | null {
-    this.db.prepare(
-      "UPDATE permission_decisions SET outcome = ?, resolved_at = ? WHERE id = ?"
+    const result = this.db.prepare(
+      "UPDATE permission_decisions SET outcome = ?, resolved_at = ? WHERE id = ? AND resolved_at IS NULL"
     ).run(outcome, resolvedAt, id);
+    if (Number(result.changes) === 0) return null;
     return this.getDecision(id);
   }
 }

@@ -1038,7 +1038,8 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
   // Recovering E requires semantic re-review/re-run of the iteration, not
   // postflight-only republication; discarding either side's content to force
   // a COMPLETED rerun would violate the no-work-loss contract.
-  it.skip("E-recovery: retryPendingPostflight -> consumed/SOL_REVIEWING is unreachable for an engine-PARTIAL record (production retry scope is engine-COMPLETED only)", () => {});
+  // NOTE: intentionally NOT a test — retryPendingPostflight's scope is
+  // engine-COMPLETED records only, so this scenario is unreachable by design.
 
   it("F. DIRTY persistent main appears during SWARM: integration and publication refuse before any mutation, run BLOCKED, uncommitted user work untouched, retry fabricates nothing", async () => {
     const s = await setupSwarmMovement({
@@ -1101,7 +1102,8 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
   // (apps/controller/src/loop/iteration-execution-coordinator.ts:320-330).
   // The iteration must be re-run (Sol review), not silently republished —
   // no worker result ever existed to republish.
-  it.skip("F-recovery: retryPendingPostflight -> consumed/SOL_REVIEWING is unreachable for an engine-BLOCKED record (production retry scope is engine-COMPLETED only)", () => {});
+  // NOTE: intentionally NOT a test — retryPendingPostflight's scope is
+  // engine-COMPLETED records only, so this scenario is unreachable by design.
 
   it("G. STALE STRATEGY BASE: remote main advances several commits after dispatch detection; publication reconciles over all of them, records the relation, and anchors finalHead on the updated remote", async () => {
     const s = await setupSwarmMovement({

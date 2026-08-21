@@ -29,7 +29,19 @@ export interface StrategyStagingHandle {
 }
 
 /** Result of a best-effort git mutation that must not throw into the engine. */
-export type GitMutationResult = { ok: true; head: string } | { ok: false; error: string };
+export type GitMutationResult =
+  | { ok: true; head: string; alreadyApplied?: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Detects git's stop when a cherry-pick would produce an empty commit —
+ * "The previous cherry-pick is now empty, possibly due to conflict resolution."
+ * (phrased with or without "now" across git versions). That stop means the
+ * commit's content is already applied, not a conflict.
+ */
+function isEmptyCherryPickError(message: string): boolean {
+  return /previous cherry-pick is (now )?empty/i.test(message);
+}
 
 export class WorktreeIsolationService {
   private readonly dataDir: string;
@@ -423,6 +435,14 @@ export class WorktreeIsolationService {
    * Cherry-pick one accepted worker commit into the staging checkout. On
    * failure the pick is aborted cleanly so the staging branch stays exactly at
    * its last accepted state.
+   *
+   * A pick that stops because it would create an EMPTY commit ("The previous
+   * cherry-pick is now empty") means the content is ALREADY present in the
+   * lineage — nodes staged during the run were cherry-picked, so their
+   * rewritten SHAs are ancestors while the ORIGINAL result SHAs are not. That
+   * case is treated as already-applied success: `git cherry-pick --skip` ends
+   * the sequence cleanly, leaving the worktree clean and HEAD unmoved. Only a
+   * genuine conflict aborts and reports failure.
    */
   async cherryPickIntoStaging(
     repository: RepositoryRecord,
@@ -434,10 +454,25 @@ export class WorktreeIsolationService {
       const head = await this.git(repository, ["rev-parse", "HEAD"], staging.path);
       return { ok: true, head };
     } catch (error: any) {
+      const message = error?.message ?? String(error);
+      if (isEmptyCherryPickError(message)) {
+        try {
+          await this.git(repository, ["cherry-pick", "--skip"], staging.path);
+          const head = await this.git(
+            repository,
+            ["rev-parse", "HEAD"],
+            staging.path,
+          );
+          return { ok: true, head, alreadyApplied: true };
+        } catch {
+          // Fall through to the abort below: the checkout must never be left
+          // mid-cherry-pick while reporting success.
+        }
+      }
       try {
         await this.git(repository, ["cherry-pick", "--abort"], staging.path);
       } catch {}
-      return { ok: false, error: error?.message ?? String(error) };
+      return { ok: false, error: message };
     }
   }
 

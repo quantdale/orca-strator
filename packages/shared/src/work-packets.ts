@@ -159,9 +159,10 @@ export interface PublicationEvidence {
   /** Actual local HEAD after reconciliation; durable evidence refers to this history. */
   finalHead: string;
   /**
-   * Change 018 (additive, optional): the integration HEAD as recorded before
-   * reconciliation rewrote history. Present only when reconciliation occurred;
-   * provenance only — durable evidence anchors at finalHead.
+   * Change 018 (additive, optional): the report's original integration HEAD,
+   * kept whenever it differs from finalHead — either because this attempt's
+   * reconciliation rewrote history or because an earlier failed attempt
+   * already did. Provenance only; durable evidence anchors at finalHead.
    */
   preReconciliationIntegrationSha?: string | null;
 }

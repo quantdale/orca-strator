@@ -177,6 +177,25 @@ export class LoopService {
     return dr === "WALL_CLOCK_CEILING" || dr === "ITERATION_CEILING";
   }
 
+  /**
+   * Public seam for campaign controls (coordinator pause): true when a
+   * graceful drain (user stop or ceiling boundary) is pending or the campaign
+   * is already DRAINING. RUNTIME-MODEL §13 makes Stop graceful and therefore
+   * not cancellable by Pause.
+   */
+  hasPendingDrain(repositoryId: string): boolean {
+    let activeRun: RunRecord | null = null;
+    try {
+      activeRun = this.runStore.getActiveRun(repositoryId);
+    } catch {
+      return false; // DB closed during teardown
+    }
+    return (
+      activeRun?.status === "DRAINING" ||
+      this.isDrainPending(repositoryId, activeRun)
+    );
+  }
+
   /** Rehydrate wall-clock timers and drain Sets from persisted drainReason after restart (Fix #3/#4). */
   rehydrateWallClockCeilings(): void {
     // Restore in-memory drain mirrors from DB for DRAINING runs
@@ -634,6 +653,24 @@ export class LoopService {
       this.runStore.updateStatus(run.id, "RECOVERY_REQUIRED", {
         lastError: blocker,
       });
+    } else if (run.status === "DRAINING") {
+      // A COMPLETED-but-unconfirmed publication landing mid-drain must not
+      // strand the campaign DRAINING forever: recoverRun rejects DRAINING and
+      // the actor is terminal, so nothing could ever settle it. Mirror
+      // applyIterationCompletion's drain settlement — release the armed
+      // stop/ceiling boundary and persisted drainReason, then route to
+      // RECOVERY_REQUIRED with the same durable evidence so postflight
+      // retry/recovery can proceed. The dispatch stays unconsumed-as-
+      // successful (R1) so retryPendingPostflight can still find it.
+      this.ceilingPending.delete(repositoryId);
+      this.stopPending.delete(repositoryId);
+      this.runStore.clearDrainReason(run.id);
+      this.cancelWallClockCeiling(repositoryId);
+      this.runStore.updateStatus(run.id, "RECOVERY_REQUIRED", {
+        lastError: blocker,
+        finishedAt: new Date().toISOString(),
+      });
+      this.publishStateChange(repositoryId, run.id, "RECOVERY_REQUIRED");
     } else {
       // The campaign already moved past this iteration (terminal/review
       // state); strategy-record evidence remains the durable trace.
@@ -876,6 +913,13 @@ export class LoopService {
           "CEILING_REACHED",
         );
       }
+      // Delete-symmetry with the wall-clock arm below: this boundary settles
+      // synchronously, so the pending entry must not outlive it. The Sets are
+      // repository-keyed and a stale entry would kill every future run on this
+      // repository at its first dispatch (isDrainPending in
+      // onDispatchDetected) until restart.
+      this.ceilingPending.delete(repositoryId);
+      this.runStore.clearDrainReason(activeRun.id);
       this.cancelWallClockCeiling(repositoryId);
       return false;
     }

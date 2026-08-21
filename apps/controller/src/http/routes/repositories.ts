@@ -78,10 +78,23 @@ export const repositoryRoutes = (
         if (!decision || decision.repositoryId !== request.params.id) {
           throw notFound();
         }
+        // An already-resolved decision is durable history, not a rewrite target.
+        if (decision.resolvedAt) {
+          throw new DomainError(
+            'PERMISSION_DECISION_ALREADY_RESOLVED',
+            `Permission decision "${decision.id}" has already been resolved at ${decision.resolvedAt}.`,
+            409
+          );
+        }
 
         const resolved = permissionStore.resolveDecision(decision.id, outcome as ResolvableOutcome);
         if (!resolved) {
-          throw notFound();
+          // Lost a concurrent-resolve race through the store's resolved_at guard.
+          throw new DomainError(
+            'PERMISSION_DECISION_ALREADY_RESOLVED',
+            `Permission decision "${decision.id}" has already been resolved.`,
+            409
+          );
         }
         return { decision: resolved };
       }

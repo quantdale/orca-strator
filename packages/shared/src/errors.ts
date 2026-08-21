@@ -6,7 +6,9 @@ export type ErrorCode =
   | "INTERNAL_ERROR"
   | "DATABASE_ERROR"
   | "REPOSITORY_ACTIVE_RUN"
-  | "PERMISSION_DECISION_NOT_FOUND";
+  | "PERMISSION_DECISION_NOT_FOUND"
+  | "PERMISSION_DECISION_ALREADY_RESOLVED"
+  | "RUN_NOT_PAUSED";
 
 export interface FieldError {
   field?: string;

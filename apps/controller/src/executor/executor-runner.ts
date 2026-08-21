@@ -83,6 +83,9 @@ export class ExecutorRunner {
         this.handleLogLine("[system] Executor watchdog timeout. Terminating process tree...");
         this.kill();
       }, this.watchdogMs);
+      // Consistent with other controller timers: a disarmed-but-pending watchdog
+      // must never keep the event loop (and process exit) alive.
+      if ((this.timer as any).unref) (this.timer as any).unref();
     }
 
     this.setupExitHandling();
@@ -192,6 +195,11 @@ export class ExecutorRunner {
 
   getLogs(): string[] {
     return [...this.recentLogs];
+  }
+
+  /** True once emergency-kill was requested; an in-flight launch must abort instead of re-spawning. */
+  killRequested(): boolean {
+    return this.isKilled;
   }
 
   isRunning(): boolean {

@@ -9,7 +9,7 @@ import type { IntegrationService } from "../packets/integration-service.js";
 import type { BrowserManager } from "../browser/browser-manager.js";
 import type { LoopService } from "./loop-service.js";
 import type { RepositoryMutationEvent } from "@orca/shared";
-import { BadRequestError } from "@orca/shared";
+import { BadRequestError, DomainError } from "@orca/shared";
 import type {
   DispatchMarker,
   DispatchExecutionPlan,
@@ -97,6 +97,15 @@ export class IterationExecutionCoordinator {
   private shuttingDown = false;
   /** R5: in-flight completion callbacks, awaited (bounded) by shutdown(). */
   private readonly pendingCompletions = new Set<Promise<void>>();
+  /**
+   * F-MED: serializes postflight retry sweeps per repository. Two rapid
+   * retries must never pass the not-consumed gate concurrently and republish
+   * the same manifest twice onto remote main.
+   */
+  private readonly postflightRetryLocks = new Map<
+    string,
+    Promise<PendingPostflightRetrySummary>
+  >();
 
   /**
    * F-MED-3: admissions predicate for raw executor starts (HTTP seam). The
@@ -297,6 +306,30 @@ export class IterationExecutionCoordinator {
    * report and re-applies the R1 decision.
    */
   async retryPendingPostflight(
+    repositoryId: string,
+  ): Promise<PendingPostflightRetrySummary> {
+    // F-MED: chain sweeps per repository so only one runs at a time. Two
+    // rapid retries both passing the not-consumed gate would republish the
+    // same manifest twice (second commit on remote main); serialized, the
+    // second sweep re-reads the consumed dispatches and observes the
+    // ALREADY_APPLIED/no-op outcome instead.
+    const previous =
+      this.postflightRetryLocks.get(repositoryId) ?? Promise.resolve();
+    const sweep = previous
+      .catch(() => {})
+      .then(() => this.sweepPendingPostflights(repositoryId));
+    this.postflightRetryLocks.set(repositoryId, sweep);
+    try {
+      return await sweep;
+    } finally {
+      if (this.postflightRetryLocks.get(repositoryId) === sweep) {
+        this.postflightRetryLocks.delete(repositoryId);
+      }
+    }
+  }
+
+  /** Mutex-held body of `retryPendingPostflight` — never call directly. */
+  private async sweepPendingPostflights(
     repositoryId: string,
   ): Promise<PendingPostflightRetrySummary> {
     const summary: PendingPostflightRetrySummary = {
@@ -546,11 +579,28 @@ export class IterationExecutionCoordinator {
     const active = this.runStore.getActiveRun(repositoryId);
     if (!active) return;
     if (active.status === "PAUSED") return; // idempotent re-apply
+    // RUNTIME-MODEL §13: Stop is graceful ("allow current actor to finish"),
+    // so a pending drain must not be cancellable by Pause. Pausing here would
+    // flip DRAINING -> PAUSED with a stale drainReason, and a later resume()
+    // would legitimately un-stop the stopping campaign while its completion
+    // consumes the dispatch with a suppressed Sol wake.
+    if (this.loopService.hasPendingDrain(repositoryId)) {
+      throw new BadRequestError(
+        `Cannot pause repository ${repositoryId}: a stop/ceiling drain is pending (campaign ${active.status}); Stop is not cancellable by Pause.`,
+      );
+    }
     const strategy = this.strategyRunStore.getActiveForRun(active.id);
     if (strategy) {
       await this.routeStrategyControl(repositoryId, strategy, "PAUSE");
       // No window where campaign=PAUSED while strategy=RUNNING indefinitely:
       // wait (bounded) for the actor boundary before moving the campaign.
+      // On timeout/terminal settle this throws and the campaign stays
+      // EXECUTING. The engine exposes no safe unwind of the routed PAUSE
+      // (RESUME requires the record to already be PAUSED; STOP/KILL cancel
+      // the iteration instead of reverting the request), so the latched
+      // mismatch is left durable on the strategy record/control state — where
+      // resume() below refuses it as an explicit 409 conflict instead of
+      // reporting a false-positive success.
       await this.waitForStrategyBoundary(
         strategy.strategyRunId,
         "PAUSED",
@@ -573,7 +623,21 @@ export class IterationExecutionCoordinator {
 
   async resume(repositoryId: string): Promise<void> {
     const active = this.runStore.getActiveRun(repositoryId);
-    if (!active || active.status !== "PAUSED") return;
+    if (!active) return;
+    if (active.status !== "PAUSED") {
+      // Truthful refusal instead of the previous silent no-op that the resume
+      // route reported as {status:"resumed"}. This also surfaces the
+      // pause-boundary-timeout mismatch: the engine settled PAUSED while the
+      // campaign stayed EXECUTING, and nothing else can reconcile it.
+      const actor = this.strategyRunStore.getActiveForRun(active.id);
+      throw new DomainError(
+        "RUN_NOT_PAUSED",
+        actor
+          ? `Cannot resume repository ${repositoryId}: campaign is ${active.status} while strategy actor ${actor.strategyRunId} is ${actor.status}; expected a PAUSED campaign.`
+          : `Cannot resume repository ${repositoryId}: campaign is ${active.status}, not PAUSED.`,
+        409,
+      );
+    }
     const strategy = this.strategyRunStore.getActiveForRun(active.id);
     if (strategy) {
       if (strategy.status !== "PAUSED") {
@@ -705,8 +769,10 @@ export class IterationExecutionCoordinator {
         // F-HIGH-1: a SINGLE_AGENT executor child has no strategy record.
         // Mirror kill()'s non-strategy branch so its process tree dies during
         // shutdown too and the run is marked RECOVERY_REQUIRED durably below.
+        // shutdown() (not per-repo killRun) also sweeps runners still inside
+        // their launch-retry window, which killRun cannot see.
         targets.push({ repositoryId: repo.id, runId: active.id });
-        routed.push(this.executorService.killRun(repo.id).catch(() => {}));
+        routed.push(this.executorService.shutdown().catch(() => {}));
         continue;
       }
       targets.push({

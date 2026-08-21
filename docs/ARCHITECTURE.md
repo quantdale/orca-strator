@@ -469,3 +469,39 @@ starting, and the REST routes surface it as a bad-request error envelope.
 Strategy completion publishes integrated `main` and the result manifest durably
 to the remote before the normalized status returns to the loop; the mapping
 never yields `GOAL_COMPLETE`, keeping Sol as the completion authority.
+
+## Strategy postflight and concurrency hardening (Change 018)
+
+Change 018 makes the publication boundary authoritative and the integration
+path concurrency-safe:
+
+```text
+strategy engine COMPLETED
+  -> IntegrationService.publishToRemote   # classify UP_TO_DATE/LOCAL_AHEAD/
+                                          # REMOTE_AHEAD/DIVERGED; safe
+                                          # reconciliation, never force-push
+  -> result manifest @ post-reconciliation HEAD
+     (preReconciliationIntegrationSha provenance)
+  -> push + remote verification
+  -> LoopService.onStrategyCompleted      # success only when PUBLISHED +
+                                          # remoteVerified
+  -> COMPLETED Sol wake  |  durable retryable postflight evidence
+```
+
+A blocked or unverified publication consumes nothing as successful: no
+COMPLETED wake is sent, the dispatch stays unconsumed, and retry republishes
+postflight-only (workers are never rerun), surviving controller restart.
+DAG staging lands on a strategy-owned lineage derived from the immutable
+`strategyBaseSha` behind a per-strategy-run integration mutex, keeping
+persistent user main untouched until final qualified integration. Campaign
+controls are awaited through the coordinator (pause refuses during pending
+drain; resume of a non-PAUSED campaign is an explicit 409), normal shutdown is
+asynchronous — admissions close, children terminate within bounded grace,
+callbacks settle before SQLite closes — and startup sweeps mark orphaned
+executor runs failed, remove orphaned staging checkouts, and recover scheduler
+leases as `STALE_RECOVERABLE`. Supporting waves added the active-run deletion
+guard (`409 REPOSITORY_ACTIVE_RUN`), durable/resolvable permission decisions
+driven by capability-probe evidence (`NATIVE_EXECUTOR` vs `ADVISORY_ONLY`),
+truthful machine-readable 404/422 API errors across campaign/swarm/DAG/
+work-packet routes, and a fixed per-repository executor log rotator with
+persisted-log tail serving.

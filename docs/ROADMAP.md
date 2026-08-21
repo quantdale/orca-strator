@@ -631,6 +631,50 @@ selection, a SWARM-labeled DAG start path, a dead completion bridge, a missing
 result-manifest directory, a stale-dependency skip on DAG resume, and a
 Windows rev-list range quirk that silently emptied worker `filesChanged`.
 
+### Milestone 17 — Strategy postflight and concurrency hardening
+
+OpenSpec: `018-strategy-postflight-and-concurrency-hardening` (folded into
+`openspec/specs/execution-strategy-postflight-hardening/`)
+
+Status: **complete / MACHINE-QUALIFIED internally**
+
+Deliverables:
+
+- authoritative postflight: a strategy `COMPLETED` wakes Sol only when remote
+  publication is `PUBLISHED` and remote-verified; a blocked/unverified
+  publication leaves the dispatch unconsumed as successful and records durable
+  retryable postflight/recovery evidence, retried postflight-only (workers are
+  never rerun), including after controller restart;
+- explicit `UP_TO_DATE`/`LOCAL_AHEAD`/`REMOTE_AHEAD`/`DIVERGED` remote
+  classification with safe pre-manifest reconciliation; result-manifest
+  `finalCommitSha` is the post-reconciliation HEAD with
+  `preReconciliationIntegrationSha` provenance; unsafe divergence blocks
+  truthfully without force-push;
+- DAG staging lineage from `strategyBaseSha`, per-strategy-run integration
+  mutex, dependency-isolated node snapshots, integration restart-lineage
+  continuation;
+- awaited campaign controls: pause refuses during pending drain (Stop is not
+  cancellable by Pause) and resume of a non-PAUSED campaign is an explicit 409;
+  graceful asynchronous shutdown plus startup sweeps (orphaned executor runs
+  marked failed, orphaned DAG staging checkouts swept, persisted `ADMITTED`
+  scheduler leases recovered as `STALE_RECOVERABLE`);
+- supporting hard waves: active-run deletion guard (`409
+  REPOSITORY_ACTIVE_RUN`), durable/resolvable permission decisions driven by
+  native-permission-API capability probes (`NATIVE_EXECUTOR` vs
+  `ADVISORY_ONLY`), truthful machine-readable 404s and iteration-validation
+  422s across campaign/swarm/DAG/work-packet routes, fixed per-repository
+  executor log rotator with persisted-log tail serving (optional
+  `runAttemptId`), and the EventBus listener cap.
+
+Qualification (executed on this tree): typecheck, build, lint, `git diff
+--check`, and strict OpenSpec validation (18 passed / 0 failed) all pass; the
+fast tier passes 48 test files / 234 tests including the new 37-test protocol
+schema/Zod conformance guard with four documented intentional divergences; the
+real tier passes 65 tests / 3 skips / 0 failures with every skip classified
+`EXPECTED_EXTERNAL_UNQUALIFIED`. External UNQUALIFIED items are unchanged:
+real ChatGPT-authenticated wake, Tailscale phone route, real Kimi/Codex
+inference burn, and an authorized OpenCode server.
+
 The post-V1 evolution scope is implemented and internally machine-qualified
 through the Change 017 campaign-loop composition. Genuinely external
 qualifications remain explicitly UNQUALIFIED rather than faked: real

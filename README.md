@@ -113,7 +113,15 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 8 — End-to-end autonomy qualification** is *implemented* and folded (`openspec/specs/end-to-end-autonomy-qualification/`). Its real end-to-end qualification is **in progress** under Change 009 (see below).
 
-All nine V1 milestones are **implemented in code**. V1 is currently **NOT YET QUALIFIED** for real end-to-end autonomy: the earlier "complete/qualified/verified" status relied on simulation tests that manually invoked internal transition methods and used fake executors/mock browsers. A runtime-integration hardening campaign (`openspec/changes/009-v1-runtime-integration-hardening/`) is underway.
+All nine V1 milestones are **implemented in code** and internally
+machine-qualified by the Change 009 hardening campaign: production `buildApp`
+lifecycle, the watcher -> loop -> executor -> result -> Sol service graph,
+Windows/WSL executors and Git adapters, controls, recovery, and scheduler/
+permission foundations all pass their real-tier gates on this machine with real
+Git, real child-process executors, and real `wsl.exe` execution. V1 remains
+**NOT YET QUALIFIED only for genuinely external dependencies** — real
+ChatGPT-authenticated wake, the Tailscale phone route, and real Kimi/Codex
+inference burn — which are honestly UNQUALIFIED rather than faked.
 
 Honest status (this machine):
 
@@ -122,6 +130,13 @@ Honest status (this machine):
 - **UNQUALIFIED** — real Kimi/Codex execution with auth/inference burn, real ChatGPT-authenticated wake (browser auth), and Tailscale phone-route (Tailscale `not_installed`; honestly not faked).
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
+
+Latest full qualification run on this tree (Change 018 campaign): `npm run
+typecheck`, `npm run build`, and `npm run lint` exit 0; `git diff --check`
+clean; strict OpenSpec validation 18 passed / 0 failed; fast tier 48 test files
+/ 234 tests green; real tier 65 passed / 3 skipped / 0 failed, with every skip
+classified `EXPECTED_EXTERNAL_UNQUALIFIED` (WSL-distro-gated scenarios,
+OpenCode URL absent) and all internal suites non-skipped.
 
 ## Durable development workflow
 
@@ -216,6 +231,7 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 - Completed: [`openspec/changes/015-optional-rich-opencode-adapter/`](openspec/changes/015-optional-rich-opencode-adapter/)
 - Completed: [`openspec/changes/016-execution-topology-ui/`](openspec/changes/016-execution-topology-ui/)
 - Completed: [`openspec/changes/017-execution-strategy-loop-integration/`](openspec/changes/017-execution-strategy-loop-integration/) (folded into `openspec/specs/execution-strategy-loop-integration/`)
+- Completed: [`openspec/changes/archive/2026-08-22-018-strategy-postflight-and-concurrency-hardening/`](openspec/changes/archive/2026-08-22-018-strategy-postflight-and-concurrency-hardening/) (folded into `openspec/specs/execution-strategy-postflight-hardening/`)
 
 Change 010, Change 011, and Change 012 are complete and internally
 machine-qualified. Change 012 established typed work packets, isolated
@@ -247,6 +263,27 @@ strategies through the campaign control seam. Authoring these tests surfaced
 and fixed real integration bugs (non-durable dispatch strategy selection,
 SWARM-labeled DAG starts, a dead completion bridge, a missing result-manifest
 directory, and a stale-dependency skip on DAG resume).
+
+Change 018 hardens the strategy completion boundary: a strategy `COMPLETED`
+now wakes Sol only after its remote publication is `PUBLISHED` and
+remote-verified — otherwise the dispatch stays unconsumed as successful and
+durable retryable postflight evidence is recorded, retried postflight-only
+(never rerunning workers), including across controller restart. Remote
+advancement is explicitly classified (`UP_TO_DATE`/`LOCAL_AHEAD`/
+`REMOTE_AHEAD`/`DIVERGED`) and safely reconciled before the manifest commit,
+whose `finalCommitSha` is the actual post-reconciliation HEAD with
+pre-reconciliation provenance. DAG staging lands on a strategy-owned lineage
+from the immutable `strategyBaseSha` behind a per-strategy integration mutex,
+with dependency-isolated snapshots and restart-lineage continuation. Campaign
+controls are awaited/acknowledged (pause refuses during pending drain; resume
+of a non-PAUSED campaign is an explicit 409), shutdown is asynchronous and
+sweeping (no orphan children; startup marks orphaned executor runs failed and
+recovers scheduler leases), and supporting hard waves added the active-run
+deletion guard (`409 REPOSITORY_ACTIVE_RUN`), durable/resolvable permission
+decisions driven by native-permission-API capability probes, truthful 404/422
+API errors, and the fixed per-repository executor log rotator with persisted
+tail serving. Qualification evidence for this campaign is recorded in
+[`docs/TEST-STRATEGY.md`](docs/TEST-STRATEGY.md) §24–§26.
 
 Post-V1 evolution is implemented as focused sequential changes. The
 historical OpenFlow-inspired exploration is explicitly non-binding; see the

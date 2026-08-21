@@ -648,3 +648,92 @@ substitutes for the other.
 The genuinely external tiers remain honestly UNQUALIFIED and are not faked:
 real ChatGPT-authenticated wake, the Tailscale phone route, real Kimi/Codex
 inference burn, and an authorized OpenCode server/provider.
+
+## 24. Change 018 postflight/concurrency hardening matrix
+
+Focused coverage includes:
+
+- authoritative postflight: an engine `COMPLETED` takes the success path only
+  when remote publication is `PUBLISHED` and `remoteVerified`; a blocked or
+  unverified publication sends no COMPLETED Sol wake, leaves the authorizing
+  dispatch unconsumed as successful, and persists retryable postflight/recovery
+  evidence on the strategy record, run state, and event stream;
+- postflight-only retry (no worker rerun), including after controller restart,
+  with a refusal when the campaign is mid-flight on a newer iteration;
+- explicit `UP_TO_DATE` / `LOCAL_AHEAD` / `REMOTE_AHEAD` / `DIVERGED` remote
+  classification in `publishToRemote`, safe pre-manifest reconciliation, and
+  structured blockers for unsafe divergence (never force-push/reset);
+- manifest `finalCommitSha` equals the actual post-reconciliation HEAD with
+  pre-reconciliation integration SHA preserved as provenance;
+- DAG staging lineage from the immutable `strategyBaseSha`, a per-strategy-run
+  integration mutex serializing simultaneous completions (stress-tested, no
+  Git index-lock failures), dependency-isolated node snapshots (A -> C must not
+  see unrelated B), and restart-lineage continuation;
+- awaited/acknowledged campaign controls: pause refuses while a stop/ceiling
+  drain is pending (a graceful Stop is not cancellable by Pause), resume of a
+  non-PAUSED campaign is an explicit `409` conflict instead of a silent no-op,
+  and resume failure never marks the campaign `EXECUTING`;
+- graceful asynchronous shutdown: `fastify.close()` plus database close alone
+  terminates children within bounded grace (including the launch-retry window),
+  settles completion callbacks, and preserves worktrees; startup then marks
+  orphaned active executor runs failed, sweeps orphaned DAG staging checkouts,
+  and recovers persisted `ADMITTED` scheduler leases as `STALE_RECOVERABLE`.
+
+## 25. Protocol schema <-> Zod conformance guard
+
+`apps/controller/test/schema-conformance.test.ts` (37 tests, fast tier) pins
+each documented protocol schema under `schemas/protocol/` to its runtime Zod
+mirror in `@orca/shared` so silent drift fails CI:
+
+- `dispatch.schema.json` <-> `validateDispatchMarker`;
+- `executor-result.schema.json` <-> `validateExecutorResult`;
+- `sol-control.schema.json` <-> `validateSolControlMarker`.
+
+A coverage meta-guard fails the suite if a new `schemas/protocol/*.schema.json`
+is added without its own conformance block.
+
+Four divergences between the published JSON Schemas and the runtime Zod mirrors
+are KNOWN, REVIEWED, and intentionally left unfixed; the suite asserts each one
+explicitly so it cannot widen silently:
+
+1. **SHA case-insensitivity leniency in Zod** — the JSON patterns are
+   case-sensitive (`^[0-9a-f]{40}$`) while the Zod mirrors accept uppercase
+   hex, so uppercase SHAs pass runtime enforcement but fail the published
+   contract.
+2. **`relatedDispatchId` nullability** — JSON lists the key in `required`
+   (present, value may be null) while the Zod chain is `.nullable().optional()`,
+   so an absent key passes runtime enforcement but fails the published
+   contract.
+3. **`changePath` backslash normalization** — Zod normalizes `\` to `/` (and
+   rejects a leading `\`) before traversal checks; the JSON pattern inspects
+   only `/`, so Windows-style traversal strings pass the published pattern but
+   are rejected at runtime.
+4. **date-time format vocabulary gap** — JSON uses `format: "date-time"`
+   (annotation-only in Draft 2020-12) while Zod enforces `z.string().datetime()`
+   (UTC `Z` only); the semantics are not directly comparable across
+   vocabularies, so only obviously malformed timestamps are asserted.
+
+These divergences are recorded here and in the suite rather than hidden;
+tightening them is deliberate future schema work, not drift.
+
+## 26. Qualification tier evidence (as of this qualification run)
+
+Executed gates on this tree during the Change 018 qualification campaign:
+
+```text
+npm run typecheck                     exit 0 (all workspaces)
+npm run build                         exit 0
+npm run lint                          exit 0
+git diff --check                      pass
+npx openspec validate --all --strict  18 passed / 0 failed
+npm test (fast tier)                  48 test files passed / 234 tests passed
+npm run test:real                     14 files passed + 1 skipped file;
+                                      65 passed / 3 skipped / 0 failed (exit 0)
+```
+
+Real-tier skips are classified `EXPECTED_EXTERNAL_UNQUALIFIED` and are not
+faked: five WSL-distro-gated scenarios (real WSL Ubuntu required) and one
+OpenCode scenario (`ORCA_OPENCODE_QUALIFY_URL` absent). All internal suites ran
+non-skipped. The external qualifications remain unchanged and honestly
+UNQUALIFIED: real ChatGPT-authenticated wake, the Tailscale phone route, real
+Kimi/Codex inference burn, and an authorized OpenCode server.

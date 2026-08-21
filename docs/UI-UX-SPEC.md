@@ -100,6 +100,12 @@ Current: executor implementing CHANGE-047
 
 Use badges/icons consistently but do not communicate critical state through color alone.
 
+Implemented: dashboard state badges/iteration chips update live from
+`loop.state_changed` WebSocket events with an `eventsConnected` health
+indicator; when the event stream is unavailable the UI shows an explicit
+controller-unavailable/poll-failure banner instead of a fake idle state, kept
+distinct from an empty registry.
+
 ## 6. Empty state
 
 When controller is connected but no repositories exist:
@@ -276,6 +282,12 @@ Manual recovery/diagnostic action; disabled when same repository already has act
 
 Manual recovery action; disabled without valid work/dispatch unless explicit recovery semantics are met.
 
+Implemented: these controls map to the runtime contract as specified —
+Emergency Kill requires an explicit destructive-action confirmation dialog,
+Wake Sol is gated while the repository has an active Sol turn, and Stop Run is
+offered as a recovery action. Notifications fire on meaningful terminal/problem
+transitions; ordinary successful iterations stay quiet.
+
 ## 13. Configuration lock while active
 
 While repository run is active, fields that would mutate execution identity should be read-only:
@@ -385,6 +397,10 @@ Open Setup Browser:
 - normal automation remains headless.
 
 If the automated browser is already using the profile, the UI must not launch a second competing browser process. It should wait, explain the conflict, or cleanly stop the idle automation browser first.
+
+Implemented: the Settings screen (`/settings`) provides the ChatGPT
+Automation panel (which never launches a competing browser), Chromium
+provisioning status, and Tailscale guidance with live status.
 
 Do not display browser cookies/session tokens.
 

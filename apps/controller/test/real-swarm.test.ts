@@ -267,7 +267,15 @@ describe("Real Change 013 optional same-repository swarm qualification", () => {
     expect(strategy.listControls(started.strategyRunId).map((control) => control.decision)).toContain("PAUSE");
 
     delete process.env.ORCA_SWARM_HARNESS_SLOW_MS;
+    // Change 018 review F6: a direct strategy RESUME must not contradict
+    // campaign state - the engine requires the campaign itself to be PAUSED.
+    // Mirror the coordinator's campaign move once the actor reached its paused
+    // boundary (coordinator.pause stamps PAUSED after waitForStrategyBoundary).
+    runStore.updateStatus(run.id, "PAUSED");
     await strategy.control(repo.id, started.strategyRunId, "RESUME", "qualification resume");
+    // Mirror coordinator.resume moving the campaign back to EXECUTING after
+    // engine acceptance.
+    runStore.updateStatus(run.id, "EXECUTING");
     await waitFor(() => strategy.get(started.strategyRunId)?.status === "COMPLETED", 20_000);
     expect(strategy.listControls(started.strategyRunId).map((control) => control.decision)).toEqual(["PAUSE", "RESUME"]);
     expect(packetService.getResult(packet.packetId)?.status).toBe("COMPLETED");

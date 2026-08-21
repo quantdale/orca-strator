@@ -24,6 +24,7 @@ export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<"list" | "add" | "detail" | "edit" | "settings">("list");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Sync state with URL pathname (and hash fallback)
   useEffect(() => {
@@ -123,9 +124,16 @@ export const App: React.FC = () => {
 
   const handleDeleteConfirm = async () => {
     if (!deletingRepoId) return;
-    await deleteRepository(deletingRepoId);
-    setDeletingRepoId(null);
-    navigateTo("list");
+    try {
+      await deleteRepository(deletingRepoId);
+      setDeletingRepoId(null);
+      navigateTo("list");
+    } catch (err: any) {
+      // Delete-guard conflicts (e.g. REPOSITORY_ACTIVE_RUN 409) must not leave
+      // the modal open silently: close it and surface the server's message.
+      setDeletingRepoId(null);
+      setDeleteError(err?.message || "Failed to delete repository");
+    }
   };
 
   return (
@@ -134,6 +142,12 @@ export const App: React.FC = () => {
       currentView={currentView}
       onNavigate={(v) => navigateTo(v as any)}
     >
+      {deleteError && (
+        <div className="rounded-lg bg-rose-950/50 border border-rose-900 p-3 text-xs text-rose-300">
+          {deleteError}
+        </div>
+      )}
+
       {currentView === "list" && (
         <RepositoryList
           repositories={repositories}
@@ -164,7 +178,10 @@ export const App: React.FC = () => {
           liveRunState={runStatesByRepo[selectedRepo.id]}
           onBack={() => navigateTo("list")}
           onEdit={() => navigateTo("edit", selectedRepo.id)}
-          onDelete={() => setDeletingRepoId(selectedRepo.id)}
+          onDelete={() => {
+            setDeleteError(null);
+            setDeletingRepoId(selectedRepo.id);
+          }}
         />
       )}
 

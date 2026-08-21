@@ -588,3 +588,45 @@ Missing records remain `UNKNOWN`/`QUEUED`; partial, blocked, skipped,
 cancelled, conflict, and recovery states remain distinct. Presets are explicit
 policy hints and never start a strategy, select a model, or change the outer
 loop.
+
+## 23. Authoritative strategy postflight and concurrency hardening (Change 018)
+
+A `SWARM`/`DAG` iteration is durably successful only when the engine reached
+`COMPLETED` AND its remote publication is `PUBLISHED` with remote verification.
+Otherwise the run enters a structured retryable postflight/recovery state with
+durable evidence on the strategy record, run state, and event stream; the
+authorizing dispatch is not consumed as successful and no COMPLETED Sol wake is
+sent. Retrying such an iteration retries publication/postflight only — workers
+are never rerun — and pending-publication state survives controller restart. A
+retry refuses while the campaign is mid-flight on a newer iteration.
+
+Remote advancement is classified explicitly (`UP_TO_DATE`, `LOCAL_AHEAD`,
+`REMOTE_AHEAD`, `DIVERGED`). Safe advancement reconciles integrated work
+forward before writing the result manifest; unsafe divergence blocks
+truthfully; force-push and history discarding remain forbidden. The manifest's
+`finalCommitSha` is the actual post-reconciliation HEAD, with the original
+pre-reconciliation integration SHA preserved separately.
+
+DAG dependency staging lands on one strategy-owned lineage derived from the
+immutable `strategyBaseSha`; persistent user main is not mutated merely to
+prepare downstream nodes. Exactly one integration operation owns a strategy's
+lineage at a time, so simultaneous worker completions serialize without Git
+index-lock failures. A node's input snapshot is exactly `strategyBaseSha` plus
+its accepted transitive dependency commits (node base SHA and dependency input
+SHAs are persisted), and an interrupted strategy continues along the same
+staged lineage after restart.
+
+Campaign controls are awaited and acknowledged: Pause refuses while a
+stop/ceiling drain is pending (a graceful Stop is not cancellable by Pause),
+and Resume of a non-PAUSED campaign is an explicit 409 conflict rather than a
+silent no-op. Resume failure never marks the campaign `EXECUTING`; campaign
+state never contradicts strategy-actor state.
+
+Normal controller shutdown stops strategy admissions, requests worker
+termination (including the launch-retry window), awaits child termination
+within a bounded grace, persists recovery state, settles completion callbacks,
+preserves worktrees, and only then closes the database — `fastify.close()`
+alone leaves no orphan children and no DB-closed callback errors. At startup,
+orphaned active executor runs are marked failed, orphaned DAG staging
+checkouts are swept, and persisted `ADMITTED` scheduler leases become
+`STALE_RECOVERABLE`.

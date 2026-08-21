@@ -100,6 +100,79 @@ function git(cwd: string, args: string[]): string {
     .trim();
 }
 
+/**
+ * Teardown diagnostics (Q.WIN EPERM): after a failed recursive delete, walk the
+ * tree and attempt per-entry removal to identify exactly WHICH path stays
+ * locked, then report it through the console.warn convention used by this tier.
+ * Always rethrows so a genuine teardown failure still fails the test.
+ */
+function diagnoseLockedPaths(dir: string): string[] {
+  const locked: string[] = [];
+  const walk = (current: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (err: any) {
+      locked.push(`${current} -> readdir failed: ${err?.code ?? err?.message ?? String(err)}`);
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          walk(full);
+          fs.rmdirSync(full);
+        } else {
+          fs.unlinkSync(full);
+        }
+      } catch (err: any) {
+        locked.push(`${full} -> ${err?.code ?? err?.message ?? String(err)}`);
+      }
+    }
+  };
+  walk(dir);
+  return locked;
+}
+
+/**
+ * Bounded-retry recursive temp-tree removal (Q.WIN EPERM teardown diagnosis).
+ *
+ * Diagnosed cause (evidence captured by diagnoseLockedPaths on failing runs):
+ * every FILE under the temp tree unlinks cleanly — including executor run logs
+ * and the SQLite/WAL files after dbCtx.close() — while the only unremovable
+ * entry is always a repository clone DIRECTORY itself with EBUSY. That is the
+ * Windows signature of a live-or-just-exited child process whose cwd sits
+ * inside the tree (a WatcherService/GitClient git.exe poll cycle or the harness
+ * child around teardown), not an in-process handle owned by controller code.
+ * Windows releases a dead process's cwd lock asynchronously, so a single
+ * immediate rmSync can lose that race; this bounded backoff gives the OS time
+ * to release it. A persistent failure is still reported per-entry and rethrown.
+ */
+async function removeTempTreeWithRetry(dir: string): Promise<void> {
+  const backoffMs = [0, 50, 100, 200, 400, 800];
+  let lastError: any;
+  for (const waitMs of backoffMs) {
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  const locked = diagnoseLockedPaths(dir);
+  console.warn(
+    `[teardown] rmSync(${dir}) still failed after ${backoffMs.length} attempts: ${
+      lastError?.code ?? lastError?.message ?? String(lastError)
+    }; locked entries: ${
+      locked.length > 0 ? JSON.stringify(locked, null, 2) : "(none individually removable-failing; tree already gone)"
+    }`
+  );
+  throw lastError;
+}
+
 function waitForCondition(fn: () => boolean, timeoutMs: number, everyMs = 150): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -237,7 +310,7 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
       await browserManager.close().catch(() => {});
     } finally {
       dbCtx.close();
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      await removeTempTreeWithRetry(tempDir);
     }
   });
 
@@ -493,6 +566,6 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
     }
 
     watcherService.stop();
-    fs.rmSync(tempDir2, { recursive: true, force: true });
+    await removeTempTreeWithRetry(tempDir2);
   }, 150000);
 });

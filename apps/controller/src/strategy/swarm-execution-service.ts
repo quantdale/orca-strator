@@ -132,6 +132,14 @@ export class SwarmExecutionService {
   private readonly integrationLocks = new Map<string, Promise<void>>();
   /** Change 018 R1: the single staging checkout per strategy run. */
   private readonly stagings = new Map<string, StrategyStagingHandle>();
+  /**
+   * Fast path for lineage reconciliation: ORIGINAL worker commit SHAs that
+   * stageNodeCommit successfully staged into this run's staging checkout,
+   * per strategyRunId. Memory-only — losing it (controller restart) stays
+   * safe because cherryPickIntoStaging treats git's empty-pick stop as
+   * already-applied content.
+   */
+  private readonly stagedOriginalShas = new Map<string, Set<string>>();
 
   constructor(options: SwarmExecutionServiceOptions) {
     this.repositoryStore = options.repositoryStore;
@@ -513,6 +521,7 @@ export class SwarmExecutionService {
       this.active.delete(strategyRunId);
       this.hooks.delete(strategyRunId);
       this.stagings.delete(strategyRunId);
+      this.stagedOriginalShas.delete(strategyRunId);
       this.integrationLocks.delete(strategyRunId);
       return settled;
     }
@@ -830,6 +839,17 @@ export class SwarmExecutionService {
             finalCommitSha: null,
             blocker: `Git integration failed and was aborted: ${picked.error}`,
           };
+        // Fast-path provenance: remember the ORIGINAL SHA so this run's final
+        // landing reconciles it without probing/picking again — the staging
+        // lineage contains its REWRITTEN twin, so the original SHA is not an
+        // ancestor of HEAD even though the content is present.
+        const stagedShas = this.stagedOriginalShas.get(record.strategyRunId);
+        if (stagedShas) stagedShas.add(commitSha);
+        else
+          this.stagedOriginalShas.set(
+            record.strategyRunId,
+            new Set([commitSha]),
+          );
         return {
           ...reportBase,
           status: "COMPLETED" as const,
@@ -907,10 +927,14 @@ export class SwarmExecutionService {
    * strategy run reuses pre-existing COMPLETED results without re-staging
    * their commits, so its own lineage would otherwise silently DROP the
    * previously accepted commits of interrupted prior runs at final
-   * integration. Commits already present (the normal case: zero extra work)
-   * are detected cheaply via merge-base --is-ancestor; missing ones are
-   * cherry-picked exactly like stageNodeCommit picks. Any failed pick aborts
-   * with a structured outcome — the landing never proceeds half-reconciled.
+   * integration. Presence is detected in three layers: the per-run in-memory
+   * fast path (SHAs this process staged via stageNodeCommit), the cheap
+   * merge-base --is-ancestor probe (direct matches), and — covering commits
+   * staged under rewritten SHAs or across a controller restart — git's
+   * empty-pick stop inside cherryPickIntoStaging, which reports
+   * already-applied instead of failing. Missing commits are cherry-picked
+   * exactly like stageNodeCommit picks; only a GENUINE conflict aborts with a
+   * structured outcome — the landing never proceeds half-reconciled.
    * Call under the integration mutex.
    */
   private async reconcileStagingLineage(
@@ -925,7 +949,11 @@ export class SwarmExecutionService {
         blocker: string;
       }
   > {
+    const stagedShas = this.stagedOriginalShas.get(staging.strategyRunId);
     for (const { sha } of acceptedCommits) {
+      // Same-process short-circuit: stageNodeCommit staged this exact original
+      // SHA into this checkout, so probing/picking it again is pure overhead.
+      if (stagedShas?.has(sha)) continue;
       const present = await this.worktreeService.isCommitAncestorOfHead(
         repository,
         staging.path,
@@ -1419,9 +1447,19 @@ export class SwarmExecutionService {
                     ],
                     summary: `Worker ${packet.workstream} completed but its staging did not (${integration.status}).`,
                   };
-                  this.packetService.updateStatus(
-                    packet.packetId,
-                    "BLOCKED",
+                  // Persist the downgraded result itself, not merely the packet
+                  // status: landing-time lineage reconciliation derives its
+                  // accepted-commit set from persisted result rows. A row still
+                  // saying COMPLETED would make the final landing re-pick this
+                  // rejected commit, hit the same conflict again, and abort the
+                  // WHOLE lineage merge — dropping already-staged independent
+                  // siblings from persistent main (Change 014/018 preservation
+                  // contract). recordResult also derives the packet BLOCKED
+                  // status from the result, replacing updateStatus.
+                  persisted = this.packetService.recordResult(
+                    repository,
+                    packet,
+                    persisted,
                   );
                 }
               }
@@ -1823,6 +1861,7 @@ export class SwarmExecutionService {
         // A PAUSED run keeps its staging handle: RESUME continues the same
         // lineage in the same checkout. Every terminal state drops it.
         this.stagings.delete(record.strategyRunId);
+        this.stagedOriginalShas.delete(record.strategyRunId);
         this.hooks.delete(record.strategyRunId);
       }
     }

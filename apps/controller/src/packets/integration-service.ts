@@ -261,9 +261,11 @@ export class IntegrationService {
    * relation (UP_TO_DATE, LOCAL_AHEAD, REMOTE_AHEAD, DIVERGED), reconciles
    * ordinary non-overlapping advancement BEFORE writing the result manifest,
    * refuses to force-push, and only after a clean push verifies the remote
-   * contains the actual final HEAD and the result manifest. After any
-   * reconciliation the pre-rebase SHAs are historical provenance only; all
-   * evidence is anchored at the freshly resolved post-reconciliation HEAD.
+   * contains the actual final HEAD and the result manifest. The pre-rebase
+   * SHAs are historical provenance only; all evidence is anchored at the
+   * actual local HEAD resolved immediately before the manifest commit, on
+   * every attempt, so a stale integration SHA left behind by an earlier
+   * failed attempt's reconciliation can never ship as finalCommitSha.
    */
   async publishToRemote(
     repository: RepositoryRecord,
@@ -407,16 +409,18 @@ export class IntegrationService {
       }
       details.reconciled = reconciled;
 
-      // SHA truth (Change 018 R2): after any reconciliation the integrated
-      // SHAs may have been rewritten. Re-resolve the actual local HEAD and
-      // treat THAT as the durable base; caller-supplied pre-rebase SHAs stay
-      // provenance only.
-      const reconciledHead = await this.git(
+      // SHA truth (Change 018 R2 / audit H1): after any reconciliation the
+      // integrated SHAs may have been rewritten, and an earlier FAILED attempt
+      // can leave rewritten commits on main without ever publishing them. So
+      // resolve the actual local HEAD immediately before the manifest commit
+      // and treat THAT as the durable anchor on every attempt; caller-supplied
+      // SHAs stay provenance only.
+      const preManifestHead = await this.git(
         repository,
         ["rev-parse", "HEAD"],
         repository.localPath,
       );
-      details.reconciledHead = reconciledHead;
+      details.preManifestHead = preManifestHead;
 
       // Publication evidence on the integration report is IN-MEMORY ONLY:
       // this mutation lands on the caller's report copy after the engine
@@ -424,17 +428,22 @@ export class IntegrationService {
       // storage. The durable carrier of publication evidence is the pushed
       // .orca/results/<dispatchId>.json manifest below (plus
       // RemotePublishResult.details transiently), not the persisted record.
-      // SHA truth (Change 018 R2): when reconciliation occurred the durable
-      // integration commit IS the freshly resolved HEAD; the pre-rebase
-      // integration SHA survives only as explicit provenance.
+      // SHA truth (Change 018 R2 / audit H1): the durable integration history
+      // IS the anchored pre-manifest HEAD; the caller-supplied integration SHA
+      // survives as explicit provenance whenever it differs from that anchor —
+      // both when THIS attempt rebased and when an earlier failed attempt's
+      // rebase already rewrote the reported SHA out of ancestry.
       const preReconciliationIntegrationSha =
         report?.integration?.finalCommitSha ?? null;
       const publication: PublicationEvidence = {
         relation,
         reconciled,
-        finalHead: reconciledHead,
+        finalHead: preManifestHead,
       };
-      if (reconciled && preReconciliationIntegrationSha)
+      if (
+        preReconciliationIntegrationSha &&
+        preReconciliationIntegrationSha !== preManifestHead
+      )
         publication.preReconciliationIntegrationSha =
           preReconciliationIntegrationSha;
       if (report?.integration) report.integration.publication = publication;
@@ -450,12 +459,12 @@ export class IntegrationService {
         strategy: report?.strategy ?? null,
         strategyStatus: report?.status ?? null,
         integrationStatus: report?.integration?.status ?? null,
-        // Post-reconciliation HEAD when reconciliation rewrote history; the
-        // untouched integration commit otherwise. Pre-rebase provenance lives
-        // in publication.preReconciliationIntegrationSha.
-        finalCommitSha: reconciled
-          ? reconciledHead
-          : preReconciliationIntegrationSha,
+        // Always the actual local HEAD resolved above; never the
+        // caller-supplied integration SHA, which reconciliation (this attempt
+        // or an earlier failed one) may have rewritten out of origin/main
+        // ancestry. Pre-rebase provenance lives in
+        // publication.preReconciliationIntegrationSha.
+        finalCommitSha: preManifestHead,
         createdAt: new Date().toISOString(),
         publication,
       };
@@ -469,13 +478,9 @@ export class IntegrationService {
         path.join(repository.localPath, resultPath),
         manifestJson,
       );
-      // R1#F5: remember the pre-manifest HEAD so a failed push can roll back
-      // exactly Orca's own manifest commit (see the PUSH_FAILED handler).
-      const prevHead = await this.git(
-        repository,
-        ["rev-parse", "HEAD"],
-        repository.localPath,
-      );
+      // R1#F5: the pre-manifest HEAD captured above doubles as the rollback
+      // point so a failed push can unwind exactly Orca's own manifest commit
+      // (see the PUSH_FAILED handler).
       await this.git(repository, ["add", resultPath], repository.localPath);
       await this.git(
         repository,
@@ -500,7 +505,7 @@ export class IntegrationService {
         );
       } catch (error: any) {
         // R1#F5: roll back EXACTLY Orca's own just-created manifest commit
-        // with a mixed reset (`git reset prevHead`): the branch pointer
+        // with a mixed reset (`git reset preManifestHead`): the branch pointer
         // returns to the pre-commit HEAD and the staged manifest entry is
         // dropped, leaving the manifest file on disk as untracked content
         // that the next retry overwrites. This narrow reset does not violate
@@ -510,7 +515,11 @@ export class IntegrationService {
         // commit — user work is never touched. Best-effort: if the reset
         // itself fails, the commit is kept and flagged via details.
         try {
-          await this.git(repository, ["reset", prevHead], repository.localPath);
+          await this.git(
+            repository,
+            ["reset", preManifestHead],
+            repository.localPath,
+          );
         } catch (rollbackError: any) {
           details.rollbackFailed = true;
           details.rollbackError =
@@ -548,11 +557,13 @@ export class IntegrationService {
         .then(() => true)
         .catch(() => false);
       const remoteVerified = finalOnRemote && manifestOnRemote;
-      const integrationSha = report?.integration?.finalCommitSha ?? null;
-      if (integrationSha && integrationSha !== reconciledHead)
+      if (
+        preReconciliationIntegrationSha &&
+        preReconciliationIntegrationSha !== preManifestHead
+      )
         details.preRebaseIntegrationShaOnRemote = await this.isAncestor(
           repository,
-          integrationSha,
+          preReconciliationIntegrationSha,
           "origin/main",
         );
       details.pushedSha = pushHead;

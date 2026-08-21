@@ -60,6 +60,8 @@ const MAX_LAUNCH_ATTEMPTS = 3;
 const LAUNCH_RETRY_BASE_MS = 1500;
 /** Tail bound for persisted log reads; matches ExecutorRunner's ring buffer size. */
 const MAX_PERSISTED_LOG_LINES = 200;
+/** Persisted run attempt IDs are always crypto.randomUUID output (see startRun). */
+const RUN_ATTEMPT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class ExecutorService {
   private readonly repoStore: RepositoryStore;
@@ -82,6 +84,10 @@ export class ExecutorService {
   private readonly logRotator: LogRotator;
 
   private readonly activeRunners = new Map<string, ExecutorRunner>();
+  /** Runners registered from creation until their first successful spawn; closes the launch-retry escape window. */
+  private readonly pendingRunners = new Map<string, { runner: ExecutorRunner; runAttemptId: string }>();
+  /** Set by shutdown(); aborts in-flight launches and refuses new runs. */
+  private shuttingDown = false;
 
   constructor(options: ExecutorServiceOptions) {
     this.repoStore = options.repoStore;
@@ -110,7 +116,11 @@ export class ExecutorService {
       throw new RepositoryNotFoundError(`Repository ${repositoryId} not found`);
     }
 
-    if (this.activeRunners.has(repositoryId)) {
+    if (this.shuttingDown) {
+      throw new ValidationError(`ExecutorService is shutting down; refusing new run for repository ${repositoryId}`);
+    }
+
+    if (this.activeRunners.has(repositoryId) || this.pendingRunners.has(repositoryId)) {
       throw new ValidationError(`Executor is already running for repository ${repositoryId}`);
     }
 
@@ -206,70 +216,79 @@ export class ExecutorService {
         this.publishLog(repositoryId, dispatch.id, line);
       },
       onExit: (exitCode, details) => {
-        this.activeRunners.delete(repositoryId);
-        const finishedAt = new Date().toISOString();
-
         let finalStatus: "completed" | "failed" | "timed_out" | "paused" | "killed" = "completed";
         let errorMessage: string | null = null;
-
-        // First-class exit reasons: PAUSED must not become RECOVERY_REQUIRED (item #5).
-        if (details.reason === "PAUSED" || details.wasPaused) {
-          finalStatus = "paused";
-        } else if (details.reason === "EMERGENCY_KILLED" || details.wasKilled) {
-          finalStatus = "killed";
-        } else if (details.reason === "WATCHDOG_TIMEOUT" || details.timedOut) {
-          finalStatus = "timed_out";
-          errorMessage = "Executor watchdog timeout";
-          this.publishEvent({
-            type: "budget.expired",
-            at: finishedAt,
-            repositoryId,
-            data: {
-              runId: dispatch.runId,
-              dispatchId: dispatch.id,
-              iteration: dispatch.iteration,
-              failureReason: "EXECUTOR_WATCHDOG_TIMEOUT",
-              reason: "EXECUTOR_WATCHDOG_TIMEOUT",
-              phase: "EXECUTOR_ACTIVITY"
-            }
-          });
-        } else if (exitCode !== null && exitCode !== 0) {
-          // Nonzero exit is not authoritative – still attempt result validation (item #7).
-          // Keep failed status for now; result validation may still surface a FAILED/BLOCKED manifest.
-          finalStatus = "failed";
-          errorMessage = `Executor process exited with non-zero code ${exitCode}`;
-        }
-
-        this.executorStore.updateStatus(runAttemptId, finalStatus, {
-          exitCode,
-          errorMessage,
-          finishedAt
-        });
-
-        // Bound per-run log retention: prune oldest persisted run logs after each completion.
         try {
-          this.logRotator.pruneLogs(repositoryId);
-        } catch (err: any) {
-          this.publishLog(repositoryId, dispatch.id, `[system] Log pruning failed: ${err?.message || String(err)}`);
+          this.activeRunners.delete(repositoryId);
+          this.pendingRunners.delete(repositoryId);
+          const finishedAt = new Date().toISOString();
+
+          // First-class exit reasons: PAUSED must not become RECOVERY_REQUIRED (item #5).
+          if (details.reason === "PAUSED" || details.wasPaused) {
+            finalStatus = "paused";
+          } else if (details.reason === "EMERGENCY_KILLED" || details.wasKilled) {
+            finalStatus = "killed";
+          } else if (details.reason === "WATCHDOG_TIMEOUT" || details.timedOut) {
+            finalStatus = "timed_out";
+            errorMessage = "Executor watchdog timeout";
+            this.publishEvent({
+              type: "budget.expired",
+              at: finishedAt,
+              repositoryId,
+              data: {
+                runId: dispatch.runId,
+                dispatchId: dispatch.id,
+                iteration: dispatch.iteration,
+                failureReason: "EXECUTOR_WATCHDOG_TIMEOUT",
+                reason: "EXECUTOR_WATCHDOG_TIMEOUT",
+                phase: "EXECUTOR_ACTIVITY"
+              }
+            });
+          } else if (exitCode !== null && exitCode !== 0) {
+            // Nonzero exit is not authoritative – still attempt result validation (item #7).
+            // Keep failed status for now; result validation may still surface a FAILED/BLOCKED manifest.
+            finalStatus = "failed";
+            errorMessage = `Executor process exited with non-zero code ${exitCode}`;
+          }
+
+          this.executorStore.updateStatus(runAttemptId, finalStatus, {
+            exitCode,
+            errorMessage,
+            finishedAt
+          });
+
+          // Bound per-run log retention: prune oldest persisted run logs after each completion.
+          try {
+            this.logRotator.pruneLogs(repositoryId);
+          } catch (err: any) {
+            this.publishLog(repositoryId, dispatch.id, `[system] Log pruning failed: ${err?.message || String(err)}`);
+          }
+        } catch (err) {
+          // Teardown-order safety (same contract as the Fix #11 guards): an exit
+          // delivered after controller/DB teardown must never escalate into an
+          // unhandled exception inside the child's exit emitter.
+          console.warn("[ExecutorService] Post-exit handling failed:", err);
         }
 
-        // PAUSED is not an error completion; do not trigger RECOVERY_REQUIRED path.
-        // Handle async completion with safe guard against closed DB (test teardown);
-        // surface failures so a stalled completion is diagnosable instead of silent.
-        if (details.reason === "PAUSED" || details.wasPaused) {
-          // Persist result if present but do NOT wake Sol; leave PAUSED for resume.
-          this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch((err) => this.reportCompletionFailure(repositoryId, dispatch.id, finalStatus, err));
-          return;
-        }
-
-        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch((err) => this.reportCompletionFailure(repositoryId, dispatch.id, finalStatus, err));
+        // PAUSED persists any result but does NOT wake Sol or trigger the
+        // RECOVERY_REQUIRED path (LoopService owns resume); every other reason
+        // flows through the same result-contract completion handler. Async
+        // failures surface via reportCompletionFailure instead of stalling silent.
+        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId)
+          .catch((err) => this.reportCompletionFailure(repositoryId, dispatch.id, finalStatus, err));
       }
     });
+
+    // Register intent BEFORE the first spawn attempt: a kill sweep arriving
+    // during the launch-retry window (attempts sleep up to 3s) must still find
+    // this runner and terminate it instead of orphaning the spawned child.
+    this.pendingRunners.set(repositoryId, { runner, runAttemptId });
 
     const launchAttempts = policy?.executor.launchAttempts ?? MAX_LAUNCH_ATTEMPTS;
     const started = await this.launchWithRetry(repo, runner, launchAttempts);
     if (!started) {
       this.activeRunners.delete(repositoryId);
+      this.pendingRunners.delete(repositoryId);
       this.executorStore.updateStatus(runAttemptId, "failed", {
         errorMessage: `Executor failed to start after ${launchAttempts} attempts (contact/launch unavailable).`,
         finishedAt: new Date().toISOString()
@@ -280,6 +299,10 @@ export class ExecutorService {
     }
 
     this.activeRunners.set(repositoryId, runner);
+    // First spawn succeeded: the runner graduates out of the pending intent map
+    // (see registration invariant above); leaving it tracked would make the
+    // pause->resume re-dispatch hit the already-running guard below.
+    this.pendingRunners.delete(repositoryId);
     return runRecord;
   }
 
@@ -296,6 +319,19 @@ export class ExecutorService {
     maxAttempts = MAX_LAUNCH_ATTEMPTS
   ): Promise<boolean> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Abort between attempts: controller shutdown or an emergency kill must
+      // never be followed by another spawn of this runner.
+      if (this.shuttingDown || runner.killRequested()) {
+        this.publishEvent({
+          type: "executor.log",
+          at: new Date().toISOString(),
+          repositoryId: repo.id,
+          data: {
+            logMessage: `[system] Launch sequence aborted before attempt ${attempt}/${maxAttempts}: ${this.shuttingDown ? "controller shutdown" : "emergency kill"}`
+          }
+        });
+        return false;
+      }
       try {
         await runner.start();
         return true;
@@ -586,11 +622,12 @@ export class ExecutorService {
   }
 
   async killRun(repositoryId: string): Promise<void> {
-    const runner = this.activeRunners.get(repositoryId);
+    const runner = this.activeRunners.get(repositoryId) ?? this.pendingRunners.get(repositoryId)?.runner;
     if (!runner) return;
 
     await runner.kill();
     this.activeRunners.delete(repositoryId);
+    this.pendingRunners.delete(repositoryId);
 
     const activeRun = this.executorStore.getActiveRun(repositoryId);
     if (activeRun) {
@@ -600,8 +637,40 @@ export class ExecutorService {
     }
   }
 
+  /**
+   * Controller-side kill sweep covering BOTH live runners and runners still in
+   * their launch-retry window. A runner that only registered intent (no child
+   * spawned yet) is aborted via its kill flag so no later retry spawns; a live
+   * child dies through the adapter's bounded process-tree kill. Resolves once
+   * every kill completed; late onExit callbacks stay safe against closed stores
+   * via the post-exit teardown guard.
+   */
+  async shutdown(): Promise<void> {
+    this.shuttingDown = true;
+
+    const targets = new Map<string, ExecutorRunner>();
+    for (const [repositoryId, pending] of this.pendingRunners) {
+      targets.set(repositoryId, pending.runner);
+    }
+    for (const [repositoryId, runner] of this.activeRunners) {
+      targets.set(repositoryId, runner);
+    }
+
+    await Promise.all(
+      [...targets].map(([repositoryId, runner]) =>
+        runner.kill().catch((err: any) => {
+          // One failed kill must not abort the sweep; surface and continue.
+          console.warn(
+            `[ExecutorService] Shutdown kill failed for repository ${repositoryId}:`,
+            err?.message || String(err)
+          );
+        })
+      )
+    );
+  }
+
   getStatus(repositoryId: string): ExecutorStatusResponse {
-    const isRunning = this.activeRunners.has(repositoryId);
+    const isRunning = this.activeRunners.has(repositoryId) || this.pendingRunners.has(repositoryId);
     const activeRun = this.executorStore.getActiveRun(repositoryId);
     const runner = this.activeRunners.get(repositoryId);
     const recentLogs = runner ? runner.getLogs() : [];
@@ -623,10 +692,23 @@ export class ExecutorService {
   /** Serve a bounded tail of a persisted per-run log (latest by default) when no runner is active. */
   private readPersistedLogTail(repositoryId: string, runAttemptId?: string): string[] {
     const repoLogDir = path.join(this.dataDir, "logs", repositoryId);
+    // runAttemptId is a raw query param on a tailnet-published origin, so it
+    // crosses the trust boundary: reject anything that is not a
+    // crypto.randomUUID-shaped ID before any filesystem access.
+    if (runAttemptId && !RUN_ATTEMPT_ID_PATTERN.test(runAttemptId)) {
+      throw new ValidationError("runAttemptId must be a UUID.");
+    }
+    const requestedPath =
+      runAttemptId != null ? path.join(repoLogDir, `${runAttemptId}.log`) : null;
+    // Defense in depth: the resolved log must stay inside this repo's log dir.
+    if (
+      requestedPath &&
+      !path.resolve(requestedPath).startsWith(path.resolve(repoLogDir) + path.sep)
+    ) {
+      throw new ValidationError("runAttemptId must not escape the repository log directory.");
+    }
     try {
-      const logPath = runAttemptId
-        ? path.join(repoLogDir, `${runAttemptId}.log`)
-        : this.latestPersistedLog(repoLogDir);
+      const logPath = requestedPath ?? this.latestPersistedLog(repoLogDir);
       if (!logPath || !fs.existsSync(logPath)) return [];
       const lines = fs.readFileSync(logPath, "utf8").split("\n");
       while (lines.length > 0 && lines[lines.length - 1] === "") {
