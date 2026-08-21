@@ -1,17 +1,34 @@
-import { useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import type {
   RepositoryRecord,
   CreateRepositoryInput,
-  UpdateRepositoryInput
+  UpdateRepositoryInput,
+  LoopState
 } from "@orca/shared";
 import { apiClient } from "./api-client.js";
 import { eventsClient, type ConnectionStatus } from "./events-client.js";
+import { notifyStateChange } from "./notifications.js";
+
+/** Live loop-state snapshot for one repository, derived from `loop.state_changed` events. */
+export interface LoopStateView {
+  state: LoopState;
+  reason?: string;
+  updatedAt: string;
+  runId?: string;
+  iteration?: number;
+}
 
 export function useRepositories() {
   const [repositories, setRepositories] = useState<RepositoryRecord[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [runStatesByRepo, setRunStatesByRepo] = useState<Record<string, LoopStateView>>({});
+  const repositoriesRef = useRef<RepositoryRecord[]>([]);
+
+  useEffect(() => {
+    repositoriesRef.current = repositories;
+  }, [repositories]);
 
   const fetchRepositories = useCallback(async () => {
     try {
@@ -43,7 +60,7 @@ export function useRepositories() {
       }
     });
 
-    // Subscribe to real-time repository mutations
+    // Subscribe to real-time repository mutations and live run state
     const unsubEvents = eventsClient.subscribe((event) => {
       if (event.type === "repository.created" && event.data?.repository) {
         setRepositories((prev) => {
@@ -56,6 +73,30 @@ export function useRepositories() {
         );
       } else if (event.type === "repository.deleted") {
         setRepositories((prev) => prev.filter((r) => r.id !== event.repositoryId));
+        setRunStatesByRepo((prev) => {
+          if (!(event.repositoryId in prev)) return prev;
+          const next = { ...prev };
+          delete next[event.repositoryId];
+          return next;
+        });
+      } else if (event.type === "loop.state_changed") {
+        const data = event.data ?? {};
+        const state = data.loopState as LoopState | undefined;
+        if (!state) return;
+        const view: LoopStateView = {
+          state,
+          reason: data.reason,
+          updatedAt: event.at,
+          runId: data.runId,
+          iteration: data.iteration
+        };
+        setRunStatesByRepo((prev) => ({ ...prev, [event.repositoryId]: view }));
+        // Problem/terminal transitions surface as OS notifications; filtering
+        // and permission gating live in notifyStateChange.
+        const repoName =
+          repositoriesRef.current.find((r) => r.id === event.repositoryId)?.displayName ??
+          event.repositoryId;
+        notifyStateChange(repoName, state, view.reason);
       }
     });
 
@@ -91,6 +132,10 @@ export function useRepositories() {
   return {
     repositories,
     status,
+    // True only while the event stream is live; false means degraded (run
+    // states may be stale), distinct from a repository merely being idle.
+    eventsConnected: status === "connected",
+    runStatesByRepo,
     isLoading,
     error,
     refetch: fetchRepositories,

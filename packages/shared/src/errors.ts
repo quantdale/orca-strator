@@ -4,7 +4,9 @@ export type ErrorCode =
   | "ROUTE_NOT_FOUND"
   | "BAD_REQUEST"
   | "INTERNAL_ERROR"
-  | "DATABASE_ERROR";
+  | "DATABASE_ERROR"
+  | "REPOSITORY_ACTIVE_RUN"
+  | "PERMISSION_DECISION_NOT_FOUND";
 
 export interface FieldError {
   field?: string;
@@ -57,13 +59,6 @@ export class RepositoryNotFoundError extends DomainError {
   }
 }
 
-export class RouteNotFoundError extends DomainError {
-  constructor(method: string, url: string) {
-    super("ROUTE_NOT_FOUND", `API route ${method} ${url} not found.`, 404);
-    this.name = "RouteNotFoundError";
-  }
-}
-
 export class BadRequestError extends DomainError {
   constructor(message: string, details?: FieldError[]) {
     super("BAD_REQUEST", message, 400, details);
@@ -71,16 +66,3 @@ export class BadRequestError extends DomainError {
   }
 }
 
-export class DatabaseError extends DomainError {
-  constructor(message: string) {
-    super("DATABASE_ERROR", message, 500);
-    this.name = "DatabaseError";
-  }
-}
-
-export class InternalError extends DomainError {
-  constructor(message: string = "An internal server error occurred.") {
-    super("INTERNAL_ERROR", message, 500);
-    this.name = "InternalError";
-  }
-}

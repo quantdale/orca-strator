@@ -19,7 +19,9 @@ import type {
   SchedulerDecision,
   SchedulerPolicy,
   RoleModelPolicy,
-  RoleModelResolution
+  RoleModelResolution,
+  BrowserStatus,
+  SolWakeRecord
 } from "@orca/shared";
 
 export class ApiError extends Error {
@@ -64,6 +66,16 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
 
   return res.json() as Promise<T>;
+}
+
+/** Payload of GET /api/browser/status (`browser` field), mirroring shared BrowserStatus. */
+export type BrowserStatusView = BrowserStatus;
+
+/** Payload of GET /api/system/provisioning (`chromium` field). */
+export interface ProvisioningStatusView {
+  status: "missing" | "ready" | "unknown";
+  executablePath: string | null;
+  details: string;
 }
 
 export function createApiClient(baseUrl = "") {
@@ -229,6 +241,56 @@ export function createApiClient(baseUrl = "") {
         body: JSON.stringify({ role })
       });
       return handleResponse<{ resolution: RoleModelResolution }>(res);
+    },
+
+    async triggerExecutorKill(repoId: string): Promise<void> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(repoId)}/executor/kill`, {
+        method: "POST"
+      });
+      await handleResponse<{ status: string }>(res);
+    },
+
+    async triggerExecutorStart(repoId: string): Promise<void> {
+      // Server resolves the dispatch itself; empty body keeps request.body defined.
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(repoId)}/executor/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      await handleResponse<{ run: unknown }>(res);
+    },
+
+    async wakeSol(repoId: string): Promise<void> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(repoId)}/wake`, {
+        method: "POST"
+      });
+      await handleResponse<{ wake: SolWakeRecord }>(res);
+    },
+
+    async getBrowserStatus(): Promise<BrowserStatusView> {
+      const res = await fetch(`${cleanBase}/api/browser/status`);
+      const data = await handleResponse<{ browser: BrowserStatus }>(res);
+      return data.browser;
+    },
+
+    async openChatGptSetup(): Promise<void> {
+      const res = await fetch(`${cleanBase}/api/browser/setup/open`, {
+        method: "POST"
+      });
+      await handleResponse<{ status: string }>(res);
+    },
+
+    async closeChatGptSetup(): Promise<void> {
+      const res = await fetch(`${cleanBase}/api/browser/setup/close`, {
+        method: "POST"
+      });
+      await handleResponse<{ status: string }>(res);
+    },
+
+    async getProvisioningStatus(): Promise<ProvisioningStatusView> {
+      const res = await fetch(`${cleanBase}/api/system/provisioning`);
+      const data = await handleResponse<{ chromium: ProvisioningStatusView }>(res);
+      return data.chromium;
     }
   };
 }
