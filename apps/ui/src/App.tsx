@@ -16,7 +16,9 @@ export const App: React.FC = () => {
     refetch,
     createRepository,
     updateRepository,
-    deleteRepository
+    deleteRepository,
+    runStatesByRepo,
+    eventsConnected
   } = useRepositories();
 
   const [currentView, setCurrentView] = useState<"list" | "add" | "detail" | "edit" | "settings">("list");
@@ -137,6 +139,8 @@ export const App: React.FC = () => {
           repositories={repositories}
           status={status}
           isLoading={isLoading}
+          runStatesByRepo={runStatesByRepo}
+          eventsConnected={eventsConnected}
           onSelectRepo={(id) => navigateTo("detail", id)}
           onEditRepo={(id) => navigateTo("edit", id)}
           onAddRepo={() => navigateTo("add")}
@@ -157,6 +161,7 @@ export const App: React.FC = () => {
       {currentView === "detail" && selectedRepo && (
         <RepositoryDetail
           repository={selectedRepo}
+          liveRunState={runStatesByRepo[selectedRepo.id]}
           onBack={() => navigateTo("list")}
           onEdit={() => navigateTo("edit", selectedRepo.id)}
           onDelete={() => setDeletingRepoId(selectedRepo.id)}

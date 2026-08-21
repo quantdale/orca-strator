@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { RepositoryRecord } from "@orca/shared";
 import { RepositoryCard } from "./RepositoryCard.js";
 import type { ConnectionStatus } from "../lib/events-client.js";
+import type { LoopStateView } from "../lib/use-repositories.js";
 
 interface RepositoryListProps {
   repositories: RepositoryRecord[];
@@ -11,6 +12,10 @@ interface RepositoryListProps {
   onEditRepo: (id: string) => void;
   onAddRepo: () => void;
   onRetry: () => void;
+  /** Live loop-state snapshots by repository id, forwarded to the cards (#spec §4). */
+  runStatesByRepo?: Record<string, LoopStateView>;
+  /** Overrides the derived event-stream health when provided. */
+  eventsConnected?: boolean;
 }
 
 export const RepositoryList: React.FC<RepositoryListProps> = ({
@@ -20,9 +25,12 @@ export const RepositoryList: React.FC<RepositoryListProps> = ({
   onSelectRepo,
   onEditRepo,
   onAddRepo,
-  onRetry
+  onRetry,
+  runStatesByRepo,
+  eventsConnected
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
+  const eventsUp = eventsConnected ?? status !== "disconnected";
 
   const filtered = repositories.filter(
     (repo) =>
@@ -42,7 +50,7 @@ export const RepositoryList: React.FC<RepositoryListProps> = ({
           <div className="flex items-center gap-2">
             <span className="text-lg">⚠️</span>
             <span>
-              <strong>Controller offline.</strong> Unable to reach local controller at 127.0.0.1:47100.
+              <strong>Controller offline.</strong> Unable to reach the Orca controller through this origin.
             </span>
           </div>
           <button
@@ -128,6 +136,8 @@ export const RepositoryList: React.FC<RepositoryListProps> = ({
               repository={repo}
               onSelect={onSelectRepo}
               onEdit={onEditRepo}
+              runState={runStatesByRepo?.[repo.id]}
+              eventsConnected={eventsUp}
             />
           ))}
         </div>

@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from "react";
 import type { RepositoryRecord, LoopState } from "@orca/shared";
+import { getActiveActor } from "@orca/shared";
 import { apiClient } from "../lib/api-client.js";
+import { ConfirmModal } from "./ConfirmModal.js";
+import type { LoopStateView } from "../lib/use-repositories.js";
+import { isProblemLoopState, problemNextAction } from "./loop-state-ui.js";
 import { OperationalIntelligencePanel } from "./OperationalIntelligencePanel.js";
 
 interface RepositoryDetailProps {
@@ -8,25 +12,34 @@ interface RepositoryDetailProps {
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** Live loop-state snapshot from the event stream; enriches state with reason/updatedAt (#spec §17). */
+  liveRunState?: LoopStateView;
 }
 
 export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
   repository,
   onBack,
   onEdit,
-  onDelete
+  onDelete,
+  liveRunState
 }) => {
   const [runStatus, setRunStatus] = useState<any>(null);
   const [goalInput, setGoalInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pollFailed, setPollFailed] = useState(false);
+  const [killConfirmOpen, setKillConfirmOpen] = useState(false);
+  const [killing, setKilling] = useState(false);
+  const [wakingSol, setWakingSol] = useState(false);
 
   const fetchStatus = async () => {
     try {
       const res = await apiClient.getRunStatus(repository.id);
       setRunStatus(res.status);
+      setPollFailed(false);
     } catch {
-      // ignore
+      // Keep polling, but surface unavailability instead of faking IDLE (#spec §7).
+      setPollFailed(true);
     }
   };
 
@@ -88,7 +101,39 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
     }
   };
 
-  const state: LoopState = runStatus?.state || "IDLE";
+  const handleEmergencyKill = async () => {
+    setKillConfirmOpen(false);
+    setKilling(true);
+    setError(null);
+    try {
+      await apiClient.triggerExecutorKill(repository.id);
+      await fetchStatus();
+    } catch (err: any) {
+      setError(err?.message || "Failed to kill executor");
+    } finally {
+      setKilling(false);
+    }
+  };
+
+  const handleWakeSol = async () => {
+    setWakingSol(true);
+    setError(null);
+    try {
+      await apiClient.wakeSol(repository.id);
+      await fetchStatus();
+    } catch (err: any) {
+      setError(err?.message || "Failed to wake Sol");
+    } finally {
+      setWakingSol(false);
+    }
+  };
+
+  const state: LoopState = runStatus?.state || liveRunState?.state || "IDLE";
+  const hasActiveRun = Boolean(runStatus?.activeRun);
+  // Wake Sol is a manual recovery action; it is meaningless while this
+  // repository's loop already has an active Sol turn (#spec §12).
+  const solBusy = getActiveActor(state) === "SOL";
+  const failureReason = liveRunState?.reason ?? runStatus?.activeRun?.lastError ?? null;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto" data-testid="repo-detail-view">
@@ -143,6 +188,19 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
         </div>
       </div>
 
+      {/* Controller-unavailable banner (#spec §7): distinct from a genuine IDLE state */}
+      {pollFailed && (
+        <div
+          className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-sm text-rose-200"
+          data-testid="controller-unavailable-banner"
+        >
+          <span className="text-lg">⚠️</span>
+          <span>
+            <strong>Controller unavailable.</strong> Run status cannot be refreshed through this Orca origin; the state below may be stale.
+          </span>
+        </div>
+      )}
+
       {/* Autonomous Loop Run Card */}
       <div className="rounded-xl border border-cyan-500/30 bg-slate-900/80 p-6 space-y-4" data-testid="run-control-card">
         <div className="flex items-center justify-between">
@@ -163,6 +221,51 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
           </div>
         )}
 
+        {/* Truthful failure card (#spec §17): state + reason + last update + next action */}
+        {isProblemLoopState(state) && (
+          <div
+            className="rounded-lg border border-amber-500/40 bg-amber-950/30 p-4 space-y-2"
+            data-testid="failure-card"
+          >
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true">⚠️</span>
+              <span className="font-mono text-sm font-bold tracking-wide uppercase text-amber-300">
+                {state}
+              </span>
+            </div>
+            {failureReason && (
+              <p className="text-sm text-slate-200">{failureReason}</p>
+            )}
+            {liveRunState?.updatedAt && (
+              <p className="text-xs text-slate-400">
+                Last updated: {new Date(liveRunState.updatedAt).toLocaleString()}
+              </p>
+            )}
+            <p className="text-xs text-slate-300">
+              <span className="text-slate-500">Next action: </span>
+              {problemNextAction(state)}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                onClick={handleWakeSol}
+                disabled={wakingSol || solBusy}
+                title={solBusy ? "Sol already has an active turn" : undefined}
+                className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                data-testid="failure-wake-sol-button"
+              >
+                {wakingSol ? "Waking..." : "Wake Sol"}
+              </button>
+              <button
+                onClick={() => handleRecover("stop")}
+                className="rounded bg-rose-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-600 transition-colors"
+                data-testid="failure-stop-button"
+              >
+                Stop Run
+              </button>
+            </div>
+          </div>
+        )}
+
         {state === "IDLE" ? (
           <form onSubmit={handleStart} className="flex flex-col sm:flex-row gap-3 pt-2">
             <input
@@ -175,7 +278,8 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
             />
             <button
               type="submit"
-              disabled={loading || !goalInput.trim()}
+              disabled={loading || !goalInput.trim() || pollFailed}
+              title={pollFailed ? "Controller unavailable; cannot start a run" : undefined}
               className="rounded-lg bg-cyan-600 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-50 transition-colors"
               data-testid="start-run-button"
             >
@@ -229,6 +333,26 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
                 Stop
               </button>
 
+              <button
+                onClick={() => setKillConfirmOpen(true)}
+                disabled={!hasActiveRun}
+                title={hasActiveRun ? undefined : "No active run"}
+                className="rounded border border-rose-500/50 bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                data-testid="emergency-kill-button"
+              >
+                {killing ? "Killing..." : "Emergency Kill"}
+              </button>
+
+              <button
+                onClick={handleWakeSol}
+                disabled={wakingSol || solBusy}
+                title={solBusy ? "Sol already has an active turn" : undefined}
+                className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                data-testid="wake-sol-button"
+              >
+                {wakingSol ? "Waking..." : "Wake Sol"}
+              </button>
+
               {(state === "RECOVERY_REQUIRED" || state === "BLOCKED" || state === "NEEDS_HUMAN" || state === "ATTENTION_REQUIRED") && (
                 <div className="flex items-center gap-2 border-l border-slate-700 pl-3">
                   <button
@@ -237,6 +361,13 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
                     data-testid="recover-retry-button"
                   >
                     Retry Turn
+                  </button>
+                  <button
+                    onClick={() => handleRecover("stop")}
+                    className="rounded bg-slate-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-600"
+                    data-testid="recover-stop-button"
+                  >
+                    Stop Run
                   </button>
                   <button
                     onClick={() => handleRecover("complete")}
@@ -361,6 +492,18 @@ export const RepositoryDetail: React.FC<RepositoryDetailProps> = ({
           <span>Updated: {new Date(repository.updatedAt).toLocaleString()}</span>
         </div>
       </div>
+
+      {/* Emergency Kill confirmation (#spec §12): strongest confirmation of any control */}
+      <ConfirmModal
+        isOpen={killConfirmOpen}
+        title="Emergency Kill"
+        message="Immediately terminate the selected repository's active executor/browser operation. Recovery may be required."
+        confirmLabel={killing ? "Killing..." : "Emergency Kill"}
+        cancelLabel="Cancel"
+        isDestructive={true}
+        onConfirm={handleEmergencyKill}
+        onCancel={() => setKillConfirmOpen(false)}
+      />
     </div>
   );
 };

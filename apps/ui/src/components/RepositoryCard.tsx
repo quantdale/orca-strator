@@ -1,16 +1,24 @@
 import React from "react";
 import type { RepositoryRecord } from "@orca/shared";
+import type { LoopStateView } from "../lib/use-repositories.js";
+import { isProblemLoopState, loopStateBadgeClasses } from "./loop-state-ui.js";
 
 interface RepositoryCardProps {
   repository: RepositoryRecord;
   onSelect: (id: string) => void;
   onEdit: (id: string) => void;
+  /** Live loop-state snapshot for this repository, if one has been seen on the event stream. */
+  runState?: LoopStateView;
+  /** False while the event stream is down; absent data then means "unknown", not idle. */
+  eventsConnected?: boolean;
 }
 
 export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   repository,
   onSelect,
-  onEdit
+  onEdit,
+  runState,
+  eventsConnected = true
 }) => {
   return (
     <div
@@ -48,6 +56,43 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
         <p className="mt-1 text-xs text-slate-400 truncate" title={repository.githubRemote}>
           🔗 {repository.githubRemote}
         </p>
+
+        {/* Live run state (#spec §4) */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {runState ? (
+            <>
+              <span
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium font-mono ${loopStateBadgeClasses(runState.state)}`}
+                title={runState.reason}
+                data-testid={`run-state-${repository.id}`}
+              >
+                {isProblemLoopState(runState.state) && (
+                  <span aria-hidden="true">⚠️</span>
+                )}
+                {runState.state}
+              </span>
+              {typeof runState.iteration === "number" && (
+                <span className="rounded bg-slate-800 px-2 py-1 text-xs font-mono text-slate-300">
+                  Iter {runState.iteration} / {repository.maxIterations}
+                </span>
+              )}
+            </>
+          ) : !eventsConnected ? (
+            <span
+              className="inline-flex items-center rounded-md border border-slate-800 bg-slate-800/50 px-2 py-0.5 text-xs font-medium italic text-slate-500"
+              data-testid={`run-state-unavailable-${repository.id}`}
+            >
+              No live data
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center rounded-md border border-slate-800 bg-slate-800 px-2 py-0.5 text-xs font-medium font-mono text-slate-400"
+              data-testid={`run-state-${repository.id}`}
+            >
+              IDLE
+            </span>
+          )}
+        </div>
 
         {/* Details snippet */}
         <div className="mt-4 flex flex-wrap gap-2 text-xs">
