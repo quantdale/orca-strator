@@ -377,6 +377,26 @@ DAG node rows are subordinate to the strategy run and packet/result records.
 They do not replace typed work packets, Git worktree provenance, integration
 reports, scheduler decisions, usage metrics, or the enclosing campaign run.
 
+Migration 022 (`022_execution_strategy_loop_integration`, Change 017) adds the
+loop-integration durability columns:
+
+- `execution_strategy_runs.dispatch_id` — nullable reference to the authorizing
+  `dispatches` row (`ON DELETE SET NULL`), indexed by
+  `idx_execution_strategy_runs_dispatch`; it links a strategy run to the
+  dispatch that authorized it, including autonomous campaign-loop starts;
+- `execution_strategy_runs.strategy_base_sha` — the immutable deterministic
+  base SHA the strategy was started against, captured once at start;
+- `execution_dag_nodes.dependency_input_shas_json` — `NOT NULL DEFAULT '[]'`;
+  materializes the dependency input SHAs each node waited on;
+- `isolated_worktrees.dependency_input_shas_json` — `NOT NULL DEFAULT '[]'`;
+  records the same provenance on the worktree that produced the node's result.
+
+There is no new dispatch-table column: strategy selection lives on the dispatch
+marker itself as optional `strategy` and `executionPlan` fields, so legacy V1
+markers without them resolve to `SINGLE_AGENT`. The dispatch row/marker remains
+the durable authorization; the strategy run stores only its correlation and
+base SHA.
+
 ## 16. Optional OpenCode capability evidence (Change 015)
 
 No OpenCode-specific SQLite table is required. The existing

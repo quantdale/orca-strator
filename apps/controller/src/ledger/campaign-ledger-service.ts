@@ -41,6 +41,11 @@ export class CampaignLedgerService {
       const eventDispatchId = this.stringValue(data.dispatchId) ??
         (event.type === "executor.log" ? this.stringValue(data.runId) : null) ??
         dispatch?.id ?? control?.relatedDispatchId ?? null;
+      // control_id carries an FK to sol_controls; strategy-control IDs live in
+      // their own table and must stay inside data_json instead of this column.
+      const solControlId = event.type === "watcher.control_detected" || event.type === "watcher.control_rejected"
+        ? this.stringValue(data.controlId) ?? control?.controlId ?? null
+        : null;
       const dispatchRow = eventDispatchId
         ? this.db.prepare("SELECT run_id, iteration FROM dispatches WHERE id = ?").get(eventDispatchId) as { run_id?: string; iteration?: number } | undefined
         : undefined;
@@ -58,7 +63,7 @@ export class CampaignLedgerService {
         eventType: event.type,
         dispatchId: eventDispatchId,
         resultId: this.stringValue(data.resultId),
-        controlId: this.stringValue(data.controlId) ?? control?.controlId ?? null,
+        controlId: solControlId,
         at: event.at,
         durationMs: this.numberValue(data.durationMs),
         status,

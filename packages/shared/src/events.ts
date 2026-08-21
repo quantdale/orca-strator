@@ -8,6 +8,7 @@ export type EventType =
   | "watcher.dispatch_detected"
   | "watcher.dispatch_rejected"
   | "watcher.control_detected"
+  | "watcher.control_rejected"
   | "watcher.poll_completed"
   | "executor.log"
   | "executor.started"

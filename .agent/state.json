@@ -3,17 +3,17 @@
   "project": "orca-strator",
   "developmentStatus": "ROADMAP_COMPLETE",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 15,
+  "activeMilestone": 16,
   "activeChange": null,
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "The approved post-V1 evolution scope through Change 016 is implemented, folded into canonical specs, internally qualified, and ready for fresh recovery. The final UI is a read-only execution-topology projection with explicit non-authoring strategy presets; no visual composer or hidden routing was introduced.",
-    "updatedAt": "2026-08-20T18:55:53+08:00",
-    "lastCompletedTask": "Change 016 execution topology UI: responsive single-agent Sol/dispatch/executor/result/Sol flow, actual SWARM/DAG worker/node/dependency/integration states, truthful usage/failure evidence, and explicit reference-only presets; canonical documentation and OpenSpec tasks reconciled.",
-    "lastVerification": "Change 016 final gates passed: focused UI 3/3; npm test 47 files / 197 tests; npm run test:real 7 files / 25 passed with 1 explicit OpenCode external qualification skip; npm run typecheck, npm run build, npm run lint, git diff --check, state JSON validation, and all 23 OpenSpec items strict-validated with 0 failures."
+    "summary": "Change 017 execution-strategy loop integration is complete and machine-qualified on this machine. Exactly one IterationExecutionCoordinator owns each repository/campaign iteration: LoopService resolves the durable dispatch strategy/executionPlan (legacy dispatches resolve SINGLE_AGENT) and delegates start/completion/controls; manual /swarm/start and /dag/start enforce the same campaign/iteration ownership boundary with structured conflicts; strategy outcomes normalize truthfully into iteration results (never GOAL_COMPLETE); integrated main plus the canonical result manifest are published durably to the remote; strategyBaseSha is immutable per run; DAG dependent nodes run against materialized dependency state with input SHA provenance; allowedPaths is enforced after execution; campaign controls, Sol control, ceilings, and graceful shutdown compose across all strategies. Authoring the production-loop qualifications surfaced and fixed six real integration bugs (non-durable dispatch strategy selection, SWARM-labeled DAG starts, dead completion bridge, missing result-manifest directory, stale-dependency skip on DAG resume, Windows rev-list range quirk silently emptying worker filesChanged). Change 017 is folded into openspec/specs/execution-strategy-loop-integration/.",
+    "updatedAt": "2026-08-21T09:55:00+08:00",
+    "lastCompletedTask": "Change 017 qualification: real production buildApp autonomous SWARM loop (dispatch -> isolated worktrees -> integration -> remote main + result manifest -> Sol wake -> second Sol transition), autonomous DAG loop with true A->B dependency-state materialization plus falsifiability case, and campaign-level pause/resume/stop/emergency-kill/wall-clock/restart qualifications for SWARM and DAG through the campaign control seam; truthful reclassification of Changes 013/014 in state/README/ROADMAP/TEST-STRATEGY and canonical docs.",
+    "lastVerification": "Fast suite 47 files / 197 tests green; new real-tier production-loop files green (real-strategy-loop-swarm 3, real-strategy-loop-dag 2, real-strategy-controls 9); full npm run test:real tier green including all pre-existing qualification files; typecheck, build, lint, git diff --check clean; strict OpenSpec validation 25/25 items pass."
   },
-  "nextAction": "No remaining safe in-scope implementation remains. If authorized external services become available, run the explicitly unqualified ChatGPT/Tailscale/Kimi/Codex and OpenCode qualification tiers without changing product semantics.",
+  "nextAction": "Continue roadmap-driven development or await direction. If authorized external services become available, run the explicitly unqualified ChatGPT/Tailscale/Kimi/Codex and OpenCode qualification tiers without changing product semantics.",
   "blockers": [
     {
       "code": "V1_NOT_YET_QUALIFIED",
@@ -29,7 +29,7 @@
     },
     {
       "code": "OPENCODE_EXTERNAL_UNQUALIFIED",
-      "summary": "The optional real OpenCode server/provider qualification remains UNQUALIFIED because no authorized ORCA_OPENCODE_QUALIFY_URL was supplied; deterministic protocol coverage is green and this does not block the remaining safe UI work.",
+      "summary": "The optional real OpenCode server/provider qualification remains UNQUALIFIED because no authorized ORCA_OPENCODE_QUALIFY_URL was supplied; deterministic protocol coverage is green and this does not block remaining safe work.",
       "evidence": "real-opencode.test.ts is explicitly skipped with an UNQUALIFIED warning when ORCA_OPENCODE_QUALIFY_URL is absent; no OpenCode package or inference was installed or spent.",
       "nextAction": "When an authorized local OpenCode server is available, set ORCA_OPENCODE_QUALIFY_URL and run npm run test:real."
     }

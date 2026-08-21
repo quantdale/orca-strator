@@ -31,6 +31,30 @@
       "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$"
     },
     "goal": { "type": "string", "minLength": 1, "maxLength": 1000 },
-    "instructionsVersion": { "type": "integer", "minimum": 1 }
+    "instructionsVersion": { "type": "integer", "minimum": 1 },
+    "strategy": { "type": "string", "enum": ["SINGLE_AGENT", "SWARM", "DAG"] },
+    "executionPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packetIds": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "minItems": 1, "maxItems": 100 },
+        "dagNodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["nodeId", "packetId", "dependsOn"],
+            "properties": {
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "packetId": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "dependsOn": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "maxItems": 100 }
+            }
+          },
+          "minItems": 1,
+          "maxItems": 100
+        },
+        "maxConcurrency": { "type": "integer", "minimum": 1, "maximum": 32 }
+      }
+    }
   }
 }

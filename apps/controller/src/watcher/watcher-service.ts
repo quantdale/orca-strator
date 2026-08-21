@@ -321,6 +321,8 @@ export class WatcherService {
           instructionsVersion: inspection.dispatch.instructionsVersion,
           schemaVersion: 1,
           type: "dispatch",
+          strategy: inspection.dispatch.strategy,
+          executionPlan: inspection.dispatch.executionPlan,
           status: "detected",
           rejectionReason: null,
           createdAt: inspection.dispatch.createdAt,

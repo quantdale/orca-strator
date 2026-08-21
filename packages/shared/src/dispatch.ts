@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { ValidationError, type FieldError } from "./errors.js";
+import {
+  executionStrategySchema,
+  type DispatchExecutionPlan,
+  type ExecutionStrategy
+} from "./execution-strategy.js";
 
 export interface DispatchMarker {
   schemaVersion: 1;
@@ -12,6 +17,16 @@ export interface DispatchMarker {
   changePath: string;
   goal: string;
   instructionsVersion: number;
+  /**
+   * Explicit, durable execution-strategy selection. Absent on legacy V1
+   * dispatches, which resolve to SINGLE_AGENT. Never an opaque heuristic.
+   */
+  strategy?: ExecutionStrategy;
+  /**
+   * For SWARM/DAG dispatches, the durable packet/DAG definition the strategy
+   * must run. Absent for SINGLE_AGENT.
+   */
+  executionPlan?: DispatchExecutionPlan;
 }
 
 export type DispatchStatus = "detected" | "consumed" | "rejected";
@@ -72,7 +87,20 @@ export const dispatchMarkerSchema = z
         message: "changePath must be a safe repository-relative path and cannot escape repository root"
       }),
     goal: z.string().trim().min(1, "goal is required").max(1000, "goal cannot exceed 1000 characters"),
-    instructionsVersion: z.number().int("instructionsVersion must be an integer").min(1, "instructionsVersion must be >= 1")
+    instructionsVersion: z.number().int("instructionsVersion must be an integer").min(1, "instructionsVersion must be >= 1"),
+    strategy: executionStrategySchema.optional(),
+    executionPlan: z
+      .object({
+        packetIds: z.array(z.string().trim().min(1).max(200)).min(1).max(100).optional(),
+        dagNodes: z.array(z.object({
+          nodeId: z.string().trim().min(1).max(200),
+          packetId: z.string().trim().min(1).max(200),
+          dependsOn: z.array(z.string().trim().min(1).max(200)).max(100)
+        })).min(1).max(100).optional(),
+        maxConcurrency: z.number().int().min(1).max(32).optional()
+      })
+      .strict()
+      .optional()
   })
   .strict("Unknown properties are not allowed in dispatch marker");
 

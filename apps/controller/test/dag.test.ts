@@ -133,6 +133,7 @@ describe("DAG strategy contracts and validation", () => {
       nodeId: "root",
       packetId: packet.packetId,
       dependsOn: [],
+      dependencyInputShas: [],
       status: "QUEUED",
       budget: packet.budget,
       attempt: 0,

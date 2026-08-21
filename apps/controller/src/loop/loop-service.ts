@@ -7,20 +7,31 @@ import {
   type ExecutorResult,
   type SolWakeResultStatus,
   type SolControlDecision,
+  type StrategyRunStatus,
+  type StrategyRunRecord,
+  type RemotePublishResult,
   createPhaseBudgetPolicy,
   getActiveActor,
   ValidationError,
   BadRequestError,
-  RepositoryNotFoundError
+  RepositoryNotFoundError,
 } from "@orca/shared";
 import type { RepositoryStore } from "../repositories/repository-store.js";
 import type { DispatchStore } from "../watcher/dispatch-store.js";
-import type { SolControlStore, SolControlRecord } from "../watcher/sol-control-store.js";
+import type {
+  SolControlStore,
+  SolControlRecord,
+} from "../watcher/sol-control-store.js";
 import type { WatcherService } from "../watcher/watcher-service.js";
 import type { ExecutorService } from "../executor/executor-service.js";
-import { BUSY_MAX_RETRIES, BUSY_RETRY_MS, type BrowserManager } from "../browser/browser-manager.js";
+import {
+  BUSY_MAX_RETRIES,
+  BUSY_RETRY_MS,
+  type BrowserManager,
+} from "../browser/browser-manager.js";
 import type { RunStore } from "./run-store.js";
 import type { RunPolicyStore } from "./run-policy-store.js";
+import type { IterationExecutionCoordinator } from "./iteration-execution-coordinator.js";
 
 export interface LoopServiceOptions {
   repoStore: RepositoryStore;
@@ -31,6 +42,7 @@ export interface LoopServiceOptions {
   browserManager: BrowserManager;
   solControlStore?: SolControlStore | null;
   runPolicyStore?: RunPolicyStore;
+  coordinator?: IterationExecutionCoordinator;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
 }
 
@@ -45,6 +57,7 @@ export class LoopService {
   private readonly browserManager: BrowserManager;
   private readonly solControlStore: SolControlStore | null;
   private readonly runPolicyStore?: RunPolicyStore;
+  private coordinator?: IterationExecutionCoordinator;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
 
   /** Wall-clock ceiling timers per repository (item #3). */
@@ -64,12 +77,18 @@ export class LoopService {
     this.browserManager = options.browserManager;
     this.solControlStore = options.solControlStore ?? null;
     this.runPolicyStore = options.runPolicyStore;
+    this.coordinator = options.coordinator;
     this.eventPublisher = options.eventPublisher;
+  }
+
+  /** Wire the coordinator after both services are constructed (app.ts order). */
+  setCoordinator(coordinator: IterationExecutionCoordinator): void {
+    this.coordinator = coordinator;
   }
 
   async startRun(
     repositoryId: string,
-    params: { goal: string; maxIterations?: number }
+    params: { goal: string; maxIterations?: number },
   ): Promise<RunRecord> {
     const repo = this.repoStore.get(repositoryId);
     if (!repo) {
@@ -78,7 +97,9 @@ export class LoopService {
 
     const existingActive = this.runStore.getActiveRun(repositoryId);
     if (existingActive) {
-      throw new ValidationError(`Run ${existingActive.id} is already active for repository ${repositoryId}`);
+      throw new ValidationError(
+        `Run ${existingActive.id} is already active for repository ${repositoryId}`,
+      );
     }
 
     const runId = crypto.randomUUID();
@@ -99,7 +120,7 @@ export class LoopService {
       finishedAt: null,
       createdAt: now,
       updatedAt: now,
-      drainReason: null
+      drainReason: null,
     };
 
     this.runStore.create(runRecord);
@@ -116,19 +137,35 @@ export class LoopService {
 
   private isDrainPending(repositoryId: string, run: RunRecord | null): boolean {
     if (!run) return false;
-    if (this.stopPending.has(repositoryId) || this.ceilingPending.has(repositoryId)) return true;
+    if (
+      this.stopPending.has(repositoryId) ||
+      this.ceilingPending.has(repositoryId)
+    )
+      return true;
     const dr = run.drainReason ?? this.runStore.getDrainReason(run.id);
-    return dr === 'USER_STOP' || dr === 'WALL_CLOCK_CEILING' || dr === 'ITERATION_CEILING';
+    return (
+      dr === "USER_STOP" ||
+      dr === "WALL_CLOCK_CEILING" ||
+      dr === "ITERATION_CEILING"
+    );
   }
-  private isStopPendingEffective(repositoryId: string, run: RunRecord | null): boolean {
+  private isStopPendingEffective(
+    repositoryId: string,
+    run: RunRecord | null,
+  ): boolean {
     if (this.stopPending.has(repositoryId)) return true;
-    const dr = run?.drainReason ?? (run ? this.runStore.getDrainReason(run.id) : null);
-    return dr === 'USER_STOP';
+    const dr =
+      run?.drainReason ?? (run ? this.runStore.getDrainReason(run.id) : null);
+    return dr === "USER_STOP";
   }
-  private isCeilingPendingEffective(repositoryId: string, run: RunRecord | null): boolean {
+  private isCeilingPendingEffective(
+    repositoryId: string,
+    run: RunRecord | null,
+  ): boolean {
     if (this.ceilingPending.has(repositoryId)) return true;
-    const dr = run?.drainReason ?? (run ? this.runStore.getDrainReason(run.id) : null);
-    return dr === 'WALL_CLOCK_CEILING' || dr === 'ITERATION_CEILING';
+    const dr =
+      run?.drainReason ?? (run ? this.runStore.getDrainReason(run.id) : null);
+    return dr === "WALL_CLOCK_CEILING" || dr === "ITERATION_CEILING";
   }
 
   /** Rehydrate wall-clock timers and drain Sets from persisted drainReason after restart (Fix #3/#4). */
@@ -137,16 +174,32 @@ export class LoopService {
     for (const repo of this.repoStore.list()) {
       const activeRun = this.runStore.getActiveRun(repo.id);
       if (!activeRun) continue;
-      const dr = activeRun.drainReason ?? this.runStore.getDrainReason(activeRun.id);
-      if (activeRun.status === 'DRAINING') {
-        if (dr === 'USER_STOP') this.stopPending.add(repo.id);
-        else if (dr === 'WALL_CLOCK_CEILING' || dr === 'ITERATION_CEILING') this.ceilingPending.add(repo.id);
+      const dr =
+        activeRun.drainReason ?? this.runStore.getDrainReason(activeRun.id);
+      if (activeRun.status === "DRAINING") {
+        if (dr === "USER_STOP") this.stopPending.add(repo.id);
+        else if (dr === "WALL_CLOCK_CEILING" || dr === "ITERATION_CEILING")
+          this.ceilingPending.add(repo.id);
       }
       // Re-arm wall-clock ceiling for every resumable active run
-      if (["SOL_PENDING","SOL_REVIEWING","EXECUTOR_PENDING","EXECUTING","DRAINING","PAUSED"].includes(activeRun.status)) {
+      if (
+        [
+          "SOL_PENDING",
+          "SOL_REVIEWING",
+          "EXECUTOR_PENDING",
+          "EXECUTING",
+          "DRAINING",
+          "PAUSED",
+        ].includes(activeRun.status)
+      ) {
         this.scheduleWallClockCeiling(repo.id, activeRun);
         // If deadline already expired, schedule will have handled DRAINING; ensure drainReason persisted
-        if (this.isWallClockCeilingExceeded(activeRun) && activeRun.status !== 'DRAINING' && activeRun.status !== 'CEILING_REACHED' && activeRun.status !== 'STOPPED') {
+        if (
+          this.isWallClockCeilingExceeded(activeRun) &&
+          activeRun.status !== "DRAINING" &&
+          activeRun.status !== "CEILING_REACHED" &&
+          activeRun.status !== "STOPPED"
+        ) {
           // handleWallClockCeiling would have been called synchronously via schedule if remaining<=0
           // But if it wasn't due to timing, check again
           this.handleWallClockCeiling(repo.id);
@@ -156,11 +209,20 @@ export class LoopService {
   }
 
   /** Production wiring entry point: watcher detected a durable dispatch commit. */
-  async onDispatchDetected(repositoryId: string, dispatchId: string): Promise<void> {
+  async onDispatchDetected(
+    repositoryId: string,
+    dispatchId: string,
+  ): Promise<void> {
     const preActive = this.runStore.getActiveRun(repositoryId);
-    const drainIsStop = preActive ? this.isStopPendingEffective(repositoryId, preActive) : false;
-    const drainIsCeiling = preActive ? this.isCeilingPendingEffective(repositoryId, preActive) : false;
-    const wasDraining = preActive?.status === "DRAINING" || this.isDrainPending(repositoryId, preActive);
+    const drainIsStop = preActive
+      ? this.isStopPendingEffective(repositoryId, preActive)
+      : false;
+    const drainIsCeiling = preActive
+      ? this.isCeilingPendingEffective(repositoryId, preActive)
+      : false;
+    const wasDraining =
+      preActive?.status === "DRAINING" ||
+      this.isDrainPending(repositoryId, preActive);
 
     // Strict correlation: dispatch must belong to the active run and expected iteration
     // Do this inside a guard that catches DB-closed errors after teardown (Fix #11)
@@ -168,7 +230,8 @@ export class LoopService {
       let validCorrelation: boolean;
       try {
         const d = this.dispatchStore.get(dispatchId);
-        validCorrelation = !!d &&
+        validCorrelation =
+          !!d &&
           d.repositoryId === repositoryId &&
           d.runId === preActive.id &&
           d.status === "detected" &&
@@ -194,24 +257,44 @@ export class LoopService {
     if (wasDraining) {
       try {
         const dIter = this.dispatchStore?.get(dispatchId)?.iteration;
-        await this.browserManager.completeSolOperation(repositoryId, preActive!.id, dIter);
+        await this.browserManager.completeSolOperation(
+          repositoryId,
+          preActive!.id,
+          dIter,
+        );
       } catch {}
-      const drainRun = this.runStore.getActiveRun(repositoryId) ?? this.runStore.get(preActive!.id);
+      const drainRun =
+        this.runStore.getActiveRun(repositoryId) ??
+        this.runStore.get(preActive!.id);
       if (!drainRun) return;
       if (this.dispatchStore) {
-        try { this.dispatchStore.updateStatus(dispatchId, "consumed"); } catch {}
+        try {
+          this.dispatchStore.updateStatus(dispatchId, "consumed");
+        } catch {}
       }
-      if (drainIsCeiling || (drainRun.drainReason === 'WALL_CLOCK_CEILING' || drainRun.drainReason === 'ITERATION_CEILING')) {
+      if (
+        drainIsCeiling ||
+        drainRun.drainReason === "WALL_CLOCK_CEILING" ||
+        drainRun.drainReason === "ITERATION_CEILING"
+      ) {
         this.ceilingPending.delete(repositoryId);
         this.runStore.clearDrainReason(drainRun.id);
         this.cancelWallClockCeiling(repositoryId);
-        this.runStore.updateStatus(drainRun.id, "CEILING_REACHED", { lastError: "Wall-clock ceiling reached (drained at Sol boundary)", finishedAt: new Date().toISOString(), drainReason: null });
+        this.runStore.updateStatus(drainRun.id, "CEILING_REACHED", {
+          lastError: "Wall-clock ceiling reached (drained at Sol boundary)",
+          finishedAt: new Date().toISOString(),
+          drainReason: null,
+        });
         this.publishStateChange(repositoryId, drainRun.id, "CEILING_REACHED");
-      } else if (drainIsStop || drainRun.drainReason === 'USER_STOP') {
+      } else if (drainIsStop || drainRun.drainReason === "USER_STOP") {
         this.stopPending.delete(repositoryId);
         this.runStore.clearDrainReason(drainRun.id);
         this.cancelWallClockCeiling(repositoryId);
-        this.runStore.updateStatus(drainRun.id, "STOPPED", { lastError: "Stopped by user (drained at Sol boundary)", finishedAt: new Date().toISOString(), drainReason: null });
+        this.runStore.updateStatus(drainRun.id, "STOPPED", {
+          lastError: "Stopped by user (drained at Sol boundary)",
+          finishedAt: new Date().toISOString(),
+          drainReason: null,
+        });
         this.publishStateChange(repositoryId, drainRun.id, "STOPPED");
       } else {
         // Generic DRAINING without explicit reason: treat as ceiling-style
@@ -219,7 +302,11 @@ export class LoopService {
         this.stopPending.delete(repositoryId);
         this.runStore.clearDrainReason(drainRun.id);
         this.cancelWallClockCeiling(repositoryId);
-        this.runStore.updateStatus(drainRun.id, "CEILING_REACHED", { lastError: "Drained at Sol boundary", finishedAt: new Date().toISOString(), drainReason: null });
+        this.runStore.updateStatus(drainRun.id, "CEILING_REACHED", {
+          lastError: "Drained at Sol boundary",
+          finishedAt: new Date().toISOString(),
+          drainReason: null,
+        });
         this.publishStateChange(repositoryId, drainRun.id, "CEILING_REACHED");
       }
       return;
@@ -229,7 +316,11 @@ export class LoopService {
     try {
       const cur = this.runStore.getActiveRun(repositoryId);
       const dIter = this.dispatchStore?.get(dispatchId)?.iteration;
-      await this.browserManager.completeSolOperation(repositoryId, cur?.id, dIter);
+      await this.browserManager.completeSolOperation(
+        repositoryId,
+        cur?.id,
+        dIter,
+      );
     } catch {}
 
     const activeRun = this.runStore.getActiveRun(repositoryId);
@@ -243,31 +334,88 @@ export class LoopService {
     try {
       if (this.dispatchStore) {
         const d2 = this.dispatchStore.get(dispatchId);
-        if (!d2 || d2.runId !== activeRun.id || d2.iteration !== activeRun.currentIteration + 1) return;
+        if (
+          !d2 ||
+          d2.runId !== activeRun.id ||
+          d2.iteration !== activeRun.currentIteration + 1
+        )
+          return;
       }
-    } catch { return; }
+    } catch {
+      return;
+    }
 
     const dispatch = this.dispatchStore?.get(dispatchId)!;
     const nextIteration = dispatch.iteration;
+    const strategy =
+      this.coordinator?.resolveStrategy(dispatch) ?? "SINGLE_AGENT";
+
+    // Item #3/#4: enforce the single-actor ownership boundary at the autonomous
+    // dispatch seam too. Reject a strategy/executor start while an iteration
+    // actor is already active, or when the dispatch does not authorize it.
+    try {
+      this.coordinator?.assertCampaignIterationOwnership(
+        repositoryId,
+        activeRun,
+        {
+          requestedStrategy: strategy,
+          allowSolBoundary: true,
+          authorizedDispatchId: dispatchId,
+          authorizedStrategy: strategy,
+        },
+      );
+    } catch (err: any) {
+      this.publishEvent({
+        type: "loop.strategy_conflict",
+        at: new Date().toISOString(),
+        repositoryId,
+        data: { dispatchId, strategy, reason: err?.message ?? String(err) },
+      } as any);
+      return;
+    }
 
     this.runStore.updateStatus(activeRun.id, "EXECUTOR_PENDING", {
       activeDispatchId: dispatchId,
-      currentIteration: nextIteration
+      currentIteration: nextIteration,
     });
     this.publishStateChange(repositoryId, activeRun.id, "EXECUTOR_PENDING");
 
     try {
-      this.runStore.updateStatus(activeRun.id, "EXECUTING");
-      this.publishStateChange(repositoryId, activeRun.id, "EXECUTING");
-
-      await this.executorService.startRun(repositoryId, dispatchId);
+      if (!this.coordinator) {
+        // Legacy single-agent flow for focused unit tests that have not wired the
+        // unified coordinator. Production always wires it (app.ts).
+        try {
+          await this.executorService.startRun(repositoryId, dispatchId);
+        } catch (err) {
+          this.runStore.updateStatus(activeRun.id, "EXECUTOR_UNAVAILABLE", {
+            lastError: (err as Error | null)?.message || String(err),
+            finishedAt: new Date().toISOString(),
+          });
+          this.publishStateChange(repositoryId, activeRun.id, "EXECUTOR_UNAVAILABLE");
+          this.cancelWallClockCeiling(repositoryId);
+          return;
+        }
+        this.runStore.updateStatus(activeRun.id, "EXECUTING");
+        this.publishStateChange(repositoryId, activeRun.id, "EXECUTING");
+        return;
+      }
+      await this.coordinator.start(
+        repositoryId,
+        activeRun,
+        dispatch,
+        dispatch?.executionPlan ?? {},
+      );
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
       this.runStore.updateStatus(activeRun.id, "EXECUTOR_UNAVAILABLE", {
         lastError: errorMessage,
-        finishedAt: new Date().toISOString()
+        finishedAt: new Date().toISOString(),
       });
-      this.publishStateChange(repositoryId, activeRun.id, "EXECUTOR_UNAVAILABLE");
+      this.publishStateChange(
+        repositoryId,
+        activeRun.id,
+        "EXECUTOR_UNAVAILABLE",
+      );
       this.cancelWallClockCeiling(repositoryId);
     }
   }
@@ -280,7 +428,7 @@ export class LoopService {
   async onExecutorCompleted(
     repositoryId: string,
     dispatchId: string,
-    result: ExecutorResult | null
+    result: ExecutorResult | null,
   ): Promise<void> {
     let activeRun: RunRecord | null;
     try {
@@ -291,46 +439,22 @@ export class LoopService {
     if (!activeRun) return;
 
     // A stop or other terminal transition may have landed while the executor ran.
-    if (activeRun.status === "STOPPED" || activeRun.status === "RECOVERY_REQUIRED") {
+    if (
+      activeRun.status === "STOPPED" ||
+      activeRun.status === "RECOVERY_REQUIRED"
+    ) {
       return;
     }
 
-    // Drain pending: handle at actor boundary without killing executor (items #3/#4).
-    const isDrainingCeiling = activeRun.status === "DRAINING" && this.isCeilingPendingEffective(repositoryId, activeRun);
-    const isDrainingStop = activeRun.status === "DRAINING" && this.isStopPendingEffective(repositoryId, activeRun);
-
-    if (isDrainingCeiling || isDrainingStop) {
-      // Persist valid result if present; do NOT wake Sol.
-      if (result) {
-        this.dispatchStore?.updateStatus(dispatchId, "consumed");
-      }
-      if (isDrainingCeiling) {
-        this.ceilingPending.delete(repositoryId);
-        this.runStore.clearDrainReason(activeRun.id);
-        this.cancelWallClockCeiling(repositoryId);
-        const refreshed = this.runStore.get(activeRun.id);
-        if (refreshed && refreshed.status === "DRAINING") {
-          this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
-            lastError: "Wall-clock ceiling reached (drained at executor boundary)",
-            finishedAt: new Date().toISOString(),
-            drainReason: null
-          });
-          this.publishStateChange(repositoryId, activeRun.id, "CEILING_REACHED");
-        }
-      } else {
-        this.stopPending.delete(repositoryId);
-        this.runStore.clearDrainReason(activeRun.id);
-        this.cancelWallClockCeiling(repositoryId);
-        const refreshed = this.runStore.get(activeRun.id);
-        if (refreshed && refreshed.status === "DRAINING") {
-          this.runStore.updateStatus(activeRun.id, "STOPPED", {
-            lastError: "Stopped by user (drained at executor boundary)",
-            finishedAt: new Date().toISOString(),
-            drainReason: null
-          });
-          this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
-        }
-      }
+    if (activeRun.status === "DRAINING") {
+      await this.applyIterationCompletion(
+        repositoryId,
+        activeRun,
+        dispatchId,
+        false,
+        "RECOVERY_REQUIRED",
+        !!result,
+      );
       return;
     }
 
@@ -338,71 +462,230 @@ export class LoopService {
       this.runStore.updateStatus(activeRun.id, "RECOVERY_REQUIRED", {
         lastError:
           "Executor turn completed without producing a valid, committed result manifest. Treat as invalid/incomplete, not success (E).",
-        finishedAt: new Date().toISOString()
+        finishedAt: new Date().toISOString(),
       });
       this.publishStateChange(repositoryId, activeRun.id, "RECOVERY_REQUIRED");
       return;
     }
 
-    if (result.status === "COMPLETED") {
+    const isCompleted = result.status === "COMPLETED";
+    const terminalState: LoopState =
+      result.status === "BLOCKED"
+        ? "BLOCKED"
+        : result.status === "NEEDS_HUMAN"
+          ? "NEEDS_HUMAN"
+          : "RECOVERY_REQUIRED";
+
+    await this.applyIterationCompletion(
+      repositoryId,
+      activeRun,
+      dispatchId,
+      isCompleted,
+      terminalState,
+      true,
+    );
+  }
+
+  /**
+   * Strategy-completion entry point (SWARM/DAG). Mirrors `onExecutorCompleted`:
+   * consumes the authorizing dispatch, honors drain/ceiling boundaries, and
+   * wakes Sol on `COMPLETED`. Never maps a strategy result to `GOAL_COMPLETE`.
+   */
+  async onStrategyCompleted(
+    repositoryId: string,
+    dispatchId: string,
+    status: StrategyRunStatus,
+    _record: StrategyRunRecord,
+    _remote: RemotePublishResult | null,
+  ): Promise<void> {
+    let activeRun: RunRecord | null;
+    try {
+      activeRun = this.runStore.getActiveRun(repositoryId);
+    } catch {
+      return;
+    }
+    if (!activeRun) return;
+    if (
+      activeRun.status === "STOPPED" ||
+      activeRun.status === "RECOVERY_REQUIRED"
+    ) {
+      return;
+    }
+
+    const isCompleted = status === "COMPLETED";
+    if (activeRun.status === "DRAINING") {
+      // Drain boundary: completion is honored only at the next Sol boundary.
+      await this.applyIterationCompletion(
+        repositoryId,
+        activeRun,
+        dispatchId,
+        isCompleted,
+        "RECOVERY_REQUIRED",
+        true,
+      );
+      return;
+    }
+
+    // Item #5: COMPLETED -> next Sol handoff; PARTIAL/BLOCKED -> BLOCKED for
+    // review; everything else -> RECOVERY_REQUIRED. Never GOAL_COMPLETE.
+    const terminalState: LoopState =
+      status === "PARTIAL" || status === "BLOCKED"
+        ? "BLOCKED"
+        : "RECOVERY_REQUIRED";
+    await this.applyIterationCompletion(
+      repositoryId,
+      activeRun,
+      dispatchId,
+      isCompleted,
+      terminalState,
+      true,
+    );
+  }
+
+  /**
+   * Shared terminal-boundary logic for both single-agent and strategy
+   * completions: consume the dispatch, drain at ceiling/stop boundaries without
+   * waking Sol, and on `COMPLETED` check iteration/wall-clock ceilings before
+   * handing off to Sol.
+   */
+  private async applyIterationCompletion(
+    repositoryId: string,
+    activeRun: RunRecord,
+    dispatchId: string,
+    isCompleted: boolean,
+    terminalState: LoopState,
+    hasResult: boolean,
+  ): Promise<void> {
+    if (activeRun.status === "DRAINING") {
+      const isCeiling = this.isCeilingPendingEffective(repositoryId, activeRun);
+      const isStop = this.isStopPendingEffective(repositoryId, activeRun);
+      if (hasResult) this.dispatchStore?.updateStatus(dispatchId, "consumed");
+      if (isCeiling) {
+        this.ceilingPending.delete(repositoryId);
+        this.runStore.clearDrainReason(activeRun.id);
+        this.cancelWallClockCeiling(repositoryId);
+        const refreshed = this.runStore.get(activeRun.id);
+        if (refreshed && refreshed.status === "DRAINING") {
+          this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
+            lastError: "Wall-clock ceiling reached (drained at boundary)",
+            finishedAt: new Date().toISOString(),
+            drainReason: null,
+          });
+          this.publishStateChange(
+            repositoryId,
+            activeRun.id,
+            "CEILING_REACHED",
+          );
+        }
+      } else if (isStop) {
+        this.stopPending.delete(repositoryId);
+        this.runStore.clearDrainReason(activeRun.id);
+        this.cancelWallClockCeiling(repositoryId);
+        const refreshed = this.runStore.get(activeRun.id);
+        if (refreshed && refreshed.status === "DRAINING") {
+          this.runStore.updateStatus(activeRun.id, "STOPPED", {
+            lastError: "Stopped by user (drained at boundary)",
+            finishedAt: new Date().toISOString(),
+            drainReason: null,
+          });
+          this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
+        }
+      } else {
+        this.ceilingPending.delete(repositoryId);
+        this.stopPending.delete(repositoryId);
+        this.runStore.clearDrainReason(activeRun.id);
+        this.cancelWallClockCeiling(repositoryId);
+        const refreshed = this.runStore.get(activeRun.id);
+        if (refreshed && refreshed.status === "DRAINING") {
+          this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
+            lastError: "Drained at boundary",
+            finishedAt: new Date().toISOString(),
+            drainReason: null,
+          });
+          this.publishStateChange(
+            repositoryId,
+            activeRun.id,
+            "CEILING_REACHED",
+          );
+        }
+      }
+      return;
+    }
+
+    if (isCompleted) {
       this.dispatchStore?.updateStatus(dispatchId, "consumed");
 
-      // Check iteration ceiling at boundary – drain semantics (already partially does).
       const maxIterations = activeRun.maxIterations;
       if (activeRun.currentIteration >= maxIterations) {
-        this.publishBudgetExpired(repositoryId, activeRun, "CAMPAIGN_ITERATION_CEILING", "EXECUTOR_ACTIVITY");
-        this.runStore.updateStatus(activeRun.id, "DRAINING", { drainReason: 'ITERATION_CEILING' });
-        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
-        this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
-          lastError: "Iteration ceiling reached (drained at executor boundary)",
-          finishedAt: new Date().toISOString(),
-          drainReason: null
+        this.publishBudgetExpired(
+          repositoryId,
+          activeRun,
+          "CAMPAIGN_ITERATION_CEILING",
+          "EXECUTOR_ACTIVITY",
+        );
+        this.runStore.updateStatus(activeRun.id, "DRAINING", {
+          drainReason: "ITERATION_CEILING",
         });
-        this.publishStateChange(repositoryId, activeRun.id, "CEILING_REACHED");
+        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
+        this.ceilingPending.add(repositoryId);
+        const refreshed = this.runStore.get(activeRun.id);
+        if (refreshed && refreshed.status === "DRAINING") {
+          this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
+            lastError: "Iteration ceiling reached (drained at boundary)",
+            finishedAt: new Date().toISOString(),
+            drainReason: null,
+          });
+          this.publishStateChange(
+            repositoryId,
+            activeRun.id,
+            "CEILING_REACHED",
+          );
+        }
         this.cancelWallClockCeiling(repositoryId);
         return;
       }
 
-      // Wall-clock may have been exceeded during this turn – if so, drain now
-      // even if iteration not yet exceeded (accelerated-clock test path).
       if (this.isWallClockCeilingExceeded(activeRun)) {
-        this.publishBudgetExpired(repositoryId, activeRun, "CAMPAIGN_WALL_CLOCK_CEILING", "EXECUTOR_ACTIVITY");
-        this.runStore.updateStatus(activeRun.id, "DRAINING", { drainReason: 'WALL_CLOCK_CEILING' });
-        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
-        this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
-          lastError: "Wall-clock ceiling reached (drained at executor boundary)",
-          finishedAt: new Date().toISOString(),
-          drainReason: null
+        this.publishBudgetExpired(
+          repositoryId,
+          activeRun,
+          "CAMPAIGN_WALL_CLOCK_CEILING",
+          "EXECUTOR_ACTIVITY",
+        );
+        this.runStore.updateStatus(activeRun.id, "DRAINING", {
+          drainReason: "WALL_CLOCK_CEILING",
         });
-        this.publishStateChange(repositoryId, activeRun.id, "CEILING_REACHED");
+        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
+        this.ceilingPending.add(repositoryId);
+        const refreshed = this.runStore.get(activeRun.id);
+        if (refreshed && refreshed.status === "DRAINING") {
+          this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
+            lastError: "Wall-clock ceiling reached (drained at boundary)",
+            finishedAt: new Date().toISOString(),
+            drainReason: null,
+          });
+          this.publishStateChange(
+            repositoryId,
+            activeRun.id,
+            "CEILING_REACHED",
+          );
+        }
         this.ceilingPending.delete(repositoryId);
         this.runStore.clearDrainReason(activeRun.id);
         this.cancelWallClockCeiling(repositoryId);
         return;
       }
 
-      // Sol alone is authoritative for GOAL_COMPLETE. Wake Sol with the real
-      // result status; Sol decides completion via a control marker (G/H).
-      await this.submitSolWakeForRun(repositoryId, activeRun, result.status);
+      await this.submitSolWakeForRun(repositoryId, activeRun, "COMPLETED");
       return;
     }
 
-    // BLOCKED / NEEDS_HUMAN / FAILED: truthful problem or failure state.
-    // If drain was pending, FAILED still preserves truthfully but drain takes precedence.
-    // For now, drain pending already handled above; here process normally.
-    const terminalState: LoopState =
-      result.status === "BLOCKED"
-        ? "BLOCKED"
-        : result.status === "NEEDS_HUMAN"
-        ? "NEEDS_HUMAN"
-        : "RECOVERY_REQUIRED";
-
     this.runStore.updateStatus(activeRun.id, terminalState, {
       lastError:
-        result.status === "FAILED"
-          ? `Executor reported FAILED: ${result.summary}`
-          : `Executor reported ${result.status}: ${result.summary}`,
-      finishedAt: new Date().toISOString()
+        terminalState === "RECOVERY_REQUIRED"
+          ? "Strategy turn completed without a valid result; treat as invalid/incomplete."
+          : `Strategy reported ${terminalState}.`,
+      finishedAt: new Date().toISOString(),
     });
     this.publishStateChange(repositoryId, activeRun.id, terminalState);
     this.cancelWallClockCeiling(repositoryId);
@@ -415,7 +698,7 @@ export class LoopService {
     decision: SolControlDecision,
     runId: string,
     _iteration?: number,
-    _relatedDispatchId?: string | null
+    _relatedDispatchId?: string | null,
   ): Promise<void> {
     // 1. Fetch the durable control record — authoritative for correlation + validation (item #2/#4).
     let control: SolControlRecord | null = null;
@@ -434,27 +717,65 @@ export class LoopService {
     }
 
     // 3. Idempotency: an already-applied/rejected control must not be re-applied or re-consumed.
-    if (control && (control.status === "consumed" || control.status === "rejected")) {
+    if (
+      control &&
+      (control.status === "consumed" || control.status === "rejected")
+    ) {
       return;
     }
 
     // 4. STRICT validation BEFORE any mutation/consumption (items #2/#4). A stale control from an
     //    older iteration of the SAME run must not close the current Sol page, be consumed as a valid
     //    current decision, or change run state. Invalid/stale controls remain auditable (rejected).
-    const rejectionReason = this.validateSolControl(repositoryId, control, activeRun, decision);
+    const rejectionReason = this.validateSolControl(
+      repositoryId,
+      control,
+      activeRun,
+      decision,
+    );
     if (rejectionReason) {
       if (this.solControlStore && control) {
         try {
-          this.solControlStore.updateStatus(controlId, "rejected", rejectionReason);
+          this.solControlStore.updateStatus(
+            controlId,
+            "rejected",
+            rejectionReason,
+          );
         } catch {}
       }
       this.publishEvent({
         type: "watcher.control_rejected",
         at: new Date().toISOString(),
         repositoryId,
-        data: { controlId, runId, decision, reason: rejectionReason }
+        data: { controlId, runId, decision, reason: rejectionReason },
       } as any);
       return;
+    }
+
+    // Item #11: Sol acts at Sol boundaries. A terminal control racing an
+    // active execution actor is invalid external state: reject it without
+    // damaging partial work; the actor finishes or is controlled through the
+    // campaign controls, then Sol can re-issue at the boundary.
+    if (decision === "GOAL_COMPLETE") {
+      const actor = this.coordinator?.getActiveActor(repositoryId) ?? "NONE";
+      if (actor === "SWARM" || actor === "DAG" || actor === "EXECUTOR") {
+        if (this.solControlStore && control) {
+          try {
+            this.solControlStore.updateStatus(
+              controlId,
+              "rejected",
+              "EXECUTION_ACTOR_ACTIVE",
+            );
+          } catch {}
+        }
+        this.publishEvent({
+          type: "watcher.control_rejected",
+          at: new Date().toISOString(),
+          repositoryId,
+          data: { controlId, runId, decision, reason: "EXECUTION_ACTOR_ACTIVE" },
+        } as any);
+        return;
+      }
     }
 
     // 5. Only now: close the Sol operation and mark the control consumed.
@@ -470,7 +791,10 @@ export class LoopService {
     if (!activeRun) return;
 
     // If draining due to ceiling/stop while Sol active, honor drain at Sol boundary.
-    if (this.isDrainPending(repositoryId, activeRun) || activeRun.status === "DRAINING") {
+    if (
+      this.isDrainPending(repositoryId, activeRun) ||
+      activeRun.status === "DRAINING"
+    ) {
       const isCeiling = this.isCeilingPendingEffective(repositoryId, activeRun);
       const isStop = this.isStopPendingEffective(repositoryId, activeRun);
       if (isCeiling) {
@@ -480,7 +804,7 @@ export class LoopService {
         this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
           lastError: "Wall-clock ceiling reached (drained at Sol boundary)",
           finishedAt: new Date().toISOString(),
-          drainReason: null
+          drainReason: null,
         });
         this.publishStateChange(repositoryId, activeRun.id, "CEILING_REACHED");
         return;
@@ -492,7 +816,7 @@ export class LoopService {
         this.runStore.updateStatus(activeRun.id, "STOPPED", {
           lastError: "Stopped by user (drained at Sol boundary)",
           finishedAt: new Date().toISOString(),
-          drainReason: null
+          drainReason: null,
         });
         this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
         return;
@@ -504,20 +828,28 @@ export class LoopService {
       decision === "GOAL_COMPLETE"
         ? "GOAL_COMPLETE"
         : decision === "BLOCKED"
-        ? "BLOCKED"
-        : decision === "NEEDS_HUMAN"
-        ? "NEEDS_HUMAN"
-        : "PAUSED";
+          ? "BLOCKED"
+          : decision === "NEEDS_HUMAN"
+            ? "NEEDS_HUMAN"
+            : "PAUSED";
 
     if (decision === "PAUSED") {
       await this.executorService.pauseRun(repositoryId);
     }
 
     this.runStore.updateStatus(activeRun.id, targetState, {
-      finishedAt: targetState === "GOAL_COMPLETE" ? new Date().toISOString() : activeRun.finishedAt
+      finishedAt:
+        targetState === "GOAL_COMPLETE"
+          ? new Date().toISOString()
+          : activeRun.finishedAt,
     });
     this.publishStateChange(repositoryId, activeRun.id, targetState);
-    if (targetState === "GOAL_COMPLETE" || targetState === "BLOCKED" || targetState === "NEEDS_HUMAN" || targetState === "PAUSED") {
+    if (
+      targetState === "GOAL_COMPLETE" ||
+      targetState === "BLOCKED" ||
+      targetState === "NEEDS_HUMAN" ||
+      targetState === "PAUSED"
+    ) {
       this.cancelWallClockCeiling(repositoryId);
     }
   }
@@ -532,21 +864,35 @@ export class LoopService {
     repositoryId: string,
     control: SolControlRecord | null,
     activeRun: RunRecord | null,
-    _decision: SolControlDecision
+    decision: SolControlDecision,
   ): string | null {
-    if (!control) return "control record not found (cannot validate or consume)";
-    if (control.status !== "detected") return `control is already ${control.status}, not consumable`;
+    // An execution strategy actor is authoritative for the iteration while it
+    // runs. Sol must not act (terminal or pause) until the strategy completes
+    // (Change 017 item 11). Reject as stale/invalid.
+    const activeStrategy =
+      this.coordinator?.getActiveStrategyRun(repositoryId) ?? null;
+    if (activeStrategy) {
+      return `an execution strategy actor (${activeStrategy.strategy}) is still active for this iteration; Sol control '${decision}' cannot be applied while an execution actor is running`;
+    }
+    if (!control)
+      return "control record not found (cannot validate or consume)";
+    if (control.status !== "detected")
+      return `control is already ${control.status}, not consumable`;
     if (control.repositoryId !== repositoryId) {
       return `control.repositoryId ${control.repositoryId} does not match ${repositoryId}`;
     }
-    if (!activeRun) return "no active run for repository (control references an unknown run)";
+    if (!activeRun)
+      return "no active run for repository (control references an unknown run)";
     if (control.runId !== activeRun.id) {
       return `control.runId ${control.runId} does not match active run ${activeRun.id}`;
     }
     if (control.iteration !== activeRun.currentIteration) {
       return `control.iteration ${control.iteration} does not match expected Sol iteration ${activeRun.currentIteration}`;
     }
-    if (control.relatedDispatchId !== null && control.relatedDispatchId !== activeRun.activeDispatchId) {
+    if (
+      control.relatedDispatchId !== null &&
+      control.relatedDispatchId !== activeRun.activeDispatchId
+    ) {
       return `control.relatedDispatchId ${control.relatedDispatchId} does not match active dispatch ${activeRun.activeDispatchId}`;
     }
     return null;
@@ -554,22 +900,33 @@ export class LoopService {
 
   /** Resume BUSY backpressure scheduling after a restart (item #3). Uses the durable budget. */
   rehydrateBusyBackpressure(): void {
-    for (const [repoId, op] of this.browserManager.getSolOperations().entries()) {
+    for (const [repoId, op] of this.browserManager
+      .getSolOperations()
+      .entries()) {
       if (op.status === "stalled" || op.status === "completed") continue;
       const activeOp = this.browserManager.getActiveOperation(repoId);
       const count = activeOp?.busyRetryCount ?? 0;
       const activeRun = this.runStore.getActiveRun(repoId);
       if (!activeRun) continue;
-      const busyRetryMax = this.runPolicyStore?.get(activeRun.id)?.sol.busyRetryMax ?? BUSY_MAX_RETRIES;
+      const busyRetryMax =
+        this.runPolicyStore?.get(activeRun.id)?.sol.busyRetryMax ??
+        BUSY_MAX_RETRIES;
       if (count >= busyRetryMax) continue; // exhausted; timeout/stall path handles it
-      if (activeRun.status !== "SOL_REVIEWING" && activeRun.status !== "SOL_PENDING") continue;
+      if (
+        activeRun.status !== "SOL_REVIEWING" &&
+        activeRun.status !== "SOL_PENDING"
+      )
+        continue;
       if (this.busyRetryTimers.has(repoId)) continue;
       const run = activeRun;
       const resultStatus = activeOp?.resultStatus ?? "INITIAL";
       const handle = setTimeout(() => {
         this.busyRetryTimers.delete(repoId);
-        void this.submitSolWakeForRun(repoId, run, resultStatus).catch(() => {});
-      }, this.runPolicyStore?.get(run.id)?.sol.busyRetryDelayMs ?? BUSY_RETRY_MS);
+        void this.submitSolWakeForRun(repoId, run, resultStatus).catch(
+          () => {},
+        );
+      }, this.runPolicyStore?.get(run.id)?.sol.busyRetryDelayMs ??
+        BUSY_RETRY_MS);
       if ((handle as any).unref) (handle as any).unref();
       this.busyRetryTimers.set(repoId, handle);
     }
@@ -587,13 +944,16 @@ export class LoopService {
    * Idempotent wake resubmission for rehydration (M). Must NOT create a new run;
    * it resumes the existing SOL_PENDING run's pending wake.
    */
-  async resubmitPendingWake(repositoryId: string, run: RunRecord): Promise<void> {
+  async resubmitPendingWake(
+    repositoryId: string,
+    run: RunRecord,
+  ): Promise<void> {
     await this.submitSolWakeForRun(repositoryId, run, "INITIAL");
   }
 
   async recoverRun(
     repositoryId: string,
-    action: "retry" | "stop" | "complete"
+    action: "retry" | "stop" | "complete",
   ): Promise<RunRecord> {
     // Recovery applies to runs in terminal/problem states that are intentionally
     // excluded from the "active" view, so resolve by most-recent run (M).
@@ -609,18 +969,18 @@ export class LoopService {
       activeRun.status !== "ATTENTION_REQUIRED"
     ) {
       throw new ValidationError(
-        `Run ${activeRun.id} is in status ${activeRun.status}, recovery not applicable`
+        `Run ${activeRun.id} is in status ${activeRun.status}, recovery not applicable`,
       );
     }
 
     if (action === "stop") {
       this.runStore.updateStatus(activeRun.id, "STOPPED", {
-        finishedAt: new Date().toISOString()
+        finishedAt: new Date().toISOString(),
       });
       this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
     } else if (action === "complete") {
       this.runStore.updateStatus(activeRun.id, "GOAL_COMPLETE", {
-        finishedAt: new Date().toISOString()
+        finishedAt: new Date().toISOString(),
       });
       this.publishStateChange(repositoryId, activeRun.id, "GOAL_COMPLETE");
     } else if (action === "retry") {
@@ -634,17 +994,24 @@ export class LoopService {
 
   private clearBusyRetry(repositoryId: string): void {
     const t = this.busyRetryTimers.get(repositoryId);
-    if (t) { clearTimeout(t); this.busyRetryTimers.delete(repositoryId); }
+    if (t) {
+      clearTimeout(t);
+      this.busyRetryTimers.delete(repositoryId);
+    }
   }
   private publishEvent(event: RepositoryMutationEvent): void {
     if (this.eventPublisher) {
-      try { this.eventPublisher(event); } catch (err) { console.warn("[LoopService] publishEvent failed:", err); }
+      try {
+        this.eventPublisher(event);
+      } catch (err) {
+        console.warn("[LoopService] publishEvent failed:", err);
+      }
     }
   }
   private async submitSolWakeForRun(
     repositoryId: string,
     run: RunRecord,
-    resultStatus: SolWakeResultStatus
+    resultStatus: SolWakeResultStatus,
   ): Promise<void> {
     const repo = this.repoStore.get(repositoryId);
     if (!repo) return;
@@ -658,13 +1025,18 @@ export class LoopService {
         dispatchId: run.activeDispatchId || null,
         resultStatus,
         conversationUrl: repo.solConversationUrl,
-        completionWaitMs: policy?.sol.completionWaitMs
+        completionWaitMs: policy?.sol.completionWaitMs,
       });
 
       // Race check: re-read run before writing SOL_REVIEWING — if drain landed while browser was in-flight, respect it
       const curRun = this.runStore.get(run.id);
       if (!curRun) return;
-      if (curRun.status === "DRAINING" || curRun.status === "STOPPED" || curRun.status === "CEILING_REACHED" || this.isDrainPending(repositoryId, curRun)) {
+      if (
+        curRun.status === "DRAINING" ||
+        curRun.status === "STOPPED" ||
+        curRun.status === "CEILING_REACHED" ||
+        this.isDrainPending(repositoryId, curRun)
+      ) {
         return;
       }
 
@@ -675,24 +1047,32 @@ export class LoopService {
       } else if (wake.status === "busy") {
         // BUSY budget is persisted durably in the Sol operation store (item #3); the
         // browser already incremented busyRetryCount before returning 'busy'. Read it back.
-        const count = this.browserManager.getActiveOperation(repositoryId)?.busyRetryCount ?? 0;
+        const count =
+          this.browserManager.getActiveOperation(repositoryId)
+            ?.busyRetryCount ?? 0;
         if (count >= (policy?.sol.busyRetryMax ?? BUSY_MAX_RETRIES)) {
           this.clearBusyRetry(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
-            lastError: wake.errorMessage || "ChatGPT busy: backpressure (retries exhausted)",
-            finishedAt: new Date().toISOString()
+            lastError:
+              wake.errorMessage ||
+              "ChatGPT busy: backpressure (retries exhausted)",
+            finishedAt: new Date().toISOString(),
           });
           this.publishStateChange(repositoryId, run.id, "SOL_STALLED");
           return;
         }
         const cur = this.runStore.get(run.id);
-        if (cur && cur.status === 'SOL_PENDING') {
+        if (cur && cur.status === "SOL_PENDING") {
           this.runStore.updateStatus(run.id, "SOL_REVIEWING");
           this.publishStateChange(repositoryId, run.id, "SOL_REVIEWING");
         }
         const handle = setTimeout(() => {
           this.busyRetryTimers.delete(repositoryId);
-          void this.submitSolWakeForRun(repositoryId, this.runStore.get(run.id) ?? run, resultStatus);
+          void this.submitSolWakeForRun(
+            repositoryId,
+            this.runStore.get(run.id) ?? run,
+            resultStatus,
+          );
         }, policy?.sol.busyRetryDelayMs ?? BUSY_RETRY_MS);
         if ((handle as any).unref) (handle as any).unref();
         this.busyRetryTimers.set(repositoryId, handle);
@@ -700,7 +1080,7 @@ export class LoopService {
         this.clearBusyRetry(repositoryId);
         this.runStore.updateStatus(run.id, "SOL_STALLED", {
           lastError: wake.errorMessage || "Wake submission failed",
-          finishedAt: new Date().toISOString()
+          finishedAt: new Date().toISOString(),
         });
         this.publishStateChange(repositoryId, run.id, "SOL_STALLED");
       }
@@ -708,36 +1088,50 @@ export class LoopService {
       const errorMessage = err?.message || String(err);
       // Race: don't resurrect draining/terminal run
       const curRun = this.runStore.get(run.id);
-      if (curRun && (curRun.status === "STOPPED" || curRun.status === "CEILING_REACHED" || this.isDrainPending(repositoryId, curRun))) return;
-      const isAttention = /^(ATTENTION_REQUIRED|CHATGPT_AUTH_REQUIRED)/.test(errorMessage) || /ATTENTION_REQUIRED/.test(errorMessage);
+      if (
+        curRun &&
+        (curRun.status === "STOPPED" ||
+          curRun.status === "CEILING_REACHED" ||
+          this.isDrainPending(repositoryId, curRun))
+      )
+        return;
+      const isAttention =
+        /^(ATTENTION_REQUIRED|CHATGPT_AUTH_REQUIRED)/.test(errorMessage) ||
+        /ATTENTION_REQUIRED/.test(errorMessage);
       if (isAttention) {
         this.clearBusyRetry(repositoryId);
         this.runStore.updateStatus(run.id, "ATTENTION_REQUIRED", {
           lastError: errorMessage,
-          finishedAt: new Date().toISOString()
+          finishedAt: new Date().toISOString(),
         });
         this.publishStateChange(repositoryId, run.id, "ATTENTION_REQUIRED");
         return;
       }
       if (/^BUSY:/.test(errorMessage)) {
-        const count = this.browserManager.getActiveOperation(repositoryId)?.busyRetryCount ?? 0;
+        const count =
+          this.browserManager.getActiveOperation(repositoryId)
+            ?.busyRetryCount ?? 0;
         if (count >= (policy?.sol.busyRetryMax ?? BUSY_MAX_RETRIES)) {
           this.clearBusyRetry(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
             lastError: errorMessage,
-            finishedAt: new Date().toISOString()
+            finishedAt: new Date().toISOString(),
           });
           this.publishStateChange(repositoryId, run.id, "SOL_STALLED");
           return;
         }
         const cur = this.runStore.get(run.id);
-        if (cur && cur.status === 'SOL_PENDING') {
+        if (cur && cur.status === "SOL_PENDING") {
           this.runStore.updateStatus(run.id, "SOL_REVIEWING");
           this.publishStateChange(repositoryId, run.id, "SOL_REVIEWING");
         }
         const handle = setTimeout(() => {
           this.busyRetryTimers.delete(repositoryId);
-          void this.submitSolWakeForRun(repositoryId, this.runStore.get(run.id) ?? run, resultStatus);
+          void this.submitSolWakeForRun(
+            repositoryId,
+            this.runStore.get(run.id) ?? run,
+            resultStatus,
+          );
         }, policy?.sol.busyRetryDelayMs ?? BUSY_RETRY_MS);
         if ((handle as any).unref) (handle as any).unref();
         this.busyRetryTimers.set(repositoryId, handle);
@@ -746,19 +1140,30 @@ export class LoopService {
       this.clearBusyRetry(repositoryId);
       this.runStore.updateStatus(run.id, "SOL_STALLED", {
         lastError: errorMessage,
-        finishedAt: new Date().toISOString()
+        finishedAt: new Date().toISOString(),
       });
       this.publishStateChange(repositoryId, run.id, "SOL_STALLED");
     }
   }
 
-  /** Pause: terminate the executor promptly to stop inference usage, preserve tree, PAUSED (I). Executor-only. */
+  /** Pause: route through the coordinator so the active strategy actor is paused. */
   async pauseRun(repositoryId: string): Promise<void> {
+    if (this.coordinator) {
+      await this.coordinator.pause(repositoryId);
+      return;
+    }
+    return this.pauseRunInternal(repositoryId);
+  }
+
+  /** Pause the single-agent executor (used by the coordinator). Executor-only. */
+  private async pauseRunInternal(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
     const actor = getActiveActor(activeRun.status as any);
-    if (actor !== 'EXECUTOR') {
-      throw new BadRequestError(`Pause is only allowed while executor is active (current: ${activeRun.status})`);
+    if (actor !== "EXECUTOR") {
+      throw new BadRequestError(
+        `Pause is only allowed while executor is active (current: ${activeRun.status})`,
+      );
     }
     await this.executorService.pauseRun(repositoryId);
 
@@ -771,6 +1176,15 @@ export class LoopService {
    * instructs the executor to inspect/preserve partial work and continue (I).
    */
   async resumeRun(repositoryId: string): Promise<void> {
+    if (this.coordinator) {
+      await this.coordinator.resume(repositoryId);
+      return;
+    }
+    return this.resumeRunInternal(repositoryId);
+  }
+
+  /** Resume the single-agent executor for the same unfinished dispatch. */
+  async resumeRunInternal(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun || activeRun.status !== "PAUSED") return;
     if (!activeRun.activeDispatchId) return;
@@ -782,15 +1196,19 @@ export class LoopService {
       await this.executorService.startRun(
         repositoryId,
         activeRun.activeDispatchId,
-        { recovery: true }
+        { recovery: true },
       );
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
       this.runStore.updateStatus(activeRun.id, "EXECUTOR_UNAVAILABLE", {
         lastError: errorMessage,
-        finishedAt: new Date().toISOString()
+        finishedAt: new Date().toISOString(),
       });
-      this.publishStateChange(repositoryId, activeRun.id, "EXECUTOR_UNAVAILABLE");
+      this.publishStateChange(
+        repositoryId,
+        activeRun.id,
+        "EXECUTOR_UNAVAILABLE",
+      );
     }
   }
 
@@ -801,20 +1219,33 @@ export class LoopService {
    * reached transition STOPPED. EMERGENCY KILL remains immediate.
    */
   async stopRun(repositoryId: string): Promise<void> {
+    if (this.coordinator) {
+      await this.coordinator.stop(repositoryId);
+      return;
+    }
+    return this.stopRunInternal(repositoryId);
+  }
+
+  /** Graceful drain for the single-agent executor (used by the coordinator). */
+  async stopRunInternal(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
 
     const actor = getActiveActor(activeRun.status as any);
-    if (actor === "EXECUTOR" || actor === "SOL" || activeRun.status === "DRAINING") {
+    if (
+      actor === "EXECUTOR" ||
+      actor === "SOL" ||
+      activeRun.status === "DRAINING"
+    ) {
       // Graceful: drain at boundary, truthfully show DRAINING until then.
-      if (activeRun.status !== "DRAINING") {
+      if (activeRun.status === "DRAINING") {
+        this.runStore.setDrainReason(activeRun.id, "USER_STOP");
+      } else {
         this.runStore.updateStatus(activeRun.id, "DRAINING", {
           lastError: "Stopped by user (draining)",
-          drainReason: 'USER_STOP'
+          drainReason: "USER_STOP",
         });
         this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
-      } else {
-        this.runStore.setDrainReason(activeRun.id, 'USER_STOP');
       }
       this.stopPending.add(repositoryId);
       // Do NOT kill executor; let it finish via onExecutorCompleted/onControlDetected.
@@ -825,7 +1256,7 @@ export class LoopService {
     this.runStore.updateStatus(activeRun.id, "STOPPED", {
       lastError: "Stopped by user",
       finishedAt: new Date().toISOString(),
-      drainReason: null
+      drainReason: null,
     });
     this.publishStateChange(repositoryId, activeRun.id, "STOPPED");
     this.runStore.clearDrainReason(activeRun.id);
@@ -838,6 +1269,15 @@ export class LoopService {
    * RECOVERY_REQUIRED / interrupted state (I).
    */
   async emergencyKill(repositoryId: string): Promise<void> {
+    if (this.coordinator) {
+      await this.coordinator.kill(repositoryId);
+      return;
+    }
+    return this.emergencyKillInternal(repositoryId);
+  }
+
+  /** Immediate kill of the single-agent executor (used by the coordinator). */
+  private async emergencyKillInternal(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
 
     await this.executorService.killRun(repositoryId).catch(() => {});
@@ -852,8 +1292,9 @@ export class LoopService {
 
     if (activeRun) {
       this.runStore.updateStatus(activeRun.id, "RECOVERY_REQUIRED", {
-        lastError: "Run interrupted by emergency kill. Manual recovery required.",
-        finishedAt: new Date().toISOString()
+        lastError:
+          "Run interrupted by emergency kill. Manual recovery required.",
+        finishedAt: new Date().toISOString(),
       });
       this.publishStateChange(repositoryId, activeRun.id, "RECOVERY_REQUIRED");
     }
@@ -865,7 +1306,9 @@ export class LoopService {
     this.cancelWallClockCeiling(repositoryId);
     const repo = this.repoStore.get(repositoryId);
     if (!repo) return;
-    const maxRuntimeMinutes = this.runPolicyStore?.get(run.id)?.campaign.maxRuntimeMinutes ?? repo.maxRuntimeMinutes;
+    const maxRuntimeMinutes =
+      this.runPolicyStore?.get(run.id)?.campaign.maxRuntimeMinutes ??
+      repo.maxRuntimeMinutes;
     const maxMs = (maxRuntimeMinutes || 0) * 60 * 1000;
     if (maxMs <= 0) return;
     const started = new Date(run.startedAt).getTime();
@@ -875,7 +1318,10 @@ export class LoopService {
       this.handleWallClockCeiling(repositoryId);
       return;
     }
-    const timer = setTimeout(() => this.handleWallClockCeiling(repositoryId), remaining);
+    const timer = setTimeout(
+      () => this.handleWallClockCeiling(repositoryId),
+      remaining,
+    );
     // Allow process to exit without waiting for ceiling timer.
     if ((timer as any).unref) (timer as any).unref();
     this.wallClockTimers.set(repositoryId, timer);
@@ -893,23 +1339,37 @@ export class LoopService {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
     // Terminal already?
-    if (["STOPPED", "CEILING_REACHED", "GOAL_COMPLETE", "RECOVERY_REQUIRED"].includes(activeRun.status)) {
+    if (
+      [
+        "STOPPED",
+        "CEILING_REACHED",
+        "GOAL_COMPLETE",
+        "RECOVERY_REQUIRED",
+      ].includes(activeRun.status)
+    ) {
       this.ceilingPending.delete(repositoryId);
       return;
     }
     const actor = getActiveActor(activeRun.status as any);
-    this.publishBudgetExpired(repositoryId, activeRun, "CAMPAIGN_WALL_CLOCK_CEILING", actor === "EXECUTOR" ? "EXECUTOR_ACTIVITY" : "SOL_REVIEW");
+    this.publishBudgetExpired(
+      repositoryId,
+      activeRun,
+      "CAMPAIGN_WALL_CLOCK_CEILING",
+      actor === "EXECUTOR" ? "EXECUTOR_ACTIVITY" : "SOL_REVIEW",
+    );
     if (actor === "EXECUTOR" || actor === "SOL") {
-      if (activeRun.status !== "DRAINING") {
+      if (activeRun.status === "DRAINING") {
+        this.runStore.setDrainReason(activeRun.id, "WALL_CLOCK_CEILING");
+      } else {
         this.runStore.updateStatus(activeRun.id, "DRAINING", {
           lastError: "Wall-clock ceiling reached (draining)",
-          drainReason: 'WALL_CLOCK_CEILING'
+          drainReason: "WALL_CLOCK_CEILING",
         });
         this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
-      } else {
-        this.runStore.setDrainReason(activeRun.id, 'WALL_CLOCK_CEILING');
       }
       this.ceilingPending.add(repositoryId);
+      // Propagate the drain to a live strategy actor (graceful stop at boundary).
+      this.coordinator?.drainActiveStrategy(repositoryId);
       // Do NOT kill executor; let it finish naturally and handle at boundary.
       return;
     }
@@ -917,14 +1377,14 @@ export class LoopService {
     if (activeRun.status !== "DRAINING") {
       this.runStore.updateStatus(activeRun.id, "DRAINING", {
         lastError: "Wall-clock ceiling reached (draining)",
-        drainReason: 'WALL_CLOCK_CEILING'
+        drainReason: "WALL_CLOCK_CEILING",
       });
       this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
     }
     this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
       lastError: "Wall-clock ceiling reached (drained at boundary)",
       finishedAt: new Date().toISOString(),
-      drainReason: null
+      drainReason: null,
     });
     this.publishStateChange(repositoryId, activeRun.id, "CEILING_REACHED");
     this.ceilingPending.delete(repositoryId);
@@ -943,7 +1403,9 @@ export class LoopService {
   private isWallClockCeilingExceeded(run: RunRecord): boolean {
     const repo = this.repoStore.get(run.repositoryId);
     if (!repo) return false;
-    const maxRuntimeMinutes = this.runPolicyStore?.get(run.id)?.campaign.maxRuntimeMinutes ?? repo.maxRuntimeMinutes;
+    const maxRuntimeMinutes =
+      this.runPolicyStore?.get(run.id)?.campaign.maxRuntimeMinutes ??
+      repo.maxRuntimeMinutes;
     const maxMs = (maxRuntimeMinutes || 0) * 60 * 1000;
     if (maxMs <= 0) return false;
     const elapsed = Date.now() - new Date(run.startedAt).getTime();
@@ -982,7 +1444,7 @@ export class LoopService {
       activeRun: run,
       currentIteration: run.currentIteration,
       maxIterations: run.maxIterations,
-      activeActor: getActiveActor(state)
+      activeActor: getActiveActor(state),
     };
   }
 
@@ -993,11 +1455,15 @@ export class LoopService {
       activeRun: null,
       currentIteration: 0,
       maxIterations: 0,
-      activeActor: "NONE"
+      activeActor: "NONE",
     };
   }
 
-  private publishStateChange(repositoryId: string, runId: string, loopState: LoopState): void {
+  private publishStateChange(
+    repositoryId: string,
+    runId: string,
+    loopState: LoopState,
+  ): void {
     if (this.eventPublisher) {
       try {
         const run = this.runStore.get(runId);
@@ -1009,8 +1475,8 @@ export class LoopService {
             runId,
             loopState,
             iteration: run?.currentIteration,
-            dispatchId: run?.activeDispatchId ?? undefined
-          }
+            dispatchId: run?.activeDispatchId ?? undefined,
+          },
         });
       } catch (err) {
         console.warn("[LoopService] Failed to publish event:", err);
@@ -1018,7 +1484,12 @@ export class LoopService {
     }
   }
 
-  private publishBudgetExpired(repositoryId: string, run: RunRecord, reason: string, phase: string): void {
+  private publishBudgetExpired(
+    repositoryId: string,
+    run: RunRecord,
+    reason: string,
+    phase: string,
+  ): void {
     this.publishEvent({
       type: "budget.expired",
       at: new Date().toISOString(),
@@ -1028,8 +1499,8 @@ export class LoopService {
         iteration: run.currentIteration,
         failureReason: reason,
         reason,
-        phase
-      }
+        phase,
+      },
     });
   }
 }

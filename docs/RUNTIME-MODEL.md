@@ -529,6 +529,16 @@ orphaned active strategy/packet state recoverable and runs stale/dirty worktree
 inspection. None of these transitions changes the enclosing run to
 `GOAL_COMPLETE`; only Sol's existing outer loop may do that.
 
+Change 017 closes the entry seam: a SWARM iteration is entered autonomously
+when the durable dispatch marker authorizes it through its optional `strategy`
+and `executionPlan` fields — not only through a manual REST start. The
+`IterationExecutionCoordinator` enforces the same campaign/iteration ownership
+boundary on both paths. When the strategy run finishes, its terminal status is
+normalized for the enclosing loop: strategy `COMPLETED` maps to iteration
+`COMPLETED`, `PARTIAL` maps to `BLOCKED` for Sol review, `BLOCKED` maps to
+`BLOCKED`, and `FAILED`/`CANCELLED`/`RECOVERY_REQUIRED` map to recovery. The
+mapping never produces `GOAL_COMPLETE`; Sol remains the completion authority.
+
 ## 20. Optional DAG strategy
 
 `DAG` is an explicit intra-iteration strategy. A request first persists a
@@ -538,6 +548,10 @@ packet mismatch. Nodes move through `QUEUED`, `WAITING_DEPENDENCY`, `STARTING`,
 `INTEGRATING` while the shared strategy run carries pause/stop/kill/recovery
 state. A worker commit or a green DAG does not complete the campaign; the
 structured DAG result returns to Sol for review and the next action.
+
+DAG iterations use the same autonomous dispatch entry (`strategy: "DAG"` plus
+an execution plan) and the same normalized completion mapping as SWARM; a
+finished DAG never completes the campaign by itself.
 
 ## 21. Optional OpenCode execution capability
 

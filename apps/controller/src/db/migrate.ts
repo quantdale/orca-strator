@@ -631,6 +631,34 @@ export const migrations: Migration[] = [
           ON execution_dag_nodes(packet_id);
       `);
     }
+  },
+  {
+    version: 22,
+    name: "022_execution_strategy_loop_integration",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE execution_strategy_runs
+          ADD COLUMN dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL;
+        ALTER TABLE execution_strategy_runs
+          ADD COLUMN strategy_base_sha TEXT;
+        CREATE INDEX IF NOT EXISTS idx_execution_strategy_runs_dispatch
+          ON execution_strategy_runs(dispatch_id);
+      `);
+      db.exec(`
+        ALTER TABLE execution_dag_nodes
+          ADD COLUMN dependency_input_shas_json TEXT NOT NULL DEFAULT '[]';
+      `);
+      db.exec(`
+        ALTER TABLE isolated_worktrees
+          ADD COLUMN dependency_input_shas_json TEXT NOT NULL DEFAULT '[]';
+      `);
+      db.exec(`
+        ALTER TABLE dispatches
+          ADD COLUMN strategy TEXT;
+        ALTER TABLE dispatches
+          ADD COLUMN execution_plan_json TEXT;
+      `);
+    }
   }
 ];
 

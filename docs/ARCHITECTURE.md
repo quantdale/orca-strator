@@ -436,3 +436,36 @@ textual dependency chips rather than a graph canvas, so it cannot author nodes,
 decompose goals, or create hidden work. Shared strategy presets are versioned
 policy/reference data only; `SINGLE_AGENT` and repository + goal remain the
 default user experience.
+
+## Execution-strategy loop integration (Change 017)
+
+Change 017 places an `IterationExecutionCoordinator` above the strategy
+engines as the single authoritative execution actor for one
+repository/campaign iteration. It normalizes start, completion, recovery, and
+control across `SINGLE_AGENT`, `SWARM`, and `DAG`:
+
+```text
+LoopService (autonomous dispatch seam)
+  -> resolveStrategy(dispatch)          # dispatch marker strategy/executionPlan; legacy -> SINGLE_AGENT
+  -> assertCampaignIterationOwnership() # shared campaign/iteration boundary
+  -> coordinator.start()                # executor OR swarm/DAG engine
+  -> handleStrategyCompleted()          # remote-durable publish + normalized result
+  -> LoopService.onStrategyCompleted()  # Sol review boundary unchanged
+
+Manual REST (/swarm/start, /dag/start)
+  -> assertCampaignIterationOwnership() # same boundary
+  -> coordinator.start()
+```
+
+`LoopService` no longer contains brand-specific strategy logic: it resolves the
+durable dispatch selection, delegates start/completion to the coordinator, and
+routes pause/resume/stop/kill through it, which composes the same decision onto
+whatever actor is active (executor or strategy engine). The manual
+`/swarm/start` and `/dag/start` routes acquire the identical ownership boundary
+before starting, so manual and autonomous starts can never both own one
+iteration. A structured `StrategyConflictError` is raised when the boundary is
+not free; the loop records a `loop.strategy_conflict` event instead of
+starting, and the REST routes surface it as a bad-request error envelope.
+Strategy completion publishes integrated `main` and the result manifest durably
+to the remote before the normalized status returns to the loop; the mapping
+never yields `GOAL_COMPLETE`, keeping Sol as the completion authority.

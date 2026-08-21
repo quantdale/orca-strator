@@ -9,11 +9,12 @@ import {
   type StrategyControlRecord,
   type ExecutionStrategy,
   type StrategyExecutionReport,
+  type IntegrationReport,
   type StrategyRunRecord,
   type StrategyRunStatus,
   type WorkPacket,
   type WorkPacketResult,
-  type WorktreeProvenance
+  type WorktreeProvenance,
 } from "@orca/shared";
 import type { RepositoryStore } from "../repositories/repository-store.js";
 import type { RunStore } from "../loop/run-store.js";
@@ -23,8 +24,14 @@ import type { ExecutorAdapter } from "../executor/adapters/executor-adapter.js";
 import type { OpenCodeAdapter } from "../executor/adapters/opencode-adapter.js";
 import { WindowsPowerShellAdapter } from "../executor/adapters/windows-adapter.js";
 import { WslAdapter } from "../executor/adapters/wsl-adapter.js";
-import { ExecutorRunner, type ExecutorExitReason } from "../executor/executor-runner.js";
-import { buildExecutorInvocation, resolveProfile } from "../executor/profiles.js";
+import {
+  ExecutorRunner,
+  type ExecutorExitReason,
+} from "../executor/executor-runner.js";
+import {
+  buildExecutorInvocation,
+  resolveProfile,
+} from "../executor/profiles.js";
 import type { PermissionPolicyService } from "../permissions/permission-policy-service.js";
 import type { SchedulerService } from "../scheduler/scheduler-service.js";
 import type { UsageTelemetryService } from "../usage/usage-telemetry-service.js";
@@ -55,6 +62,20 @@ export interface StrategyExecutionHooks {
   nodeIds?: string[];
   onCreated?: (record: StrategyRunRecord, packets: WorkPacket[]) => void;
   onEvent?: (event: RepositoryMutationEvent) => void;
+  /** Called when a strategy finishes (both SWARM and DAG). */
+  onCompleted?: (record: StrategyRunRecord) => void;
+  /** DAG only: a node's worktree was allocated against a deterministic base. */
+  onNodeAllocated?: (
+    packetId: string,
+    baseSha: string,
+    dependencyInputShas: string[],
+  ) => void;
+  /** DAG only: a node's commit was integrated into persistent main. */
+  onNodeIntegrated?: (
+    packetId: string,
+    result: WorkPacketResult,
+    integration: IntegrationReport,
+  ) => void;
 }
 
 export interface SwarmStartOptions {
@@ -114,15 +135,51 @@ export class SwarmExecutionService {
     this.usageTelemetryService = options.usageTelemetryService;
     this.gitClient = options.gitClient ?? new DefaultGitClient();
     this.dataDir = path.resolve(options.dataDir ?? ".orca-data");
-    this.windowsAdapter = options.windowsAdapter ?? new WindowsPowerShellAdapter();
+    this.windowsAdapter =
+      options.windowsAdapter ?? new WindowsPowerShellAdapter();
     this.wslAdapter = options.wslAdapter ?? new WslAdapter();
     this.openCodeAdapter = options.openCodeAdapter;
     this.eventPublisher = options.eventPublisher;
   }
 
   /** Start an explicitly selected swarm in the background for REST callers. */
-  start(repositoryId: string, runId: string, iteration: number, options: SwarmStartOptions): StrategyRunRecord {
+  start(
+    repositoryId: string,
+    runId: string,
+    iteration: number,
+    options: SwarmStartOptions,
+  ): StrategyRunRecord {
     return this.startStrategy("SWARM", repositoryId, runId, iteration, options);
+  }
+
+  /** Autonomous-loop entry point: start a strategy authorized by an explicit dispatch. */
+  startStrategyForDispatch(
+    repositoryId: string,
+    runId: string,
+    iteration: number,
+    dispatch: import("@orca/shared").DispatchMarker,
+    plan: import("@orca/shared").DispatchExecutionPlan,
+    hooks: StrategyExecutionHooks = {},
+    strategy: Exclude<ExecutionStrategy, "SINGLE_AGENT"> = "SWARM",
+  ): StrategyRunRecord {
+    const options: SwarmStartOptions = {
+      packetIds: plan.packetIds ?? [],
+      maxConcurrency: plan.maxConcurrency,
+    };
+    const strategyBaseSha =
+      dispatch.baseSha && /^[0-9a-f]{40}$/i.test(dispatch.baseSha)
+        ? dispatch.baseSha
+        : null;
+    return this.startStrategy(
+      strategy,
+      repositoryId,
+      runId,
+      iteration,
+      options,
+      hooks,
+      dispatch.dispatchId ?? null,
+      strategyBaseSha,
+    );
   }
 
   startStrategy(
@@ -131,21 +188,48 @@ export class SwarmExecutionService {
     runId: string,
     iteration: number,
     options: SwarmStartOptions,
-    hooks: StrategyExecutionHooks = {}
+    hooks: StrategyExecutionHooks = {},
+    dispatchId: string | null = null,
+    strategyBaseSha: string | null = null,
   ): StrategyRunRecord {
     const context = this.validateStart(repositoryId, runId, iteration, options);
-    const record = this.createRecord(strategy, context.repository, context.run, context.packets, options.maxConcurrency);
+    const record = this.createRecord(
+      strategy,
+      context.repository,
+      context.run,
+      context.packets,
+      options.maxConcurrency,
+      dispatchId,
+      strategyBaseSha,
+    );
     this.hooks.set(record.strategyRunId, hooks);
     hooks.onCreated?.(record, context.packets);
-    void this.executeRecord(record, context.repository, context.run, context.packets, hooks).catch((error) => {
+    void this.executeRecord(
+      record,
+      context.repository,
+      context.run,
+      context.packets,
+      hooks,
+    ).catch((error) => {
       this.failStrategy(record.strategyRunId, error);
     });
     return record;
   }
 
   /** Deterministic/test-friendly synchronous entry point that resolves on final report. */
-  async execute(repositoryId: string, runId: string, iteration: number, options: SwarmStartOptions): Promise<StrategyRunRecord> {
-    return this.executeStrategy("SWARM", repositoryId, runId, iteration, options);
+  async execute(
+    repositoryId: string,
+    runId: string,
+    iteration: number,
+    options: SwarmStartOptions,
+  ): Promise<StrategyRunRecord> {
+    return this.executeStrategy(
+      "SWARM",
+      repositoryId,
+      runId,
+      iteration,
+      options,
+    );
   }
 
   async executeStrategy(
@@ -154,13 +238,29 @@ export class SwarmExecutionService {
     runId: string,
     iteration: number,
     options: SwarmStartOptions,
-    hooks: StrategyExecutionHooks = {}
+    hooks: StrategyExecutionHooks = {},
+    dispatchId: string | null = null,
+    strategyBaseSha: string | null = null,
   ): Promise<StrategyRunRecord> {
     const context = this.validateStart(repositoryId, runId, iteration, options);
-    const record = this.createRecord(strategy, context.repository, context.run, context.packets, options.maxConcurrency);
+    const record = this.createRecord(
+      strategy,
+      context.repository,
+      context.run,
+      context.packets,
+      options.maxConcurrency,
+      dispatchId,
+      strategyBaseSha,
+    );
     this.hooks.set(record.strategyRunId, hooks);
     hooks.onCreated?.(record, context.packets);
-    return this.executeRecord(record, context.repository, context.run, context.packets, hooks);
+    return this.executeRecord(
+      record,
+      context.repository,
+      context.run,
+      context.packets,
+      hooks,
+    );
   }
 
   get(strategyRunId: string): StrategyRunRecord | null {
@@ -175,14 +275,24 @@ export class SwarmExecutionService {
     return this.strategyStore.listControls(strategyRunId);
   }
 
-  getDetail(repositoryId: string, runId: string, strategyRunId: string): {
+  getDetail(
+    repositoryId: string,
+    runId: string,
+    strategyRunId: string,
+  ): {
     strategy: StrategyRunRecord;
     controls: StrategyControlRecord[];
     packets: WorkPacket[];
     results: WorkPacketResult[];
   } | null {
     const strategy = this.strategyStore.get(strategyRunId);
-    if (!strategy || strategy.strategy !== "SWARM" || strategy.repositoryId !== repositoryId || strategy.runId !== runId) return null;
+    if (
+      !strategy ||
+      strategy.strategy !== "SWARM" ||
+      strategy.repositoryId !== repositoryId ||
+      strategy.runId !== runId
+    )
+      return null;
     const packets = strategy.packetIds
       .map((packetId) => this.packetService.get(packetId))
       .filter((packet): packet is WorkPacket => Boolean(packet));
@@ -192,7 +302,7 @@ export class SwarmExecutionService {
       packets,
       results: packets
         .map((packet) => this.packetService.getResult(packet.packetId))
-        .filter((result): result is WorkPacketResult => Boolean(result))
+        .filter((result): result is WorkPacketResult => Boolean(result)),
     };
   }
 
@@ -200,15 +310,21 @@ export class SwarmExecutionService {
     repositoryId: string,
     strategyRunId: string,
     decision: StrategyControlDecision,
-    reason: string | null = null
+    reason: string | null = null,
   ): Promise<StrategyRunRecord> {
     const record = this.strategyStore.get(strategyRunId);
     if (!record || record.repositoryId !== repositoryId) {
-      throw new ValidationError("Execution strategy run does not belong to this repository.");
+      throw new ValidationError(
+        "Execution strategy run does not belong to this repository.",
+      );
     }
-    if (record.strategy === "SINGLE_AGENT") throw new ValidationError("Single-agent runs do not accept strategy controls.");
+    if (record.strategy === "SINGLE_AGENT")
+      throw new ValidationError(
+        "Single-agent runs do not accept strategy controls.",
+      );
     const repository = this.repositoryStore.get(repositoryId);
-    if (!repository) throw new ValidationError(`Repository ${repositoryId} not found`);
+    if (!repository)
+      throw new ValidationError(`Repository ${repositoryId} not found`);
     const control = this.strategyStore.createControl({
       strategyRunId,
       repositoryId,
@@ -216,54 +332,81 @@ export class SwarmExecutionService {
       iteration: record.iteration,
       decision,
       reason,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     });
-    const nextState = decision === "PAUSE"
-      ? "PAUSE_REQUESTED"
-      : decision === "STOP"
-        ? "STOP_REQUESTED"
-        : decision === "KILL"
-          ? "KILL_REQUESTED"
-          : "NONE";
-    const updated = this.strategyStore.update(strategyRunId, {
-      controlState: nextState,
-      status: decision === "STOP" ? "STOPPING" : record.status
-    }) ?? record;
-    this.publish({
-      type: "strategy.control",
-      at: control.createdAt,
-      repositoryId,
+    const nextState =
+      decision === "PAUSE"
+        ? "PAUSE_REQUESTED"
+        : decision === "STOP"
+          ? "STOP_REQUESTED"
+          : decision === "KILL"
+            ? "KILL_REQUESTED"
+            : "NONE";
+    const updated =
+      this.strategyStore.update(strategyRunId, {
+        controlState: nextState,
+        status: decision === "STOP" ? "STOPPING" : record.status,
+      }) ?? record;
+    this.publish(
+      {
+        type: "strategy.control",
+        at: control.createdAt,
+        repositoryId,
         data: {
-        runId: record.runId,
-        iteration: record.iteration,
-        strategyRunId,
-        controlId: control.controlId,
-        decision,
+          runId: record.runId,
+          iteration: record.iteration,
+          strategyRunId,
+          controlId: control.controlId,
+          decision,
           reason: reason ?? undefined,
-          strategy: record.strategy
-        }
-    }, this.hooks.get(strategyRunId));
+          strategy: record.strategy,
+        },
+      },
+      this.hooks.get(strategyRunId),
+    );
 
     const active = this.active.get(strategyRunId);
     if (decision === "PAUSE" && active) {
-      await Promise.all([...active.workers.values()].map(async (worker) => {
-        await worker.runner?.pause().catch(() => {});
-      }));
+      await Promise.all(
+        [...active.workers.values()].map(async (worker) => {
+          await worker.runner?.pause().catch(() => {});
+        }),
+      );
     } else if (decision === "KILL" && active) {
-      await Promise.all([...active.workers.values()].map(async (worker) => {
-        await worker.runner?.kill().catch(() => {});
-      }));
+      await Promise.all(
+        [...active.workers.values()].map(async (worker) => {
+          await worker.runner?.kill().catch(() => {});
+        }),
+      );
     } else if (decision === "RESUME") {
-      if (record.status !== "PAUSED") throw new ValidationError(`Cannot resume strategy in status ${record.status}.`);
+      if (record.status !== "PAUSED")
+        throw new ValidationError(
+          `Cannot resume strategy in status ${record.status}.`,
+        );
       const run = this.runStore.get(record.runId);
-      if (!run) throw new ValidationError(`Campaign ${record.runId} not found.`);
-      const packets = record.packetIds.map((packetId) => this.packetService.get(packetId)).filter((packet): packet is WorkPacket => Boolean(packet));
+      if (!run)
+        throw new ValidationError(`Campaign ${record.runId} not found.`);
+      const packets = record.packetIds
+        .map((packetId) => this.packetService.get(packetId))
+        .filter((packet): packet is WorkPacket => Boolean(packet));
       for (const packet of packets) {
         const existingResult = this.packetService.getResult(packet.packetId);
-        if (existingResult?.status !== "COMPLETED") this.packetService.updateStatus(packet.packetId, "QUEUED");
+        if (existingResult?.status !== "COMPLETED")
+          this.packetService.updateStatus(packet.packetId, "QUEUED");
       }
-      const resumed = this.strategyStore.update(strategyRunId, { controlState: "NONE", status: "QUEUED", finishedAt: null });
-      if (resumed) void this.executeRecord(resumed, repository, run, packets, this.hooks.get(strategyRunId)).catch((error) => this.failStrategy(strategyRunId, error));
+      const resumed = this.strategyStore.update(strategyRunId, {
+        controlState: "NONE",
+        status: "QUEUED",
+        finishedAt: null,
+      });
+      if (resumed)
+        void this.executeRecord(
+          resumed,
+          repository,
+          run,
+          packets,
+          this.hooks.get(strategyRunId),
+        ).catch((error) => this.failStrategy(strategyRunId, error));
       return resumed ?? updated;
     }
     return this.strategyStore.get(strategyRunId) ?? updated;
@@ -279,21 +422,35 @@ export class SwarmExecutionService {
         .map((packetId) => this.packetService.get(packetId))
         .filter((packet): packet is WorkPacket => Boolean(packet));
       for (const packet of packets) {
-        if (!["STARTING", "RUNNING", "RETRYING"].includes(packet.status)) continue;
+        if (!["STARTING", "RUNNING", "RETRYING"].includes(packet.status))
+          continue;
         const worktree = this.packetStore.getWorktreeByPacket(packet.packetId);
-        this.packetService.recordResult(repository, packet, this.syntheticResult(
+        this.packetService.recordResult(
+          repository,
           packet,
-          "BLOCKED",
-          "RECOVERY_REQUIRED: controller restarted without a live swarm worker.",
-          worktree ? this.provenance(worktree.path, worktree.branch, worktree.baseSha, null, worktree.worktreeId) : null
-        ));
+          this.syntheticResult(
+            packet,
+            "BLOCKED",
+            "RECOVERY_REQUIRED: controller restarted without a live swarm worker.",
+            worktree
+              ? this.provenance(
+                  worktree.path,
+                  worktree.branch,
+                  worktree.baseSha,
+                  null,
+                  worktree.worktreeId,
+                )
+              : null,
+          ),
+        );
       }
       await this.worktreeService.recover(repository).catch(() => {});
       const next = this.strategyStore.update(record.strategyRunId, {
         status: "RECOVERY_REQUIRED",
         controlState: "NONE",
-        lastError: "RECOVERY_REQUIRED: controller restarted without live swarm runners.",
-        finishedAt: new Date().toISOString()
+        lastError:
+          "RECOVERY_REQUIRED: controller restarted without live swarm runners.",
+        finishedAt: new Date().toISOString(),
       });
       if (next) {
         recovered.push(next);
@@ -301,48 +458,102 @@ export class SwarmExecutionService {
           type: "strategy.recovery",
           at: next.finishedAt ?? new Date().toISOString(),
           repositoryId: next.repositoryId,
-          data: { runId: next.runId, iteration: next.iteration, strategyRunId: next.strategyRunId, strategy: next.strategy, reason: next.lastError ?? undefined }
+          data: {
+            runId: next.runId,
+            iteration: next.iteration,
+            strategyRunId: next.strategyRunId,
+            strategy: next.strategy,
+            reason: next.lastError ?? undefined,
+          },
         });
       }
     }
     return recovered;
   }
 
-  private validateStart(repositoryId: string, runId: string, iteration: number, options: SwarmStartOptions): {
+  private validateStart(
+    repositoryId: string,
+    runId: string,
+    iteration: number,
+    options: SwarmStartOptions,
+  ): {
     repository: RepositoryRecord;
     run: RunRecord;
     packets: WorkPacket[];
   } {
     const repository = this.repositoryStore.get(repositoryId);
-    if (!repository) throw new ValidationError(`Repository ${repositoryId} not found`);
+    if (!repository)
+      throw new ValidationError(`Repository ${repositoryId} not found`);
     const run = this.runStore.get(runId);
-    if (!run || run.repositoryId !== repositoryId) throw new ValidationError("Campaign/run correlation is invalid.");
-    if (run.currentIteration !== iteration) throw new ValidationError("Execution strategy iteration does not match the campaign's current iteration.");
+    if (!run || run.repositoryId !== repositoryId)
+      throw new ValidationError("Campaign/run correlation is invalid.");
+    if (run.currentIteration !== iteration)
+      throw new ValidationError(
+        "Execution strategy iteration does not match the campaign's current iteration.",
+      );
     const maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
-    if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > MAX_MAX_CONCURRENCY) {
-      throw new ValidationError(`Swarm maxConcurrency must be an integer from 1 to ${MAX_MAX_CONCURRENCY}.`);
+    if (
+      !Number.isInteger(maxConcurrency) ||
+      maxConcurrency < 1 ||
+      maxConcurrency > MAX_MAX_CONCURRENCY
+    ) {
+      throw new ValidationError(
+        `Swarm maxConcurrency must be an integer from 1 to ${MAX_MAX_CONCURRENCY}.`,
+      );
     }
     const packetIds = [...new Set(options.packetIds)];
-    if (packetIds.length !== options.packetIds.length) throw new ValidationError("Swarm packet IDs must be unique.");
-    const packets = packetIds.map((packetId) => this.packetService.get(packetId));
-    if (packets.some((packet): packet is null => packet === null)) throw new ValidationError("Every strategy packet must be durable before execution.");
+    if (packetIds.length === 0)
+      throw new ValidationError(
+        "A strategy start requires at least one durable work packet.",
+      );
+    if (packetIds.length !== options.packetIds.length)
+      throw new ValidationError("Swarm packet IDs must be unique.");
+    const packets = packetIds.map((packetId) =>
+      this.packetService.get(packetId),
+    );
+    if (packets.some((packet): packet is null => packet === null))
+      throw new ValidationError(
+        "Every strategy packet must be durable before execution.",
+      );
     const selected = packets as WorkPacket[];
     for (const packet of selected) {
-      if (packet.runId !== runId || packet.campaignId !== runId || packet.iteration !== iteration || this.packetStore.getRepositoryId(packet.packetId) !== repositoryId) {
-        throw new ValidationError(`Packet ${packet.packetId} does not belong to the requested campaign iteration.`);
+      if (
+        packet.runId !== runId ||
+        packet.campaignId !== runId ||
+        packet.iteration !== iteration ||
+        this.packetStore.getRepositoryId(packet.packetId) !== repositoryId
+      ) {
+        throw new ValidationError(
+          `Packet ${packet.packetId} does not belong to the requested campaign iteration.`,
+        );
       }
-      if (packet.parentDispatchId && packet.parentDispatchId !== run.activeDispatchId) {
-        throw new ValidationError(`Packet ${packet.packetId} parent dispatch is not the campaign's active dispatch.`);
+      if (
+        packet.parentDispatchId &&
+        packet.parentDispatchId !== run.activeDispatchId
+      ) {
+        throw new ValidationError(
+          `Packet ${packet.packetId} parent dispatch is not the campaign's active dispatch.`,
+        );
       }
     }
     const selectedIds = new Set(selected.map((packet) => packet.packetId));
     for (const packet of selected) {
-      if (packet.dependencies.some((dependency) => !selectedIds.has(dependency))) {
-        throw new ValidationError(`Packet ${packet.packetId} has a dependency outside the selected strategy.`);
+      if (
+        packet.dependencies.some((dependency) => !selectedIds.has(dependency))
+      ) {
+        throw new ValidationError(
+          `Packet ${packet.packetId} has a dependency outside the selected strategy.`,
+        );
       }
     }
-    if (this.hasCycle(selected)) throw new ValidationError("Swarm packet dependency graph contains a cycle.");
-    if (this.strategyStore.getActiveForRun(runId)) throw new ValidationError(`A strategy is already active for campaign ${runId}.`);
+    if (this.hasCycle(selected))
+      throw new ValidationError(
+        "Swarm packet dependency graph contains a cycle.",
+      );
+    if (this.strategyStore.getActiveForRun(runId))
+      throw new ValidationError(
+        `A strategy is already active for campaign ${runId}.`,
+      );
     return { repository, run, packets: selected };
   }
 
@@ -351,7 +562,9 @@ export class SwarmExecutionService {
     repository: RepositoryRecord,
     run: RunRecord,
     packets: WorkPacket[],
-    maxConcurrency = DEFAULT_MAX_CONCURRENCY
+    maxConcurrency = DEFAULT_MAX_CONCURRENCY,
+    dispatchId: string | null = null,
+    strategyBaseSha: string | null = null,
   ): StrategyRunRecord {
     const now = new Date().toISOString();
     return this.strategyStore.create({
@@ -366,13 +579,41 @@ export class SwarmExecutionService {
       maxConcurrency,
       packetIds: packets.map((packet) => packet.packetId),
       controlState: "NONE",
+      dispatchId,
+      strategyBaseSha,
       startedAt: null,
       finishedAt: null,
       lastError: null,
       report: null,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     });
+  }
+
+  /** Resolve the current local `main` HEAD SHA (used as the DAG per-node base). */
+  private async currentMainSha(
+    repository: RepositoryRecord,
+  ): Promise<string | null> {
+    try {
+      return await this.gitClient.getCurrentSha(
+        this.gitContext(repository, repository.localPath),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /** Integrate a single completed packet's commit onto persistent main (DAG per-node). */
+  private async integrateSingle(
+    repository: RepositoryRecord,
+    packet: WorkPacket,
+    result: WorkPacketResult,
+  ): Promise<IntegrationReport> {
+    return this.integrationService.integrateSingleCommit(
+      repository,
+      packet,
+      result,
+    );
   }
 
   private async executeRecord(
@@ -380,19 +621,36 @@ export class SwarmExecutionService {
     repository: RepositoryRecord,
     run: RunRecord,
     packets: WorkPacket[],
-    hooks: StrategyExecutionHooks = this.hooks.get(record.strategyRunId) ?? {}
+    hooks: StrategyExecutionHooks = this.hooks.get(record.strategyRunId) ?? {},
   ): Promise<StrategyRunRecord> {
     this.hooks.set(record.strategyRunId, hooks);
     const startedAt = new Date().toISOString();
-    this.strategyStore.update(record.strategyRunId, { status: "RUNNING", startedAt, controlState: "NONE", lastError: null });
-    const active: ActiveStrategy = { workers: new Map(), queuedRequests: new Set() };
+    this.strategyStore.update(record.strategyRunId, {
+      status: "RUNNING",
+      startedAt,
+      controlState: "NONE",
+      lastError: null,
+    });
+    const active: ActiveStrategy = {
+      workers: new Map(),
+      queuedRequests: new Set(),
+    };
     this.active.set(record.strategyRunId, active);
-    this.publish({
-      type: "strategy.started",
-      at: startedAt,
-      repositoryId: repository.id,
-       data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategy: record.strategy, maxConcurrency: record.maxConcurrency }
-     }, hooks);
+    this.publish(
+      {
+        type: "strategy.started",
+        at: startedAt,
+        repositoryId: repository.id,
+        data: {
+          runId: run.id,
+          iteration: run.currentIteration,
+          strategyRunId: record.strategyRunId,
+          strategy: record.strategy,
+          maxConcurrency: record.maxConcurrency,
+        },
+      },
+      hooks,
+    );
 
     const pending = new Set(packets.map((packet) => packet.packetId));
     const results = new Map<string, WorkPacketResult>();
@@ -410,60 +668,135 @@ export class SwarmExecutionService {
         const current = this.strategyStore.get(record.strategyRunId);
         const controlState = current?.controlState ?? "NONE";
         if (controlState === "PAUSE_REQUESTED") {
-          await Promise.all([...active.workers.values()].map((worker) => worker.runner?.pause().catch(() => undefined)));
+          await Promise.all(
+            [...active.workers.values()].map((worker) =>
+              worker.runner?.pause().catch(() => undefined),
+            ),
+          );
           break;
         }
         if (controlState === "KILL_REQUESTED") {
           for (const packetId of pending) {
-            const packet = packets.find((candidate) => candidate.packetId === packetId)!;
-            const result = this.syntheticResult(packet, "CANCELLED", "EMERGENCY_KILLED: swarm worker was not started.", null);
-            results.set(packetId, this.packetService.recordResult(repository, packet, result));
+            const packet = packets.find(
+              (candidate) => candidate.packetId === packetId,
+            )!;
+            const result = this.syntheticResult(
+              packet,
+              "CANCELLED",
+              "EMERGENCY_KILLED: swarm worker was not started.",
+              null,
+            );
+            results.set(
+              packetId,
+              this.packetService.recordResult(repository, packet, result),
+            );
             pending.delete(packetId);
           }
-          await Promise.all([...active.workers.values()].map((worker) => worker.runner?.kill().catch(() => undefined)));
+          await Promise.all(
+            [...active.workers.values()].map((worker) =>
+              worker.runner?.kill().catch(() => undefined),
+            ),
+          );
         }
         if (controlState === "STOP_REQUESTED") {
           for (const packetId of pending) {
-            const packet = packets.find((candidate) => candidate.packetId === packetId)!;
-            const result = this.syntheticResult(packet, "CANCELLED", "USER_STOP: swarm worker was not started.", null);
-            results.set(packetId, this.packetService.recordResult(repository, packet, result));
+            const packet = packets.find(
+              (candidate) => candidate.packetId === packetId,
+            )!;
+            const result = this.syntheticResult(
+              packet,
+              "CANCELLED",
+              "USER_STOP: swarm worker was not started.",
+              null,
+            );
+            results.set(
+              packetId,
+              this.packetService.recordResult(repository, packet, result),
+            );
             pending.delete(packetId);
           }
         }
 
         let launched = false;
         if (controlState === "NONE") {
-          const sorted = packets.filter((packet) => pending.has(packet.packetId)).sort((a, b) => a.packetId.localeCompare(b.packetId));
+          const sorted = packets
+            .filter((packet) => pending.has(packet.packetId))
+            .sort((a, b) => a.packetId.localeCompare(b.packetId));
           for (const packet of sorted) {
             if (active.workers.size >= record.maxConcurrency) break;
-            const dependencyResults = packet.dependencies.map((dependency) => results.get(dependency) ?? this.packetService.getResult(dependency));
-            if (dependencyResults.some((dependency) => dependency && dependency.status !== "COMPLETED")) {
-              const result = this.syntheticResult(packet, "SKIPPED_DEPENDENCY", "A dependency did not complete successfully.", null);
-              results.set(packet.packetId, this.packetService.recordResult(repository, packet, result));
+            // A dependency still pending (re-)execution in this run must be
+            // waited for — never judged by its stale pre-pause result record
+            // (DAG resume correctness: dependents sort by random UUIDs).
+            if (
+              packet.dependencies.some((dependency) =>
+                pending.has(dependency),
+              )
+            ) {
+              continue;
+            }
+            const dependencyResults = packet.dependencies.map(
+              (dependency) =>
+                results.get(dependency) ??
+                this.packetService.getResult(dependency),
+            );
+            if (
+              dependencyResults.some(
+                (dependency) => dependency && dependency.status !== "COMPLETED",
+              )
+            ) {
+              const result = this.syntheticResult(
+                packet,
+                "SKIPPED_DEPENDENCY",
+                "A dependency did not complete successfully.",
+                null,
+              );
+              results.set(
+                packet.packetId,
+                this.packetService.recordResult(repository, packet, result),
+              );
               pending.delete(packet.packetId);
               continue;
             }
             if (dependencyResults.some((dependency) => !dependency)) continue;
 
-            const permission = this.evaluateWritePermission(repository, run, packet);
+            const permission = this.evaluateWritePermission(
+              repository,
+              run,
+              packet,
+            );
             if (permission === "ASK" || permission === "DENY") {
-              this.packetService.updateStatus(packet.packetId, "WAITING_PERMISSION");
-              this.publish({
-                type: "strategy.permission_required",
-                at: new Date().toISOString(),
-                repositoryId: repository.id,
-                data: {
-                  runId: run.id,
-                  iteration: run.currentIteration,
-                  strategyRunId: record.strategyRunId,
-                  strategy: record.strategy,
-                  packetId: packet.packetId,
-                  outcome: permission,
-                  reason: "Repository file write policy requires an actionable permission decision."
-                }
-              }, hooks);
-              const result = this.syntheticResult(packet, "BLOCKED", `PERMISSION_${permission}: repository file write policy requires attention.`, null);
-              results.set(packet.packetId, this.packetService.recordResult(repository, packet, result));
+              this.packetService.updateStatus(
+                packet.packetId,
+                "WAITING_PERMISSION",
+              );
+              this.publish(
+                {
+                  type: "strategy.permission_required",
+                  at: new Date().toISOString(),
+                  repositoryId: repository.id,
+                  data: {
+                    runId: run.id,
+                    iteration: run.currentIteration,
+                    strategyRunId: record.strategyRunId,
+                    strategy: record.strategy,
+                    packetId: packet.packetId,
+                    outcome: permission,
+                    reason:
+                      "Repository file write policy requires an actionable permission decision.",
+                  },
+                },
+                hooks,
+              );
+              const result = this.syntheticResult(
+                packet,
+                "BLOCKED",
+                `PERMISSION_${permission}: repository file write policy requires attention.`,
+                null,
+              );
+              results.set(
+                packet.packetId,
+                this.packetService.recordResult(repository, packet, result),
+              );
               pending.delete(packet.packetId);
               continue;
             }
@@ -479,43 +812,92 @@ export class SwarmExecutionService {
               model: packet.executor.model,
               kind: "SUBAGENT",
               requestedTokens: packet.budget.maxTokens,
-              requestedSpend: packet.budget.maxSpend
+              requestedSpend: packet.budget.maxSpend,
             });
             if (decision.status !== "ADMITTED") {
-              if (decision.status === "QUEUED" && !active.queuedRequests.has(requestId)) {
+              if (
+                decision.status === "QUEUED" &&
+                !active.queuedRequests.has(requestId)
+              ) {
                 active.queuedRequests.add(requestId);
-                this.publish({
-                  type: "strategy.worker_queued",
-                  at: new Date().toISOString(),
-                  repositoryId: repository.id,
-                  data: {
-                    runId: run.id,
-                    iteration: run.currentIteration,
-                    strategyRunId: record.strategyRunId,
-                    packetId: packet.packetId,
-                    schedulerDecisionId: decision.id,
-                    blockedBy: decision.blockedBy ?? undefined,
-                    reason: decision.reason
-                  }
-                }, hooks);
+                this.publish(
+                  {
+                    type: "strategy.worker_queued",
+                    at: new Date().toISOString(),
+                    repositoryId: repository.id,
+                    data: {
+                      runId: run.id,
+                      iteration: run.currentIteration,
+                      strategyRunId: record.strategyRunId,
+                      packetId: packet.packetId,
+                      schedulerDecisionId: decision.id,
+                      blockedBy: decision.blockedBy ?? undefined,
+                      reason: decision.reason,
+                    },
+                  },
+                  hooks,
+                );
               }
               if (decision.status === "REJECTED") {
-                const result = this.syntheticResult(packet, "BLOCKED", `SCHEDULER_REJECTED: ${decision.reason}`, null);
-                results.set(packet.packetId, this.packetService.recordResult(repository, packet, result));
+                const result = this.syntheticResult(
+                  packet,
+                  "BLOCKED",
+                  `SCHEDULER_REJECTED: ${decision.reason}`,
+                  null,
+                );
+                results.set(
+                  packet.packetId,
+                  this.packetService.recordResult(repository, packet, result),
+                );
                 pending.delete(packet.packetId);
               }
               continue;
             }
 
+            // Item #7/#8: workers derive from a deterministic base. SWARM uses the
+            // immutable strategy base; DAG allocates each node from the CURRENT
+            // main (which already contains its dependencies' integrated output).
+            const isDag = record.strategy === "DAG";
+            const baseSha = isDag
+              ? ((await this.currentMainSha(repository)) ?? undefined)
+              : (record.strategyBaseSha ?? undefined);
+            const dependencyInputShas = isDag
+              ? packet.dependencies
+                  .map(
+                    (dependency) =>
+                      results.get(dependency)?.worktree?.commitSha ??
+                      this.packetService.getResult(dependency)?.worktree
+                        ?.commitSha ??
+                      null,
+                  )
+                  .filter((sha): sha is string => Boolean(sha))
+              : [];
+            hooks.onNodeAllocated?.(
+              packet.packetId,
+              baseSha ?? "",
+              dependencyInputShas,
+            );
             let worktree;
             try {
               this.packetService.updateStatus(packet.packetId, "STARTING");
-              worktree = await this.worktreeService.allocate(repository, packet);
+              worktree = await this.worktreeService.allocate(
+                repository,
+                packet,
+                baseSha,
+              );
               this.packetService.updateStatus(packet.packetId, "RUNNING");
             } catch (error: any) {
               this.schedulerService.release(requestId);
-              const result = this.syntheticResult(packet, "BLOCKED", `WORKTREE_ALLOCATION_FAILED: ${error?.message ?? String(error)}`, null);
-              results.set(packet.packetId, this.packetService.recordResult(repository, packet, result));
+              const result = this.syntheticResult(
+                packet,
+                "BLOCKED",
+                `WORKTREE_ALLOCATION_FAILED: ${error?.message ?? String(error)}`,
+                null,
+              );
+              results.set(
+                packet.packetId,
+                this.packetService.recordResult(repository, packet, result),
+              );
               pending.delete(packet.packetId);
               continue;
             }
@@ -526,49 +908,148 @@ export class SwarmExecutionService {
               packet,
               requestId,
               runner: null,
-              done: Promise.resolve(this.syntheticResult(packet, "BLOCKED", "Worker did not start.", null))
+              done: Promise.resolve(
+                this.syntheticResult(
+                  packet,
+                  "BLOCKED",
+                  "Worker did not start.",
+                  null,
+                ),
+              ),
             };
-            worker.done = this.runWorker(record, repository, packet, worktree, worker).then((result) => {
-              const persisted = this.packetService.recordResult(repository, packet, result);
+            worker.done = (async () => {
+              const result = await this.runWorker(
+                record,
+                repository,
+                packet,
+                worktree,
+                worker,
+              );
+              let persisted = this.packetService.recordResult(
+                repository,
+                packet,
+                result,
+              );
+              let integration: IntegrationReport | null = null;
+              // Item #8: DAG integrates each completed node immediately so a
+              // dependent node's later allocation sees the accepted output.
+              if (
+                record.strategy === "DAG" &&
+                persisted.status === "COMPLETED" &&
+                persisted.worktree?.commitSha
+              ) {
+                integration = await this.integrateSingle(
+                  repository,
+                  packet,
+                  persisted,
+                );
+                hooks.onNodeIntegrated?.(
+                  packet.packetId,
+                  persisted,
+                  integration,
+                );
+                if (integration.status !== "COMPLETED") {
+                  // A node whose accepted output did not integrate (e.g. a
+                  // cherry-pick conflict) must not count as COMPLETED in the
+                  // DAG aggregate; surface the typed integration outcome.
+                  persisted = {
+                    ...persisted,
+                    status: "BLOCKED",
+                    blocker:
+                      integration.status === "INTEGRATION_CONFLICT"
+                        ? "INTEGRATION_CONFLICT"
+                        : `NODE_INTEGRATION_${integration.status}`,
+                    risks: [
+                      ...persisted.risks,
+                      `node_integration=${integration.status}`,
+                    ],
+                    summary: `Worker ${packet.workstream} completed but its integration did not (${integration.status}).`,
+                  };
+                  this.packetService.updateStatus(
+                    packet.packetId,
+                    "BLOCKED",
+                  );
+                }
+              }
               results.set(packet.packetId, persisted);
               this.schedulerService.release(requestId);
               active.workers.delete(packet.packetId);
-              this.publish({
-                type: "strategy.worker_completed",
-                at: persisted.createdAt,
-                repositoryId: repository.id,
-                data: {
-                  runId: run.id,
-                  iteration: run.currentIteration,
-                  strategyRunId: record.strategyRunId,
-                  packetId: packet.packetId,
-                  resultStatus: persisted.status,
-                  blocker: persisted.blocker ?? undefined,
-                  commitSha: persisted.worktree?.commitSha ?? undefined
-                }
-              }, hooks);
+              this.publish(
+                {
+                  type: "strategy.worker_completed",
+                  at: persisted.createdAt,
+                  repositoryId: repository.id,
+                  data: {
+                    runId: run.id,
+                    iteration: run.currentIteration,
+                    strategyRunId: record.strategyRunId,
+                    packetId: packet.packetId,
+                    resultStatus: persisted.status,
+                    blocker: persisted.blocker ?? undefined,
+                    commitSha: persisted.worktree?.commitSha ?? undefined,
+                    integrated:
+                      record.strategy === "DAG"
+                        ? integration?.status === "COMPLETED"
+                        : undefined,
+                  },
+                },
+                hooks,
+              );
               return persisted;
-            }).catch((error) => {
-              const result = this.syntheticResult(packet, "FAILED", `WORKER_RESULT_FAILED: ${error?.message ?? String(error)}`, worktree ? this.provenance(worktree.path, worktree.branch, worktree.baseSha, null, worktree.worktreeId) : null);
-              const persisted = this.packetService.recordResult(repository, packet, result);
+            })().catch((error) => {
+              const result = this.syntheticResult(
+                packet,
+                "FAILED",
+                `WORKER_RESULT_FAILED: ${error?.message ?? String(error)}`,
+                worktree
+                  ? this.provenance(
+                      worktree.path,
+                      worktree.branch,
+                      worktree.baseSha,
+                      null,
+                      worktree.worktreeId,
+                    )
+                  : null,
+              );
+              const persisted = this.packetService.recordResult(
+                repository,
+                packet,
+                result,
+              );
               results.set(packet.packetId, persisted);
               this.schedulerService.release(requestId);
               active.workers.delete(packet.packetId);
               return persisted;
             });
             active.workers.set(packet.packetId, worker);
-            this.publish({
-              type: "strategy.worker_started",
-              at: new Date().toISOString(),
-              repositoryId: repository.id,
-              data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, packetId: packet.packetId, worktreeId: worktree.worktreeId, branch: worktree.branch, executor: packet.executor.executorCli, model: packet.executor.model }
-            }, hooks);
+            this.publish(
+              {
+                type: "strategy.worker_started",
+                at: new Date().toISOString(),
+                repositoryId: repository.id,
+                data: {
+                  runId: run.id,
+                  iteration: run.currentIteration,
+                  strategyRunId: record.strategyRunId,
+                  packetId: packet.packetId,
+                  worktreeId: worktree.worktreeId,
+                  branch: worktree.branch,
+                  executor: packet.executor.executorCli,
+                  model: packet.executor.model,
+                },
+              },
+              hooks,
+            );
           }
         }
 
         if (active.workers.size > 0) {
           idlePolls = 0;
-          await Promise.race([...active.workers.values()].map((worker) => worker.done.catch(() => undefined)));
+          await Promise.race(
+            [...active.workers.values()].map((worker) =>
+              worker.done.catch(() => undefined),
+            ),
+          );
           continue;
         }
         if (pending.size > 0) {
@@ -576,9 +1057,19 @@ export class SwarmExecutionService {
             idlePolls += 1;
             if (idlePolls > 600) {
               for (const packetId of pending) {
-                const packet = packets.find((candidate) => candidate.packetId === packetId)!;
-                const result = this.syntheticResult(packet, "BLOCKED", "SCHEDULER_WAIT_TIMEOUT: packet did not become runnable.", null);
-                results.set(packetId, this.packetService.recordResult(repository, packet, result));
+                const packet = packets.find(
+                  (candidate) => candidate.packetId === packetId,
+                )!;
+                const result = this.syntheticResult(
+                  packet,
+                  "BLOCKED",
+                  "SCHEDULER_WAIT_TIMEOUT: packet did not become runnable.",
+                  null,
+                );
+                results.set(
+                  packetId,
+                  this.packetService.recordResult(repository, packet, result),
+                );
                 pending.delete(packetId);
               }
             } else {
@@ -590,9 +1081,15 @@ export class SwarmExecutionService {
 
       const latest = this.strategyStore.get(record.strategyRunId);
       const controls = this.strategyStore.listControls(record.strategyRunId);
-      const finalResults = packets.map((packet) => results.get(packet.packetId) ?? this.packetService.getResult(packet.packetId)).filter((result): result is WorkPacketResult => Boolean(result));
+      const finalResults = packets
+        .map(
+          (packet) =>
+            results.get(packet.packetId) ??
+            this.packetService.getResult(packet.packetId),
+        )
+        .filter((result): result is WorkPacketResult => Boolean(result));
       const controlState = latest?.controlState ?? "NONE";
-      let integration = null;
+      let integration: IntegrationReport | null = null;
       let status: StrategyRunStatus;
       let blocker: string | null = null;
       if (controlState === "PAUSE_REQUESTED") {
@@ -604,81 +1101,232 @@ export class SwarmExecutionService {
       } else if (controlState === "STOP_REQUESTED") {
         status = "CANCELLED";
         blocker = "USER_STOP: explicit swarm stop requested.";
-      } else {
-        integration = await this.integrationService.integrate(repository, run.id, run.currentIteration, packets, finalResults);
-        this.publish({
-          type: "strategy.integration_completed",
-          at: integration.createdAt,
-          repositoryId: repository.id,
-          data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategy: record.strategy, integrationStatus: integration.status, finalCommitSha: integration.finalCommitSha ?? undefined }
-        }, hooks);
-        status = integration.status === "COMPLETED"
+      } else if (record.strategy === "DAG") {
+        // DAG integration is performed per-node during execution; aggregate it.
+        const completedIds = finalResults
+          .filter((result) => result?.status === "COMPLETED")
+          .map((result) => result!.packetId);
+        let finalCommitSha: string | null = null;
+        try {
+          finalCommitSha = await this.currentMainSha(repository);
+        } catch {}
+        const allCompleted =
+          finalResults.length > 0 &&
+          finalResults.every((result) => result?.status === "COMPLETED");
+        const hadIntegrationConflict = finalResults.some(
+          (result) =>
+            result && result.status === "BLOCKED" && result.blocker === "INTEGRATION_CONFLICT",
+        );
+        const anyFailed = finalResults.some(
+          (result) =>
+            result &&
+            (result.status === "FAILED" ||
+              (result.status === "BLOCKED" &&
+                result.blocker !== "INTEGRATION_CONFLICT")),
+        );
+        const dagStatus = allCompleted
           ? "COMPLETED"
-          : integration.status === "PARTIAL" || integration.status === "INTEGRATION_CONFLICT"
-            ? "PARTIAL"
-            : "BLOCKED";
+          : hadIntegrationConflict
+            ? "INTEGRATION_CONFLICT"
+            : anyFailed
+              ? "BLOCKED"
+              : "PARTIAL";
+        integration = {
+          schemaVersion: 1,
+          repositoryId: repository.id,
+          runId: run.id,
+          iteration: run.currentIteration,
+          status: dagStatus,
+          integratedPacketIds: completedIds,
+          results: finalResults.filter((result): result is WorkPacketResult =>
+            Boolean(result),
+          ),
+          finalCommitSha,
+          blocker: allCompleted
+            ? null
+            : "Some DAG nodes did not complete successfully.",
+          createdAt: new Date().toISOString(),
+        };
+        this.publish(
+          {
+            type: "strategy.integration_completed",
+            at: integration.createdAt,
+            repositoryId: repository.id,
+            data: {
+              runId: run.id,
+              iteration: run.currentIteration,
+              strategyRunId: record.strategyRunId,
+              strategy: record.strategy,
+              integrationStatus: integration.status,
+              finalCommitSha: finalCommitSha ?? undefined,
+            },
+          },
+          hooks,
+        );
+        status =
+          integration.status === "COMPLETED"
+            ? "COMPLETED"
+            : integration.status === "PARTIAL" ||
+                integration.status === "INTEGRATION_CONFLICT"
+              ? "PARTIAL"
+              : "BLOCKED";
+        blocker = integration.blocker;
+      } else {
+        integration = await this.integrationService.integrate(
+          repository,
+          run.id,
+          run.currentIteration,
+          packets,
+          finalResults,
+        );
+        this.publish(
+          {
+            type: "strategy.integration_completed",
+            at: integration.createdAt,
+            repositoryId: repository.id,
+            data: {
+              runId: run.id,
+              iteration: run.currentIteration,
+              strategyRunId: record.strategyRunId,
+              strategy: record.strategy,
+              integrationStatus: integration.status,
+              finalCommitSha: integration.finalCommitSha ?? undefined,
+            },
+          },
+          hooks,
+        );
+        status =
+          integration.status === "COMPLETED"
+            ? "COMPLETED"
+            : integration.status === "PARTIAL" ||
+                integration.status === "INTEGRATION_CONFLICT"
+              ? "PARTIAL"
+              : "BLOCKED";
         blocker = integration.blocker;
       }
       const finishedAt = new Date().toISOString();
-      const report: StrategyExecutionReport = record.strategy === "DAG"
-        ? {
-          schemaVersion: 1,
-          strategyRunId: record.strategyRunId,
-          repositoryId: repository.id,
-          runId: run.id,
-          iteration: run.currentIteration,
-          strategy: "DAG",
-          status,
-          maxConcurrency: record.maxConcurrency,
-          packetIds: packets.map((packet) => packet.packetId),
-          nodeIds: hooks.nodeIds ?? [],
-          nodes: [],
-          results: integration?.results ?? finalResults,
-          integration,
-          schedulerDecisionIds: this.schedulerService.listDecisions(1000).filter((decision) => decision.requestId.startsWith(`${record.strategyRunId}:`)).map((decision) => decision.id),
-          controlIds: controls.map((control) => control.controlId),
-          blocker,
-          startedAt,
-          finishedAt
-        }
-        : {
-          schemaVersion: 1,
-          strategyRunId: record.strategyRunId,
-          repositoryId: repository.id,
-          runId: run.id,
-          iteration: run.currentIteration,
-          strategy: "SWARM",
-          status,
-          maxConcurrency: record.maxConcurrency,
-          packetIds: packets.map((packet) => packet.packetId),
-          results: integration?.results ?? finalResults,
-          integration,
-          schedulerDecisionIds: this.schedulerService.listDecisions(1000).filter((decision) => decision.requestId.startsWith(`${record.strategyRunId}:`)).map((decision) => decision.id),
-          controlIds: controls.map((control) => control.controlId),
-          blocker,
-          startedAt,
-          finishedAt
-        };
+      const report: StrategyExecutionReport =
+        record.strategy === "DAG"
+          ? {
+              schemaVersion: 1,
+              strategyRunId: record.strategyRunId,
+              repositoryId: repository.id,
+              runId: run.id,
+              iteration: run.currentIteration,
+              strategy: "DAG",
+              status,
+              maxConcurrency: record.maxConcurrency,
+              packetIds: packets.map((packet) => packet.packetId),
+              nodeIds: hooks.nodeIds ?? [],
+              nodes: [],
+              results: integration?.results ?? finalResults,
+              integration,
+              schedulerDecisionIds: this.schedulerService
+                .listDecisions(1000)
+                .filter((decision) =>
+                  decision.requestId.startsWith(`${record.strategyRunId}:`),
+                )
+                .map((decision) => decision.id),
+              controlIds: controls.map((control) => control.controlId),
+              blocker,
+              startedAt,
+              finishedAt,
+            }
+          : {
+              schemaVersion: 1,
+              strategyRunId: record.strategyRunId,
+              repositoryId: repository.id,
+              runId: run.id,
+              iteration: run.currentIteration,
+              strategy: "SWARM",
+              status,
+              maxConcurrency: record.maxConcurrency,
+              packetIds: packets.map((packet) => packet.packetId),
+              results: integration?.results ?? finalResults,
+              integration,
+              schedulerDecisionIds: this.schedulerService
+                .listDecisions(1000)
+                .filter((decision) =>
+                  decision.requestId.startsWith(`${record.strategyRunId}:`),
+                )
+                .map((decision) => decision.id),
+              controlIds: controls.map((control) => control.controlId),
+              blocker,
+              startedAt,
+              finishedAt,
+            };
       if (status !== "PAUSED" && status !== "RECOVERY_REQUIRED") {
-        await Promise.all(packets.map(async (packet) => {
-          const worktree = this.packetStore.getWorktreeByPacket(packet.packetId);
-          if (worktree && ["ACTIVE", "STALE", "ALLOCATED"].includes(worktree.status)) await this.worktreeService.release(repository, worktree.worktreeId);
-        }));
+        await Promise.all(
+          packets.map(async (packet) => {
+            const worktree = this.packetStore.getWorktreeByPacket(
+              packet.packetId,
+            );
+            if (
+              worktree &&
+              ["ACTIVE", "STALE", "ALLOCATED"].includes(worktree.status)
+            ) {
+              // Item #9: a policy-violating worker keeps its worktree/branch
+              // for inspection instead of being released.
+              const result = results.get(packet.packetId);
+              if (result?.blocker === "POLICY_VIOLATION") return;
+              await this.worktreeService.release(
+                repository,
+                worktree.worktreeId,
+              );
+            }
+          }),
+        );
       }
-      const final = this.strategyStore.update(record.strategyRunId, { status, finishedAt, report, lastError: blocker });
-      this.publish({
-        type: "strategy.completed",
-        at: finishedAt,
-        repositoryId: repository.id,
-        data: { runId: run.id, iteration: run.currentIteration, strategyRunId: record.strategyRunId, strategy: record.strategy, strategyStatus: status, blocker: blocker ?? undefined }
-      }, hooks);
-      return final ?? { ...record, status, finishedAt, report, lastError: blocker, updatedAt: finishedAt };
+      const final = this.strategyStore.update(record.strategyRunId, {
+        status,
+        finishedAt,
+        report,
+        lastError: blocker,
+      });
+      const finalRecord =
+        final ?? {
+          ...record,
+          status,
+          finishedAt,
+          report,
+          lastError: blocker,
+          updatedAt: finishedAt,
+        };
+      // Item #5: hand the normalized terminal outcome to the coordinator so it
+      // can publish integrated main durably and close the loop iteration.
+      if (
+        ["COMPLETED", "PARTIAL", "BLOCKED", "FAILED", "CANCELLED", "RECOVERY_REQUIRED"].includes(
+          status,
+        )
+      ) {
+        try {
+          hooks.onCompleted?.(finalRecord);
+        } catch {}
+      }
+      this.publish(
+        {
+          type: "strategy.completed",
+          at: finishedAt,
+          repositoryId: repository.id,
+          data: {
+            runId: run.id,
+            iteration: run.currentIteration,
+            strategyRunId: record.strategyRunId,
+            strategy: record.strategy,
+            strategyStatus: status,
+            blocker: blocker ?? undefined,
+          },
+        },
+        hooks,
+      );
+      return finalRecord;
     } catch (error) {
       await this.failStrategy(record.strategyRunId, error);
       return this.strategyStore.get(record.strategyRunId) ?? record;
     } finally {
       this.active.delete(record.strategyRunId);
-      if (this.strategyStore.get(record.strategyRunId)?.status !== "PAUSED") this.hooks.delete(record.strategyRunId);
+      if (this.strategyStore.get(record.strategyRunId)?.status !== "PAUSED")
+        this.hooks.delete(record.strategyRunId);
     }
   }
 
@@ -686,20 +1334,34 @@ export class SwarmExecutionService {
     strategy: StrategyRunRecord,
     repository: RepositoryRecord,
     packet: WorkPacket,
-    worktree: { path: string; branch: string; baseSha: string; worktreeId: string },
-    holder: ActiveWorker
+    worktree: {
+      path: string;
+      branch: string;
+      baseSha: string;
+      worktreeId: string;
+    },
+    holder: ActiveWorker,
   ): Promise<WorkPacketResult> {
     const profile = resolveProfile(packet.executor.executorCli);
-    const adapter = profile === "opencode" && this.openCodeAdapter
-      ? this.openCodeAdapter
-      : repository.environment === "wsl" ? this.wslAdapter : this.windowsAdapter;
+    const adapter =
+      profile === "opencode" && this.openCodeAdapter
+        ? this.openCodeAdapter
+        : repository.environment === "wsl"
+          ? this.wslAdapter
+          : this.windowsAdapter;
     const invocation = buildExecutorInvocation(profile, {
       cli: packet.executor.executorCli,
       model: packet.executor.model,
       prompt: this.buildWorkerPrompt(packet),
-      environment: repository.environment
+      environment: repository.environment,
     });
-    const logPath = path.join(this.dataDir, "logs", "swarm", strategy.strategyRunId, `${packet.packetId}.log`);
+    const logPath = path.join(
+      this.dataDir,
+      "logs",
+      "swarm",
+      strategy.strategyRunId,
+      `${packet.packetId}.log`,
+    );
     const context = this.gitContext(repository, worktree.path);
     return new Promise<WorkPacketResult>((resolve) => {
       let settled = false;
@@ -723,22 +1385,88 @@ export class SwarmExecutionService {
             ORCA_WORKTREE_PATH: worktree.path,
             ORCA_EXECUTOR_MODEL: packet.executor.model,
             ORCA_ENVIRONMENT: repository.environment,
-            ...(process.env.ORCA_SWARM_FAIL_PACKET ? { ORCA_SWARM_FAIL_PACKET: process.env.ORCA_SWARM_FAIL_PACKET } : {}),
-            ...(process.env.ORCA_SWARM_HARNESS_SLOW_MS ? { ORCA_SWARM_HARNESS_SLOW_MS: process.env.ORCA_SWARM_HARNESS_SLOW_MS } : {}),
-            ...(process.env.ORCA_SWARM_WAIT_FILE ? { ORCA_SWARM_WAIT_FILE: process.env.ORCA_SWARM_WAIT_FILE } : {})
+            ...(process.env.ORCA_SWARM_FAIL_PACKET
+              ? { ORCA_SWARM_FAIL_PACKET: process.env.ORCA_SWARM_FAIL_PACKET }
+              : {}),
+            ...(process.env.ORCA_SWARM_HARNESS_SLOW_MS
+              ? {
+                  ORCA_SWARM_HARNESS_SLOW_MS:
+                    process.env.ORCA_SWARM_HARNESS_SLOW_MS,
+                }
+              : {}),
+            ...(process.env.ORCA_SWARM_WAIT_FILE
+              ? { ORCA_SWARM_WAIT_FILE: process.env.ORCA_SWARM_WAIT_FILE }
+              : {}),
+            ...(process.env.ORCA_REQUIRE_FILE
+              ? { ORCA_REQUIRE_FILE: process.env.ORCA_REQUIRE_FILE }
+              : {}),
+            ...(process.env.ORCA_REQUIRE_CONTENT
+              ? {
+                  ORCA_REQUIRE_CONTENT: process.env.ORCA_REQUIRE_CONTENT,
+                }
+              : {}),
+            ...(process.env.ORCA_REQUIRE_PACKETS
+              ? {
+                  ORCA_REQUIRE_PACKETS: process.env.ORCA_REQUIRE_PACKETS,
+                }
+              : {}),
+            ...(process.env.ORCA_SWARM_VIOLATE_PATHS
+              ? {
+                  ORCA_SWARM_VIOLATE_PATHS:
+                    process.env.ORCA_SWARM_VIOLATE_PATHS,
+                }
+              : {}),
           },
-          wslDistribution: repository.wslDistribution
+          wslDistribution: repository.wslDistribution,
         },
         logPath,
         watchdogMs: packet.budget.maxRuntimeMs,
         onLog: () => {},
         onExit: (exitCode, details) => {
-          void this.buildWorkerResult(repository, packet, worktree, context, exitCode, details, adapter).then(finish).catch((error) => finish(this.syntheticResult(packet, "FAILED", `WORKER_RESULT_FAILED: ${error?.message ?? String(error)}`, this.provenance(worktree.path, worktree.branch, worktree.baseSha, null, worktree.worktreeId))));
-        }
+          void this.buildWorkerResult(
+            repository,
+            packet,
+            worktree,
+            context,
+            exitCode,
+            details,
+            adapter,
+          )
+            .then(finish)
+            .catch((error) =>
+              finish(
+                this.syntheticResult(
+                  packet,
+                  "FAILED",
+                  `WORKER_RESULT_FAILED: ${error?.message ?? String(error)}`,
+                  this.provenance(
+                    worktree.path,
+                    worktree.branch,
+                    worktree.baseSha,
+                    null,
+                    worktree.worktreeId,
+                  ),
+                ),
+              ),
+            );
+        },
       });
       holder.runner = runner;
       void runner.start().catch((error) => {
-        finish(this.syntheticResult(packet, "FAILED", `EXECUTOR_START_FAILED: ${error?.message ?? String(error)}`, this.provenance(worktree.path, worktree.branch, worktree.baseSha, null, worktree.worktreeId)));
+        finish(
+          this.syntheticResult(
+            packet,
+            "FAILED",
+            `EXECUTOR_START_FAILED: ${error?.message ?? String(error)}`,
+            this.provenance(
+              worktree.path,
+              worktree.branch,
+              worktree.baseSha,
+              null,
+              worktree.worktreeId,
+            ),
+          ),
+        );
       });
     });
   }
@@ -746,47 +1474,95 @@ export class SwarmExecutionService {
   private async buildWorkerResult(
     repository: RepositoryRecord,
     packet: WorkPacket,
-    worktree: { path: string; branch: string; baseSha: string; worktreeId: string },
+    worktree: {
+      path: string;
+      branch: string;
+      baseSha: string;
+      worktreeId: string;
+    },
     context: GitContext,
     exitCode: number | null,
-    details: { reason: ExecutorExitReason; timedOut: boolean; wasKilled: boolean; wasPaused: boolean },
-    adapter: ExecutorAdapter
+    details: {
+      reason: ExecutorExitReason;
+      timedOut: boolean;
+      wasKilled: boolean;
+      wasPaused: boolean;
+    },
+    adapter: ExecutorAdapter,
   ): Promise<WorkPacketResult> {
     let head: string | null = null;
     let filesChanged: string[] = [];
     try {
       head = await this.gitClient.getCurrentSha(context);
       if (head && head !== worktree.baseSha) {
-        const commits = await this.gitClient.getRevList(context, worktree.baseSha, head);
-        const changes = (await Promise.all(commits.map((commit) => this.gitClient.getCommitChanges(context, commit)))).flat();
-        filesChanged = [...new Set(changes.map((change) => change.path.replace(/\\/g, "/")))];
+        const commits = await this.gitClient.getRevList(
+          context,
+          worktree.baseSha,
+          head,
+        );
+        const changes = (
+          await Promise.all(
+            commits.map((commit) =>
+              this.gitClient.getCommitChanges(context, commit),
+            ),
+          )
+        ).flat();
+        filesChanged = [
+          ...new Set(changes.map((change) => change.path.replace(/\\/g, "/"))),
+        ];
       }
     } catch {}
+    // Item #9: real write-ownership enforcement. A packet that declares no
+    // allowed paths is unrestricted by declaration; declared scopes are hard
+    // enforcement validated against actual Git-derived changes.
+    const violatingPaths =
+      packet.allowedPaths.length > 0
+        ? filesChanged.filter((file) => !isPathAllowed(file, packet.allowedPaths))
+        : [];
+    console.log("TEMP-DEBUG buildWorkerResult packet=", packet.packetId, "allowed=", JSON.stringify(packet.allowedPaths), "filesChanged=", JSON.stringify(filesChanged), "violating=", JSON.stringify(violatingPaths));
     let usageMetricIds: string[] = [];
-    const metric = await this.usageTelemetryService?.captureAdapterUsage(adapter, {
-      repositoryId: repository.id,
-      runId: packet.runId,
-      iteration: packet.iteration,
-      dispatchId: null,
-      executorRunId: null,
-      executor: packet.executor.executorCli,
-      model: packet.executor.model,
-      provider: packet.executor.provider
-    });
+    const metric = await this.usageTelemetryService?.captureAdapterUsage(
+      adapter,
+      {
+        repositoryId: repository.id,
+        runId: packet.runId,
+        iteration: packet.iteration,
+        dispatchId: null,
+        executorRunId: null,
+        executor: packet.executor.executorCli,
+        model: packet.executor.model,
+        provider: packet.executor.provider,
+      },
+    );
     if (metric) usageMetricIds = [metric.id];
-    const provenance = this.provenance(worktree.path, worktree.branch, worktree.baseSha, head && head !== worktree.baseSha ? head : null, worktree.worktreeId);
+    const provenance = this.provenance(
+      worktree.path,
+      worktree.branch,
+      worktree.baseSha,
+      head && head !== worktree.baseSha ? head : null,
+      worktree.worktreeId,
+    );
     const reason = details.wasPaused
       ? "PAUSED"
       : details.wasKilled
         ? "EMERGENCY_KILLED"
         : details.timedOut
           ? "EXECUTOR_WATCHDOG_TIMEOUT"
-          : exitCode !== 0
-            ? `EXECUTOR_EXIT_${exitCode ?? "UNKNOWN"}`
-            : !provenance.commitSha
-              ? "WORKER_NO_COMMIT"
-              : null;
-    const status: WorkPacketResult["status"] = details.wasPaused || details.wasKilled ? "CANCELLED" : exitCode === 0 && provenance.commitSha ? "COMPLETED" : "FAILED";
+          : violatingPaths.length > 0
+            ? "POLICY_VIOLATION"
+            : exitCode !== 0
+              ? `EXECUTOR_EXIT_${exitCode ?? "UNKNOWN"}`
+              : !provenance.commitSha
+                ? "WORKER_NO_COMMIT"
+                : null;
+    const status: WorkPacketResult["status"] =
+      details.wasPaused || details.wasKilled
+        ? "CANCELLED"
+        : violatingPaths.length > 0
+          ? "BLOCKED"
+          : exitCode === 0 && provenance.commitSha
+            ? "COMPLETED"
+            : "FAILED";
     return {
       schemaVersion: 1,
       packetId: packet.packetId,
@@ -799,33 +1575,73 @@ export class SwarmExecutionService {
       verification: [
         `executor_exit_code=${exitCode ?? "unknown"}`,
         `executor_exit_reason=${details.reason}`,
-        ...(provenance.commitSha ? [`worker_commit=${provenance.commitSha}`] : [])
+        ...(provenance.commitSha
+          ? [`worker_commit=${provenance.commitSha}`]
+          : []),
+        ...(violatingPaths.length > 0
+          ? [`allowed_paths_violation=${violatingPaths.join(",")}`]
+          : []),
       ],
       findings: [],
-      risks: status === "COMPLETED" ? [] : [reason ?? "WORKER_FAILED"],
+      risks:
+        status === "COMPLETED"
+          ? []
+          : violatingPaths.length > 0
+            ? [`POLICY_VIOLATION: ${violatingPaths.join(", ")}`]
+            : [reason ?? "WORKER_FAILED"],
       artifacts: [],
       dependenciesAffected: packet.dependencies,
       usageMetricIds,
-      summary: status === "COMPLETED" ? `Worker ${packet.workstream} completed.` : `Worker ${packet.workstream} did not complete.`,
+      summary:
+        status === "COMPLETED"
+          ? `Worker ${packet.workstream} completed.`
+          : violatingPaths.length > 0
+            ? `Worker ${packet.workstream} modified paths outside allowedPaths: ${violatingPaths.join(", ")}.`
+            : `Worker ${packet.workstream} did not complete.`,
       blocker: reason,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
   }
 
-  private evaluateWritePermission(repository: RepositoryRecord, run: RunRecord, packet: WorkPacket): "ALLOW" | "ASK" | "DENY" {
-    if (packet.permissionPolicy.deniedActions.includes("REPOSITORY_FILE_WRITE") || packet.permissionPolicy.deniedActions.includes("GIT_COMMIT")) return "DENY";
-    if (packet.permissionPolicy.preset === "CONSERVATIVE" && !packet.permissionPolicy.allowedActions.includes("REPOSITORY_FILE_WRITE")) return "ASK";
-    if (packet.permissionPolicy.preset === "CUSTOM" && !packet.permissionPolicy.allowedActions.includes("REPOSITORY_FILE_WRITE")) return "ASK";
+  private evaluateWritePermission(
+    repository: RepositoryRecord,
+    run: RunRecord,
+    packet: WorkPacket,
+  ): "ALLOW" | "ASK" | "DENY" {
+    if (
+      packet.permissionPolicy.deniedActions.includes("REPOSITORY_FILE_WRITE") ||
+      packet.permissionPolicy.deniedActions.includes("GIT_COMMIT")
+    )
+      return "DENY";
+    if (
+      packet.permissionPolicy.preset === "CONSERVATIVE" &&
+      !packet.permissionPolicy.allowedActions.includes("REPOSITORY_FILE_WRITE")
+    )
+      return "ASK";
+    if (
+      packet.permissionPolicy.preset === "CUSTOM" &&
+      !packet.permissionPolicy.allowedActions.includes("REPOSITORY_FILE_WRITE")
+    )
+      return "ASK";
     const evaluation = this.permissionPolicyService?.evaluate({
       repositoryId: repository.id,
       action: "REPOSITORY_FILE_WRITE",
       runId: run.id,
-      iteration: run.currentIteration
+      iteration: run.currentIteration,
     });
-    return evaluation?.outcome === "DENY" ? "DENY" : evaluation?.outcome === "ASK" ? "ASK" : "ALLOW";
+    return evaluation?.outcome === "DENY"
+      ? "DENY"
+      : evaluation?.outcome === "ASK"
+        ? "ASK"
+        : "ALLOW";
   }
 
-  private syntheticResult(packet: WorkPacket, status: WorkPacketResult["status"], blocker: string, worktree: WorktreeProvenance | null): WorkPacketResult {
+  private syntheticResult(
+    packet: WorkPacket,
+    status: WorkPacketResult["status"],
+    blocker: string,
+    worktree: WorktreeProvenance | null,
+  ): WorkPacketResult {
     return {
       schemaVersion: 1,
       packetId: packet.packetId,
@@ -843,17 +1659,31 @@ export class SwarmExecutionService {
       usageMetricIds: [],
       summary: blocker,
       blocker,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
   }
 
-  private provenance(pathValue: string, branch: string, baseSha: string, commitSha: string | null, worktreeId: string): WorktreeProvenance {
+  private provenance(
+    pathValue: string,
+    branch: string,
+    baseSha: string,
+    commitSha: string | null,
+    worktreeId: string,
+  ): WorktreeProvenance {
     return { worktreeId, path: pathValue, branch, baseSha, commitSha };
   }
 
-  private gitContext(repository: RepositoryRecord, worktreePath: string): GitContext {
+  private gitContext(
+    repository: RepositoryRecord,
+    worktreePath: string,
+  ): GitContext {
     return repository.environment === "wsl"
-      ? { environment: "wsl", workingPath: worktreePath, linuxPath: toWslPath(worktreePath), wslDistribution: repository.wslDistribution }
+      ? {
+          environment: "wsl",
+          workingPath: worktreePath,
+          linuxPath: toWslPath(worktreePath),
+          wslDistribution: repository.wslDistribution,
+        }
       : { environment: "windows", workingPath: worktreePath };
   }
 
@@ -866,7 +1696,7 @@ export class SwarmExecutionService {
       `Allowed paths: ${packet.allowedPaths.join(", ") || "none"}`,
       `Read paths: ${packet.readPaths.join(", ") || "none"}`,
       `Dependencies: ${packet.dependencies.join(", ") || "none"}`,
-      "Work only in the supplied isolated checkout. Commit completed changes locally; do not push or rewrite main. Return structured evidence through the worker result path."
+      "Work only in the supplied isolated checkout. Commit completed changes locally; do not push or rewrite main. Return structured evidence through the worker result path.",
     ].join("\n");
   }
 
@@ -878,7 +1708,8 @@ export class SwarmExecutionService {
       if (visiting.has(packetId)) return true;
       if (visited.has(packetId)) return false;
       visiting.add(packetId);
-      for (const dependency of byId.get(packetId)?.dependencies ?? []) if (visit(dependency)) return true;
+      for (const dependency of byId.get(packetId)?.dependencies ?? [])
+        if (visit(dependency)) return true;
       visiting.delete(packetId);
       visited.add(packetId);
       return false;
@@ -886,7 +1717,10 @@ export class SwarmExecutionService {
     return packets.some((packet) => visit(packet.packetId));
   }
 
-  private async failStrategy(strategyRunId: string, error: unknown): Promise<StrategyRunRecord | null> {
+  private async failStrategy(
+    strategyRunId: string,
+    error: unknown,
+  ): Promise<StrategyRunRecord | null> {
     try {
       const record = this.strategyStore.get(strategyRunId);
       if (!record) return null;
@@ -894,9 +1728,31 @@ export class SwarmExecutionService {
       const next = this.strategyStore.update(strategyRunId, {
         status: "FAILED",
         lastError: message,
-        finishedAt: new Date().toISOString()
+        finishedAt: new Date().toISOString(),
       });
-      if (next) this.publish({ type: "strategy.completed", at: next.finishedAt!, repositoryId: next.repositoryId, data: { runId: next.runId, iteration: next.iteration, strategyRunId, strategy: next.strategy, strategyStatus: "FAILED", reason: message } }, this.hooks.get(strategyRunId));
+      if (next)
+        this.publish(
+          {
+            type: "strategy.completed",
+            at: next.finishedAt!,
+            repositoryId: next.repositoryId,
+            data: {
+              runId: next.runId,
+              iteration: next.iteration,
+              strategyRunId,
+              strategy: next.strategy,
+              strategyStatus: "FAILED",
+              reason: message,
+            },
+          },
+          this.hooks.get(strategyRunId),
+        );
+      // Terminal failure must also reach the coordinator/loop truthfully.
+      if (next) {
+        try {
+          this.hooks.get(strategyRunId)?.onCompleted?.(next);
+        } catch {}
+      }
       this.hooks.delete(strategyRunId);
       return next;
     } catch {
@@ -907,12 +1763,55 @@ export class SwarmExecutionService {
     }
   }
 
-  private publish(event: RepositoryMutationEvent, hooks?: StrategyExecutionHooks): void {
-    try { this.eventPublisher?.(event); } catch {}
-    try { hooks?.onEvent?.(event); } catch {}
+  private publish(
+    event: RepositoryMutationEvent,
+    hooks?: StrategyExecutionHooks,
+  ): void {
+    try {
+      this.eventPublisher?.(event);
+    } catch {}
+    try {
+      hooks?.onEvent?.(event);
+    } catch {}
   }
 
   private async delay(ms: number): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, ms));
   }
+}
+/**
+ * Item #9: check whether a changed file is within the packet's allowed paths.
+ * Supports exact paths, directory prefixes (trailing "/"), basename match when
+ * the allowed path has no "/", and simple glob segments ("*" / "**").
+ */
+function isPathAllowed(file: string, allowedPaths: string[]): boolean {
+  const normalized = file.replace(/\\/g, "/");
+  for (const raw of allowedPaths) {
+    const a = raw.replace(/\\/g, "/").trim();
+    if (!a) continue;
+    if (a === "*" || a === "**" || a === "*/*") return true;
+    if (a.includes("*")) {
+      const regex = new RegExp(
+        "^" +
+          a
+            .split("/")
+            .map((seg) =>
+              seg === "**"
+                ? "(?:.*)"
+                : seg === "*"
+                  ? "[^/]*"
+                  : seg.replace(/[.+?^${}()|[\]\\]/g, "\\$&"),
+            )
+            .join("/") +
+          "$",
+      );
+      if (regex.test(normalized)) return true;
+      continue;
+    }
+    if (normalized === a) return true;
+    if (a.endsWith("/") && normalized.startsWith(a)) return true;
+    if (!a.includes("/") && normalized.split("/").pop() === a) return true;
+    if (normalized.startsWith(a + "/")) return true;
+  }
+  return false;
 }

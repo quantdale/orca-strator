@@ -529,24 +529,35 @@ qualification gates passed and is now eligible for the next focused change.
 
 OpenSpec: `013-optional-same-repository-swarm`
 
-Status: **complete / MACHINE-QUALIFIED internally / explicitly opt-in**
+Status: **complete / ENGINE MACHINE-QUALIFIED / autonomous campaign integration now MACHINE-QUALIFIED via Change 017 / explicitly opt-in**
 
 Single-agent remains default; swarm is explicit, bounded, isolated, and returns a
 structured partial result to Sol. Fast 187/187 tests and real 20/20 tests pass,
 including Windows worktree/Git controls, partial failure, restart recovery, and
 conditional WSL execution. Typecheck, build, lint, and diff checks pass.
 
+That qualification covers the swarm **engine** (bounded scheduling, isolated
+worktrees, deterministic integration, controls, restart recovery) through its
+own focused tests. Autonomous, dispatch-selected swarm iterations inside the
+production campaign loop are now separately machine-qualified by Change 017's
+production-loop qualifications (`real-strategy-loop-swarm.test.ts`).
+
 ### Milestone 13 — Optional DAG execution strategy
 
 OpenSpec: `014-optional-dag-execution-strategy`
 
-Status: **complete / MACHINE-QUALIFIED internally / explicitly opt-in**
+Status: **complete / ENGINE MACHINE-QUALIFIED / autonomous campaign integration now MACHINE-QUALIFIED via Change 017 / explicitly opt-in**
 
 Structured DAG definitions/presets only; no visual composer and no DAG default UX.
 Fast 189/189 tests and real 25/25 tests pass, including Windows/Git
 topological execution, integration conflict/partial failure, controls,
 restart recovery, and conditional WSL execution. Typecheck, build, lint, and
 diff checks pass.
+
+As with Milestone 12, this qualifies the DAG **engine** tier. Autonomous,
+dispatch-driven DAG iterations with true dependency-state materialization inside
+the production campaign loop are now separately machine-qualified by Change
+017's production-loop qualifications (`real-strategy-loop-dag.test.ts`).
 
 ### Milestone 14 — Optional rich OpenCode adapter
 
@@ -580,8 +591,49 @@ and non-authoring preset presentation. Final gates: focused UI 3/3, fast
 external skip, typecheck, build, lint, diff check, and strict OpenSpec
 validation pass.
 
-The post-V1 evolution scope is complete as far as safely possible. Remaining
-qualification blockers are external and remain explicitly UNQUALIFIED: real
+### Milestone 16 — Execution-strategy loop integration
+
+OpenSpec: `017-execution-strategy-loop-integration`
+
+Status: **complete / MACHINE-QUALIFIED internally (production buildApp loop)**
+
+Deliverables:
+
+- an `IterationExecutionCoordinator` as the single authoritative execution
+  actor per repository/campaign iteration;
+- durable strategy selection from the dispatch marker (`strategy` +
+  `executionPlan` fields; legacy dispatches resolve to `SINGLE_AGENT`);
+- one shared campaign/iteration ownership boundary enforced identically by the
+  autonomous loop and the manual `/swarm/start` + `/dag/start` routes;
+- normalized strategy-to-loop result mapping that never produces
+  `GOAL_COMPLETE` without Sol;
+- remote-durable integration publishing of integrated `main` plus the
+  canonical result manifest;
+- immutable `strategyBaseSha` capture at strategy start;
+- DAG dependency input SHA materialization on nodes/worktrees;
+- `allowedPaths` enforcement for worker file changes;
+- campaign pause/resume/stop/kill, Sol review, and controller-shutdown
+  composition across all strategies;
+- production-loop SWARM/DAG qualification tests proving the qualified engines
+  inside the real autonomous campaign loop.
+
+The implementation is machine-qualified on this machine: the autonomous SWARM
+loop (`real-strategy-loop-swarm.test.ts`: dispatch-selected strategy, isolated
+worktrees, remote-durable integration + result manifest, Sol wake, second Sol
+transition), the autonomous DAG loop with true A->B dependency-state
+materialization plus its falsifiability case (`real-strategy-loop-dag.test.ts`),
+and campaign-level pause/resume/stop/emergency-kill/wall-clock/restart
+qualifications for both strategies through the campaign control seam
+(`real-strategy-controls.test.ts`) all pass under production `buildApp` wiring
+with real Git remotes and deterministic real child workers. Authoring these
+tests surfaced and fixed real integration bugs: non-durable dispatch strategy
+selection, a SWARM-labeled DAG start path, a dead completion bridge, a missing
+result-manifest directory, a stale-dependency skip on DAG resume, and a
+Windows rev-list range quirk that silently emptied worker `filesChanged`.
+
+The post-V1 evolution scope is implemented and internally machine-qualified
+through the Change 017 campaign-loop composition. Genuinely external
+qualifications remain explicitly UNQUALIFIED rather than faked: real
 ChatGPT-authenticated wake, Tailscale phone routing, real Kimi/Codex inference,
 and an authorized OpenCode server/provider. They do not invalidate the
 deterministic/internal qualification of the implemented runtime foundations.

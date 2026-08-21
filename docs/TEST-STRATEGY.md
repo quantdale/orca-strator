@@ -601,3 +601,50 @@ Focused coverage includes:
 - preset catalog presence, explicit no-auto-start semantics, and absence of
   graph-authoring controls;
 - responsive card-flow markup suitable for narrow phone and desktop layouts.
+
+## 23. Change 017 — production-loop strategy qualification
+
+Change 017 adds a real tier that proves the qualified SWARM/DAG engines inside
+the production autonomous campaign loop rather than through direct engine
+invocation:
+
+- a production `buildApp` SWARM loop: a durable dispatch marker with
+  `strategy: "SWARM"` plus an execution plan autonomously enters the campaign
+  loop, workers run in isolated worktrees, integration publishes durably, and
+  the normalized result returns to the Sol review boundary;
+- a DAG A -> B dependency loop: node B starts only after node A's dependency
+  input SHA materialization, with the structured DAG result mapped back to the
+  enclosing iteration;
+- campaign-level controls composition: pause/resume/stop/kill and controller
+  shutdown route through the `IterationExecutionCoordinator` onto the active
+  strategy, and manual `/swarm/start` + `/dag/start` share the same
+  campaign/iteration ownership boundary.
+
+These production-loop qualifications now exist and pass on this machine under
+production `buildApp` wiring with real temporary Git repositories, real bare
+remotes, and deterministic real child workers (browser mocked only at the
+external ChatGPT transport):
+
+- `test/real-strategy-loop-swarm.test.ts` — autonomous SWARM loop: dispatch ->
+  watcher -> coordinator -> isolated worktrees -> integration -> remote main +
+  result manifest -> Sol wake -> second Sol transition with the default
+  strategy; manual-start conflict rejection mid-flight; and allowedPaths
+  out-of-scope enforcement (violating worker BLOCKED/POLICY_VIOLATION, never
+  integrated, worktree preserved);
+- `test/real-strategy-loop-dag.test.ts` — autonomous DAG loop with a true
+  A -> B state dependency (B's worker fails unless A's committed output is
+  materialized into B's base; byte-level derived-from proof and dependency
+  input SHA provenance) plus a falsifiability case where B must fail;
+- `test/real-strategy-controls.test.ts` — campaign-level pause/resume,
+  graceful stop, emergency kill, wall-clock drain, controller restart recovery,
+  and ownership-conflict rejection for SWARM and DAG through the campaign
+  control seam.
+
+With this evidence, Changes 013/014 are ENGINE MACHINE-QUALIFIED and their
+autonomous campaign integration is MACHINE-QUALIFIED by Change 017. Engine-tier
+evidence and loop-integration evidence remain distinct tiers; neither
+substitutes for the other.
+
+The genuinely external tiers remain honestly UNQUALIFIED and are not faked:
+real ChatGPT-authenticated wake, the Tailscale phone route, real Kimi/Codex
+inference burn, and an authorized OpenCode server/provider.

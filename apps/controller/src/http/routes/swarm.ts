@@ -1,13 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
-import { strategyControlRequestSchema, swarmStartRequestSchema, type SwarmStartRequest } from "@orca/shared";
+import { strategyControlRequestSchema, swarmStartRequestSchema, type SwarmStartRequest, BadRequestError } from "@orca/shared";
 import type { RepositoryService } from "../../repositories/repository-service.js";
 import type { RunStore } from "../../loop/run-store.js";
 import type { SwarmExecutionService } from "../../strategy/swarm-execution-service.js";
+import type { IterationExecutionCoordinator } from "../../loop/iteration-execution-coordinator.js";
 
 export const swarmRoutes = (
   repositoryService: RepositoryService,
   runStore: RunStore,
-  swarmService: SwarmExecutionService
+  swarmService: SwarmExecutionService,
+  coordinator: IterationExecutionCoordinator
 ): FastifyPluginAsync => async (fastify) => {
   const getRun = (repositoryId: string, runId: string) => {
     const repository = repositoryService.getRepository(repositoryId);
@@ -27,9 +29,30 @@ export const swarmRoutes = (
   fastify.post<{ Params: { id: string; runId: string }; Body: SwarmStartRequest }>(
     "/api/repositories/:id/campaigns/:runId/swarm/start",
     async (request, reply) => {
-      const { run } = getRun(request.params.id, request.params.runId);
+      const { repository, run } = getRun(request.params.id, request.params.runId);
       const input = swarmStartRequestSchema.parse(request.body);
-      const strategy = swarmService.start(request.params.id, run.id, run.currentIteration, input);
+      // Change 017 item #4: acquire the same campaign/iteration ownership boundary
+      // used by the autonomous loop before allowing a strategy to start.
+      try {
+        coordinator.assertCampaignIterationOwnership(repository.id, run, {
+          requestedStrategy: "SWARM",
+          allowSolBoundary: true,
+          authorizedDispatchId: run.activeDispatchId,
+          authorizedStrategy: "SWARM"
+        });
+      } catch (err: any) {
+        throw new BadRequestError(err?.message ? String(err.message) : "Campaign iteration ownership conflict.");
+      }
+      const strategy = await coordinator.start(
+        repository.id,
+        run,
+        null,
+        {
+          packetIds: input.packetIds,
+          maxConcurrency: input.maxConcurrency
+        },
+        "SWARM"
+      );
       return reply.status(202).send({ strategy });
     }
   );

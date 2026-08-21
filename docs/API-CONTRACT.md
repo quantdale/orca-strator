@@ -503,6 +503,19 @@ callers and can be inspected through the detail endpoint. Detail returns
 strategy/control/packet/result records, with integration and scheduler
 references in the structured report when finalized.
 
+Change 017 adds the autonomous entry path and hardens the start boundary. The
+durable dispatch marker itself carries optional `strategy`
+(`SINGLE_AGENT` | `SWARM` | `DAG`) and `executionPlan` fields; legacy V1
+dispatches without them resolve to `SINGLE_AGENT`, which remains the default.
+Before any start — manual or autonomous — the controller acquires one shared
+campaign/iteration ownership boundary. When it is not free, the coordinator
+raises a structured conflict (`SOL_ACTIVE_NO_DISPATCH`, `EXECUTOR_ACTIVE`,
+`STRATEGY_ACTIVE`, `RUN_NOT_RECEPTIVE`, `STRATEGY_NOT_AUTHORIZED`,
+`DISPATCH_STRATEGY_MISMATCH`) and `/swarm/start` returns HTTP **400** with the
+standard error envelope (`code: "BAD_REQUEST"`); the message describes the
+specific conflict. A successful start still returns `202` with the durable
+strategy record.
+
 Control bodies are `{ decision: "PAUSE" | "STOP" | "KILL" | "RESUME", reason?:
 string }`. Repository/run/iteration/packet correlation is mandatory. The API
 does not expose a graph authoring format, does not dynamically route models,
@@ -525,6 +538,13 @@ The service rejects duplicate IDs, unknown dependencies, packet/run mismatch,
 packet dependency mismatch, cycles, and invalid concurrency before worker
 launch. DAG detail is a structured read model; no graph authoring UI or raw
 transcript is required.
+
+Like `/swarm/start`, `/dag/start` acquires the shared campaign/iteration
+ownership boundary before starting and returns the same HTTP `400`
+`BAD_REQUEST` envelope when the boundary is occupied or the dispatch does not
+authorize a DAG; success remains `202`. A dispatch marker with
+`strategy: "DAG"` plus an `executionPlan` enters the same strategy autonomously
+through the campaign loop.
 
 ## 22. Optional OpenCode capability details (Change 015)
 

@@ -1,13 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
-import { dagStartRequestSchema, strategyControlRequestSchema, type DagStartRequest } from "@orca/shared";
+import { dagStartRequestSchema, strategyControlRequestSchema, type DagStartRequest, BadRequestError } from "@orca/shared";
 import type { RepositoryService } from "../../repositories/repository-service.js";
 import type { RunStore } from "../../loop/run-store.js";
 import type { DagExecutionService } from "../../strategy/dag-execution-service.js";
+import type { IterationExecutionCoordinator } from "../../loop/iteration-execution-coordinator.js";
 
 export const dagRoutes = (
   repositoryService: RepositoryService,
   runStore: RunStore,
-  dagService: DagExecutionService
+  dagService: DagExecutionService,
+  coordinator: IterationExecutionCoordinator
 ): FastifyPluginAsync => async (fastify) => {
   const getRun = (repositoryId: string, runId: string) => {
     const repository = repositoryService.getRepository(repositoryId);
@@ -27,9 +29,30 @@ export const dagRoutes = (
   fastify.post<{ Params: { id: string; runId: string }; Body: DagStartRequest }>(
     "/api/repositories/:id/campaigns/:runId/dag/start",
     async (request, reply) => {
-      const { run } = getRun(request.params.id, request.params.runId);
+      const { repository, run } = getRun(request.params.id, request.params.runId);
       const input = dagStartRequestSchema.parse(request.body);
-      const strategy = dagService.start(request.params.id, run.id, run.currentIteration, input);
+      // Change 017 item #4: acquire the same campaign/iteration ownership boundary
+      // used by the autonomous loop before allowing a strategy to start.
+      try {
+        coordinator.assertCampaignIterationOwnership(repository.id, run, {
+          requestedStrategy: "DAG",
+          allowSolBoundary: true,
+          authorizedDispatchId: run.activeDispatchId,
+          authorizedStrategy: "DAG"
+        });
+      } catch (err: any) {
+        throw new BadRequestError(err?.message ? String(err.message) : "Campaign iteration ownership conflict.");
+      }
+      const strategy = await coordinator.start(
+        repository.id,
+        run,
+        null,
+        {
+          dagNodes: input.nodes,
+          maxConcurrency: input.maxConcurrency
+        },
+        "DAG"
+      );
       return reply.status(202).send({ strategy });
     }
   );

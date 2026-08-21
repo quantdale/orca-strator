@@ -156,8 +156,12 @@ export class GitClient {
   ): Promise<string[]> {
     // `fromSha..toSha` excludes fromSha; the caller is responsible for choosing a
     // safe starting point. Returns commits in reverse (chronological) order.
+    // The two-token exclusion form is used instead of the merged `<from>..<to>`
+    // range token: on Windows, a single long `A..B` argument under a deep
+    // working directory can hit Git's pathspec stat fallback ("Filename too
+    // long") even when both revisions resolve, silently emptying change lists.
     const output = await this.runGit(
-      ["rev-list", "--reverse", `${fromSha}..${toSha}`],
+      ["rev-list", "--reverse", `^${fromSha}`, toSha],
       target
     );
     if (!output) return [];

@@ -215,27 +215,46 @@ Start with [`docs/INDEX.md`](docs/INDEX.md).
 - Completed: [`openspec/changes/014-optional-dag-execution-strategy/`](openspec/changes/014-optional-dag-execution-strategy/)
 - Completed: [`openspec/changes/015-optional-rich-opencode-adapter/`](openspec/changes/015-optional-rich-opencode-adapter/)
 - Completed: [`openspec/changes/016-execution-topology-ui/`](openspec/changes/016-execution-topology-ui/)
+- Completed: [`openspec/changes/017-execution-strategy-loop-integration/`](openspec/changes/017-execution-strategy-loop-integration/) (folded into `openspec/specs/execution-strategy-loop-integration/`)
 
 Change 010, Change 011, and Change 012 are complete and internally
 machine-qualified. Change 012 established typed work packets, isolated
 temporary worktrees/internal branches, deterministic integration, and explicit
-partial-failure results. Change 013 is complete and internally
-machine-qualified for an explicitly enabled, bounded same-repository swarm
-built on those qualified primitives. Change 014 is complete and internally
-machine-qualified for an optional structured DAG strategy. Change 015 is
-complete with an experimental, absent-safe OpenCode adapter and non-inference
-server probe; its real server/provider tier remains explicitly unqualified
-without an authorized endpoint. Change 016 is complete with the
-execution-topology observability UI and explicit non-authoring strategy
-presets. Final fast qualification is 47 files / 197 tests; the applicable real
-tier is 25 passed with one explicit OpenCode external skip.
+partial-failure results. Change 013 and Change 014 are complete at the engine
+tier — their swarm/DAG engines, worktrees, controls, and integration mechanics
+are machine-qualified by their own focused real-tier tests — and their
+autonomous campaign-loop integration is now separately machine-qualified by
+Change 017's production-loop qualifications. Change 015 is complete with an
+experimental, absent-safe OpenCode adapter and non-inference server probe; its
+real server/provider tier remains explicitly unqualified without an authorized
+endpoint. Change 016 is complete with the execution-topology observability UI
+and explicit non-authoring strategy presets.
 
-Post-V1 evolution is being implemented as focused sequential changes. The
+Change 017 integrates the qualified SWARM/DAG engines into the autonomous
+campaign loop through an `IterationExecutionCoordinator`: LoopService resolves
+the durable dispatch `strategy`/`executionPlan` selection and delegates
+start/completion/controls to the coordinator, manual `/swarm/start` and
+`/dag/start` enforce the same campaign/iteration ownership boundary, strategy
+results are normalized back into the loop without ever producing
+`GOAL_COMPLETE`, and migrations 021/022 persist dispatch linkage, an immutable
+`strategyBaseSha`, and DAG dependency input SHAs. Qualification: real
+production `buildApp` tests prove the autonomous SWARM loop (dispatch ->
+isolated workers -> integration -> remote main + result manifest -> Sol wake ->
+second Sol transition), the autonomous DAG loop with true A->B dependency-state
+materialization plus a falsifiability case, and campaign-level
+pause/resume/stop/emergency-kill/wall-clock/restart composition for both
+strategies through the campaign control seam. Authoring these tests surfaced
+and fixed real integration bugs (non-durable dispatch strategy selection,
+SWARM-labeled DAG starts, a dead completion bridge, a missing result-manifest
+directory, and a stale-dependency skip on DAG resume).
+
+Post-V1 evolution is implemented as focused sequential changes. The
 historical OpenFlow-inspired exploration is explicitly non-binding; see the
 [canonical design delta](docs/OPENFLOW-EVOLUTION-DELTA.md). Orca remains a
 persistent repository/goal campaign with Sol-owned completion, Git as durable
-cross-agent truth, and one active writer per repository until a later qualified
-isolation design explicitly enables an optional strategy.
+cross-agent truth, and one active writer per repository; the opt-in
+SWARM/DAG strategies use isolated worktrees under the same boundary with their
+autonomous loop integration machine-qualified by Change 017.
 
 ## Repository hygiene
 

@@ -13,6 +13,8 @@ interface DispatchRow {
   instructions_version: number;
   status: DispatchStatus;
   rejection_reason: string | null;
+  strategy: string | null;
+  execution_plan_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +31,12 @@ export class DispatchStore {
   constructor(private readonly db: DatabaseSync) {}
 
   private mapDispatchRow(row: DispatchRow): DispatchRecord {
+    let executionPlan: DispatchRecord["executionPlan"] = undefined;
+    if (row.execution_plan_json) {
+      try {
+        executionPlan = JSON.parse(row.execution_plan_json);
+      } catch {}
+    }
     return {
       id: row.id,
       dispatchId: row.id,
@@ -42,6 +50,8 @@ export class DispatchStore {
       instructionsVersion: row.instructions_version,
       schemaVersion: 1,
       type: "dispatch",
+      strategy: (row.strategy as DispatchRecord["strategy"]) ?? undefined,
+      executionPlan,
       status: row.status,
       rejectionReason: row.rejection_reason,
       createdAt: row.created_at,
@@ -64,8 +74,8 @@ export class DispatchStore {
       INSERT INTO dispatches (
         id, repository_id, run_id, iteration, commit_sha, base_sha,
         change_path, goal, instructions_version, status, rejection_reason,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        strategy, execution_plan_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -80,6 +90,8 @@ export class DispatchStore {
       dispatch.instructionsVersion,
       dispatch.status,
       dispatch.rejectionReason ?? null,
+      dispatch.strategy ?? null,
+      dispatch.executionPlan ? JSON.stringify(dispatch.executionPlan) : null,
       dispatch.createdAt,
       dispatch.updatedAt
     );
