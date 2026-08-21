@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { DomainError, ValidationError } from "@orca/shared";
 import type { CampaignDetail, CampaignIterationSummary, CampaignSummary, CampaignTraceEvent } from "@orca/shared";
 import type { CampaignLedgerService } from "../../ledger/campaign-ledger-service.js";
 import type { RepositoryService } from "../../repositories/repository-service.js";
@@ -20,7 +21,7 @@ export const campaignRoutes = (
     async (request) => {
       repositoryService.getRepository(request.params.id);
       const campaign = ledger.getDetail(request.params.id, request.params.runId);
-      if (!campaign) throw new Error("Campaign not found");
+      if (!campaign) throw new DomainError("REPOSITORY_NOT_FOUND", "Campaign not found", 404);
       return { campaign };
     }
   );
@@ -30,9 +31,10 @@ export const campaignRoutes = (
     async (request) => {
       repositoryService.getRepository(request.params.id);
       const iteration = Number(request.params.iteration);
-      if (!Number.isInteger(iteration) || iteration < 1) throw new Error("Iteration must be a positive integer");
+      if (!Number.isInteger(iteration) || iteration < 1)
+        throw new ValidationError("Iteration must be a positive integer");
       const result = ledger.getIteration(request.params.id, request.params.runId, iteration);
-      if (!result) throw new Error("Campaign not found");
+      if (!result) throw new DomainError("REPOSITORY_NOT_FOUND", "Campaign not found", 404);
       return { iteration: result };
     }
   );

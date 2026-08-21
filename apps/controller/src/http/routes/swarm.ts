@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { strategyControlRequestSchema, swarmStartRequestSchema, type SwarmStartRequest, BadRequestError } from "@orca/shared";
+import { strategyControlRequestSchema, swarmStartRequestSchema, type SwarmStartRequest, BadRequestError, DomainError } from "@orca/shared";
 import type { RepositoryService } from "../../repositories/repository-service.js";
 import type { RunStore } from "../../loop/run-store.js";
 import type { SwarmExecutionService } from "../../strategy/swarm-execution-service.js";
@@ -14,7 +14,7 @@ export const swarmRoutes = (
   const getRun = (repositoryId: string, runId: string) => {
     const repository = repositoryService.getRepository(repositoryId);
     const run = runStore.get(runId);
-    if (!run || run.repositoryId !== repository.id) throw new Error("Campaign not found for repository.");
+    if (!run || run.repositoryId !== repository.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Campaign not found for repository.", 404);
     return { repository, run };
   };
 
@@ -62,7 +62,7 @@ export const swarmRoutes = (
     async (request) => {
       const { run } = getRun(request.params.id, request.params.runId);
       const detail = swarmService.getDetail(request.params.id, run.id, request.params.strategyRunId);
-      if (!detail) throw new Error("Swarm strategy run not found for campaign.");
+      if (!detail) throw new DomainError("REPOSITORY_NOT_FOUND", "Swarm strategy run not found for campaign.", 404);
       return detail;
     }
   );
@@ -73,7 +73,7 @@ export const swarmRoutes = (
       const { run } = getRun(request.params.id, request.params.runId);
       const body = strategyControlRequestSchema.parse(request.body);
       const strategy = swarmService.get(request.params.strategyRunId);
-      if (!strategy || strategy.strategy !== "SWARM" || strategy.runId !== run.id) throw new Error("Swarm strategy run not found for campaign.");
+      if (!strategy || strategy.strategy !== "SWARM" || strategy.runId !== run.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Swarm strategy run not found for campaign.", 404);
       const updated = await swarmService.control(request.params.id, strategy.strategyRunId, body.decision, body.reason ?? null);
       return { strategy: updated };
     }
@@ -87,7 +87,7 @@ export const swarmRoutes = (
       const strategy = recovered.find((item) => item.strategyRunId === request.params.strategyRunId && item.runId === run.id);
       if (!strategy) {
         const existing = swarmService.get(request.params.strategyRunId);
-        if (!existing || existing.strategy !== "SWARM" || existing.runId !== run.id) throw new Error("Swarm strategy run not found for campaign.");
+        if (!existing || existing.strategy !== "SWARM" || existing.runId !== run.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Swarm strategy run not found for campaign.", 404);
         return { strategy: existing };
       }
       return { strategy };

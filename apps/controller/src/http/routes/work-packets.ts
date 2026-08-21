@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { DomainError } from "@orca/shared";
 import type { RepositoryService } from "../../repositories/repository-service.js";
 import type { RunStore } from "../../loop/run-store.js";
 import type { WorkPacketCreateInput, WorkPacketService } from "../../packets/work-packet-service.js";
@@ -17,7 +18,7 @@ export const workPacketRoutes = (
   const getRun = (repositoryId: string, runId: string) => {
     const repository = repositoryService.getRepository(repositoryId);
     const run = runStore.get(runId);
-    if (!run || run.repositoryId !== repository.id) throw new Error("Campaign not found for repository.");
+    if (!run || run.repositoryId !== repository.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Campaign not found for repository.", 404);
     return { repository, run };
   };
 
@@ -43,7 +44,7 @@ export const workPacketRoutes = (
     async (request) => {
       const { repository, run } = getRun(request.params.id, request.params.runId);
       const packet = packetService.get(request.params.packetId);
-      if (!packet || packet.runId !== run.id) throw new Error("Work packet not found for campaign.");
+      if (!packet || packet.runId !== run.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Work packet not found for campaign.", 404);
       return { result: packetService.recordResult(repository, packet, request.body) };
     }
   );
@@ -53,7 +54,7 @@ export const workPacketRoutes = (
     async (request) => {
       const { repository, run } = getRun(request.params.id, request.params.runId);
       const packet = packetService.get(request.params.packetId);
-      if (!packet || packet.runId !== run.id) throw new Error("Work packet not found for campaign.");
+      if (!packet || packet.runId !== run.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Work packet not found for campaign.", 404);
       return { worktree: await worktreeService.allocate(repository, packet) };
     }
   );
@@ -63,10 +64,10 @@ export const workPacketRoutes = (
     async (request) => {
       const { repository, run } = getRun(request.params.id, request.params.runId);
       const packet = packetService.get(request.params.packetId);
-      if (!packet || packet.runId !== run.id) throw new Error("Work packet not found for campaign.");
+      if (!packet || packet.runId !== run.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Work packet not found for campaign.", 404);
       const worktree = packetStore.getWorktreeByPacket(packet.packetId);
       const worktreeId = request.body?.worktreeId ?? worktree?.worktreeId;
-      if (!worktreeId) throw new Error("No worktree exists for packet.");
+      if (!worktreeId) throw new DomainError("REPOSITORY_NOT_FOUND", "No worktree exists for packet.", 404);
       return { worktree: await worktreeService.release(repository, worktreeId) };
     }
   );
@@ -96,7 +97,7 @@ export const workPacketRoutes = (
       for (const input of request.body?.results ?? []) {
         const packetId = input && typeof input === "object" && "packetId" in input ? String((input as { packetId: unknown }).packetId) : "";
         const packet = packetService.get(packetId);
-        if (!packet || packet.runId !== run.id || packet.iteration !== iteration) throw new Error("Integration result packet correlation is invalid.");
+        if (!packet || packet.runId !== run.id || packet.iteration !== iteration) throw new DomainError("REPOSITORY_NOT_FOUND", "Integration result packet correlation is invalid.", 404);
         packetService.recordResult(repository, packet, input);
       }
       const packets = packetService.list(run.id).filter((packet) => packet.iteration === iteration);

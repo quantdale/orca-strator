@@ -24,6 +24,13 @@ function redactSecrets<T>(value: T): T {
 }
 
 export class EventBus extends EventEmitter {
+  // Ledger, reconcile, and one listener per WS client all attach here, so Node's
+  // default cap of 10 would start warning around ~8 concurrent UI sessions.
+  constructor() {
+    super();
+    this.setMaxListeners(64);
+  }
+
   publish(event: RepositoryMutationEvent): void {
     this.emit('event', redactSecrets(event));
   }

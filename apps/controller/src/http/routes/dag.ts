@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { dagStartRequestSchema, strategyControlRequestSchema, type DagStartRequest, BadRequestError } from "@orca/shared";
+import { dagStartRequestSchema, strategyControlRequestSchema, type DagStartRequest, BadRequestError, DomainError } from "@orca/shared";
 import type { RepositoryService } from "../../repositories/repository-service.js";
 import type { RunStore } from "../../loop/run-store.js";
 import type { DagExecutionService } from "../../strategy/dag-execution-service.js";
@@ -14,7 +14,7 @@ export const dagRoutes = (
   const getRun = (repositoryId: string, runId: string) => {
     const repository = repositoryService.getRepository(repositoryId);
     const run = runStore.get(runId);
-    if (!run || run.repositoryId !== repository.id) throw new Error("Campaign not found for repository.");
+    if (!run || run.repositoryId !== repository.id) throw new DomainError("REPOSITORY_NOT_FOUND", "Campaign not found for repository.", 404);
     return { repository, run };
   };
 
@@ -62,7 +62,7 @@ export const dagRoutes = (
     async (request) => {
       const { run } = getRun(request.params.id, request.params.runId);
       const detail = dagService.getDetail(request.params.id, run.id, request.params.strategyRunId);
-      if (!detail) throw new Error("DAG strategy run not found for campaign.");
+      if (!detail) throw new DomainError("REPOSITORY_NOT_FOUND", "DAG strategy run not found for campaign.", 404);
       return detail;
     }
   );
@@ -73,7 +73,7 @@ export const dagRoutes = (
       const { run } = getRun(request.params.id, request.params.runId);
       const body = strategyControlRequestSchema.parse(request.body);
       const strategy = dagService.get(request.params.strategyRunId);
-      if (!strategy || strategy.runId !== run.id) throw new Error("DAG strategy run not found for campaign.");
+      if (!strategy || strategy.runId !== run.id) throw new DomainError("REPOSITORY_NOT_FOUND", "DAG strategy run not found for campaign.", 404);
       const updated = await dagService.control(request.params.id, strategy.strategyRunId, body.decision, body.reason ?? null);
       return { strategy: updated };
     }
@@ -87,7 +87,7 @@ export const dagRoutes = (
       const strategy = recovered.find((item) => item.strategyRunId === request.params.strategyRunId && item.runId === run.id);
       if (!strategy) {
         const existing = dagService.get(request.params.strategyRunId);
-        if (!existing || existing.runId !== run.id) throw new Error("DAG strategy run not found for campaign.");
+        if (!existing || existing.runId !== run.id) throw new DomainError("REPOSITORY_NOT_FOUND", "DAG strategy run not found for campaign.", 404);
         return { strategy: existing };
       }
       return { strategy };

@@ -85,8 +85,10 @@ export class GitClient {
       remoteUrl = remoteUrlOrCtx;
       probeCtx = ctx;
     } else if (typeof remoteUrlOrCtx === "object" && remoteUrlOrCtx !== null) {
-      // Called as getRemoteHeadSha(ctx, branch) - remote inferred from ctx
-      remoteUrl = (remoteUrlOrCtx as any).remoteUrl ?? branch;
+      // Called as getRemoteHeadSha(ctx) - GitContext carries no remote URL,
+      // so probe the checkout's configured default remote from inside its
+      // working path instead of mistaking the branch name for a URL.
+      remoteUrl = "";
       probeCtx = remoteUrlOrCtx as GitContext;
       branch = "main";
     } else {
@@ -94,11 +96,16 @@ export class GitClient {
     }
 
     try {
+      const refArg = `refs/heads/${branch}`;
       let output: string;
-      if (probeCtx && probeCtx.environment === "wsl") {
-        output = await this.runGit(["ls-remote", remoteUrl, `refs/heads/${branch}`], probeCtx);
+      if (probeCtx) {
+        const args = remoteUrl ? ["ls-remote", remoteUrl, refArg] : ["ls-remote", refArg];
+        output =
+          probeCtx.environment === "wsl"
+            ? await this.runGit(args, probeCtx)
+            : await this.runProc("git", args, probeCtx.workingPath);
       } else {
-        output = await this.runProc("git", ["ls-remote", remoteUrl, `refs/heads/${branch}`]);
+        output = await this.runProc("git", ["ls-remote", remoteUrl, refArg]);
       }
       if (!output) return null;
       const match = output.match(/^([0-9a-fA-F]{40})\s+/);

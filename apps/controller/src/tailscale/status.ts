@@ -39,10 +39,7 @@ export async function detectTailscaleStatus(port: number): Promise<TailscaleGuid
     command,
     status: result.status,
     details: result.details,
-    instructions:
-      result.status === "configured" || result.status === "serve_not_configured"
-        ? baseInstructions
-        : baseInstructions
+    instructions: baseInstructions
   };
 }
 
