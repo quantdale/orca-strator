@@ -18,7 +18,7 @@ describe("LogRotator (Task 4)", () => {
   });
 
   it("4.T1 prunes oldest log files when limit is exceeded", () => {
-    const repoLogDir = path.join(tempDir, "logs", "repositories", "repo-1");
+    const repoLogDir = path.join(tempDir, "logs", "repo-1");
     fs.mkdirSync(repoLogDir, { recursive: true });
 
     // Create 5 fake log files

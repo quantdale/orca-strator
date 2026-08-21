@@ -5,7 +5,7 @@ export class LogRotator {
   constructor(private readonly dataDir: string) {}
 
   pruneLogs(repositoryId: string, maxRetainedFiles = 50): number {
-    const repoLogDir = path.join(this.dataDir, "logs", "repositories", repositoryId);
+    const repoLogDir = path.join(this.dataDir, "logs", repositoryId);
     if (!fs.existsSync(repoLogDir)) return 0;
 
     const files = fs.readdirSync(repoLogDir);

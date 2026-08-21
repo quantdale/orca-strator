@@ -19,11 +19,11 @@ export const executorRoutes = (
       }
     );
 
-    fastify.get<{ Params: { id: string }; Reply: { logs: string[] } }>(
+    fastify.get<{ Params: { id: string }; Querystring: { runAttemptId?: string }; Reply: { logs: string[] } }>(
       "/api/repositories/:id/executor/logs",
       async (request) => {
         repositoryService.getRepository(request.params.id);
-        const logs = executorService.getLogs(request.params.id);
+        const logs = executorService.getLogs(request.params.id, request.query.runAttemptId);
         return { logs };
       }
     );

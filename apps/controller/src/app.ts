@@ -123,7 +123,7 @@ export async function buildApp(
   const solControlStore = new SolControlStore(dbContext.db);
   const runStore = new RunStore(dbContext.db);
   const eventBus = new EventBus();
-  const repositoryService = new RepositoryService(store, eventBus);
+  const repositoryService = new RepositoryService(store, eventBus, runStore);
   const capabilityStore = new CapabilityStore(dbContext.db);
   const runPolicyStore = new RunPolicyStore(dbContext.db);
   const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);
@@ -174,6 +174,10 @@ export async function buildApp(
   const integrationService = new IntegrationService(workPacketStore);
   const permissionPolicyService = new PermissionPolicyService({
     store: permissionStore,
+    // Native enforcement claim comes from the latest capability probe; without
+    // a READY probe the policy service records decisions as ADVISORY_ONLY.
+    hasNativePermissionApi: (repositoryId) =>
+      capabilityStore.latest(repositoryId)?.snapshot.rich.permissionApi === "READY",
     attentionHandler: (decision) => {
       if (!decision.runId) return;
       const run = runStore.get(decision.runId);
@@ -317,6 +321,11 @@ export async function buildApp(
   await reconciler.reconcile();
   await dagExecutionService.recoverAll();
 
+  // Scheduler leases live in memory only; after a restart nothing is active
+  // yet, so persisted ADMITTED leases become STALE_RECOVERABLE for the owning
+  // execution strategy to reconcile.
+  schedulerService.recover();
+
   // Production watcher lifecycle (Fix #1): every existing enabled repository
   // must be watched automatically after startup without requiring a user
   // edit/save. Idempotent; reconcile subscription keeps create/update/delete
@@ -370,7 +379,7 @@ export async function buildApp(
   await fastify.register(websocket);
 
   await fastify.register(healthRoutes(dbContext.db));
-  await fastify.register(repositoryRoutes(repositoryService));
+  await fastify.register(repositoryRoutes(repositoryService, permissionStore));
   await fastify.register(
     watcherRoutes(watcherService, dispatchStore, repositoryService),
   );

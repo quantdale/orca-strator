@@ -3,17 +3,20 @@ import {
   validateCreateRepository,
   validateUpdateRepository,
   validateMergedRepository,
+  DomainError,
   RepositoryNotFoundError,
   type RepositoryRecord,
   type RepositoryMutationEvent
 } from '@orca/shared';
 import { RepositoryStore } from './repository-store.js';
+import { RunStore } from '../loop/run-store.js';
 import { EventBus } from '../events/event-bus.js';
 
 export class RepositoryService {
   constructor(
     private readonly store: RepositoryStore,
-    private readonly eventBus: EventBus
+    private readonly eventBus: EventBus,
+    private readonly runStore: RunStore
   ) {}
 
   listRepositories(): RepositoryRecord[] {
@@ -77,6 +80,17 @@ export class RepositoryService {
 
   deleteRepository(id: string): void {
     this.getRepository(id);
+
+    const activeRun = this.runStore.getActiveRun(id);
+    if (activeRun) {
+      // 409 conflict: deleting mid-run cascades away runs/dispatches/executor
+      // rows the executor child process and loop timers still reference.
+      throw new DomainError(
+        'REPOSITORY_ACTIVE_RUN',
+        `Repository "${id}" cannot be deleted while run "${activeRun.id}" is active.`,
+        409
+      );
+    }
 
     const deleted = this.store.delete(id);
     if (deleted) {

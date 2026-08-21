@@ -23,6 +23,22 @@ interface DecisionRow {
   resolved_at: string | null;
 }
 
+function mapDecision(row: DecisionRow): PermissionDecision {
+  return {
+    id: row.id,
+    repositoryId: row.repository_id,
+    runId: row.run_id,
+    iteration: row.iteration,
+    action: row.action,
+    outcome: row.outcome,
+    enforcement: row.enforcement,
+    rationale: row.rationale,
+    actionable: Boolean(row.actionable),
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at
+  };
+}
+
 export class PermissionStore {
   constructor(private readonly db: DatabaseSync) {}
 
@@ -63,18 +79,25 @@ export class PermissionStore {
       ORDER BY created_at DESC
       LIMIT ?
     `).all(repositoryId, limit) as unknown as DecisionRow[];
-    return rows.map((row) => ({
-      id: row.id,
-      repositoryId: row.repository_id,
-      runId: row.run_id,
-      iteration: row.iteration,
-      action: row.action,
-      outcome: row.outcome,
-      enforcement: row.enforcement,
-      rationale: row.rationale,
-      actionable: Boolean(row.actionable),
-      createdAt: row.created_at,
-      resolvedAt: row.resolved_at
-    }));
+    return rows.map(mapDecision);
+  }
+
+  getDecision(id: string): PermissionDecision | null {
+    const row = this.db.prepare(
+      "SELECT * FROM permission_decisions WHERE id = ?"
+    ).get(id) as unknown as DecisionRow | undefined;
+    return row ? mapDecision(row) : null;
+  }
+
+  /** Settle a pending (typically ASK) decision with the user's outcome. */
+  resolveDecision(
+    id: string,
+    outcome: Exclude<PermissionOutcome, "ASK">,
+    resolvedAt = new Date().toISOString()
+  ): PermissionDecision | null {
+    this.db.prepare(
+      "UPDATE permission_decisions SET outcome = ?, resolved_at = ? WHERE id = ?"
+    ).run(outcome, resolvedAt, id);
+    return this.getDecision(id);
   }
 }

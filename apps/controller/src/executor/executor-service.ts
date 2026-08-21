@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import {
@@ -24,6 +25,7 @@ import type { OpenCodeAdapter } from "./adapters/opencode-adapter.js";
 import { WindowsPowerShellAdapter } from "./adapters/windows-adapter.js";
 import { WslAdapter } from "./adapters/wsl-adapter.js";
 import { ExecutorRunner } from "./executor-runner.js";
+import { LogRotator } from "./log-rotator.js";
 import { buildExecutorInvocation, resolveProfile } from "./profiles.js";
 import { toWslPath } from "../wsl-path.js";
 
@@ -56,6 +58,8 @@ export interface ExecutorServiceOptions {
 
 const MAX_LAUNCH_ATTEMPTS = 3;
 const LAUNCH_RETRY_BASE_MS = 1500;
+/** Tail bound for persisted log reads; matches ExecutorRunner's ring buffer size. */
+const MAX_PERSISTED_LOG_LINES = 200;
 
 export class ExecutorService {
   private readonly repoStore: RepositoryStore;
@@ -75,6 +79,7 @@ export class ExecutorService {
     result: ExecutorResult | null
   ) => void;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
+  private readonly logRotator: LogRotator;
 
   private readonly activeRunners = new Map<string, ExecutorRunner>();
 
@@ -92,6 +97,7 @@ export class ExecutorService {
     this.usageTelemetryService = options.usageTelemetryService;
     this.onExecutorCompleted = options.onExecutorCompleted;
     this.eventPublisher = options.eventPublisher;
+    this.logRotator = new LogRotator(this.dataDir);
   }
 
   async startRun(
@@ -240,15 +246,23 @@ export class ExecutorService {
           finishedAt
         });
 
+        // Bound per-run log retention: prune oldest persisted run logs after each completion.
+        try {
+          this.logRotator.pruneLogs(repositoryId);
+        } catch (err: any) {
+          this.publishLog(repositoryId, dispatch.id, `[system] Log pruning failed: ${err?.message || String(err)}`);
+        }
+
         // PAUSED is not an error completion; do not trigger RECOVERY_REQUIRED path.
-        // Handle async completion with safe guard against closed DB (test teardown).
+        // Handle async completion with safe guard against closed DB (test teardown);
+        // surface failures so a stalled completion is diagnosable instead of silent.
         if (details.reason === "PAUSED" || details.wasPaused) {
           // Persist result if present but do NOT wake Sol; leave PAUSED for resume.
-          this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch(() => {});
+          this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch((err) => this.reportCompletionFailure(repositoryId, dispatch.id, finalStatus, err));
           return;
         }
 
-        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch(() => {});
+        this.handleTurnCompletion(repositoryId, dispatchId, finalStatus, details, exitCode, adapter, runAttemptId).catch((err) => this.reportCompletionFailure(repositoryId, dispatch.id, finalStatus, err));
       }
     });
 
@@ -386,6 +400,21 @@ export class ExecutorService {
     if (this.onExecutorCompleted) {
       this.onExecutorCompleted(repositoryId, dispatchId, result);
     }
+  }
+
+  /** Surface swallowed completion failures (e.g., DB teardown) on the executor.log bus. */
+  private reportCompletionFailure(
+    repositoryId: string,
+    dispatchId: string,
+    finalStatus: string,
+    err: any
+  ): void {
+    const message = err?.message || String(err);
+    this.publishLog(
+      repositoryId,
+      dispatchId,
+      `[system] Turn completion handling failed (${finalStatus}): ${message}`
+    );
   }
 
   /** Read, validate, and postflight-verify the durable result manifest (E/F, item #6/#7). */
@@ -585,9 +614,39 @@ export class ExecutorService {
     };
   }
 
-  getLogs(repositoryId: string): string[] {
+  getLogs(repositoryId: string, runAttemptId?: string): string[] {
     const runner = this.activeRunners.get(repositoryId);
-    return runner ? runner.getLogs() : [];
+    if (runner) return runner.getLogs();
+    return this.readPersistedLogTail(repositoryId, runAttemptId);
+  }
+
+  /** Serve a bounded tail of a persisted per-run log (latest by default) when no runner is active. */
+  private readPersistedLogTail(repositoryId: string, runAttemptId?: string): string[] {
+    const repoLogDir = path.join(this.dataDir, "logs", repositoryId);
+    try {
+      const logPath = runAttemptId
+        ? path.join(repoLogDir, `${runAttemptId}.log`)
+        : this.latestPersistedLog(repoLogDir);
+      if (!logPath || !fs.existsSync(logPath)) return [];
+      const lines = fs.readFileSync(logPath, "utf8").split("\n");
+      while (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop();
+      }
+      return lines.slice(-MAX_PERSISTED_LOG_LINES);
+    } catch {
+      return [];
+    }
+  }
+
+  private latestPersistedLog(repoLogDir: string): string | null {
+    let latest: { fullPath: string; mtimeMs: number } | null = null;
+    for (const file of fs.readdirSync(repoLogDir)) {
+      if (!file.endsWith(".log")) continue;
+      const fullPath = path.join(repoLogDir, file);
+      const mtimeMs = fs.statSync(fullPath).mtimeMs;
+      if (!latest || mtimeMs > latest.mtimeMs) latest = { fullPath, mtimeMs };
+    }
+    return latest?.fullPath ?? null;
   }
 
   private publishLog(repositoryId: string, dispatchId: string, line: string): void {

@@ -1,11 +1,20 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type {
+  PermissionDecision,
   RepositoryListResponse,
   RepositoryResponse
 } from '@orca/shared';
+import { DomainError, ValidationError } from '@orca/shared';
+import type { PermissionStore } from '../../permissions/permission-store.js';
 import { RepositoryService } from '../../repositories/repository-service.js';
 
-export const repositoryRoutes = (service: RepositoryService): FastifyPluginAsync => {
+const RESOLVABLE_OUTCOMES = ['ALLOW', 'ALLOW_ONCE', 'DENY'] as const;
+type ResolvableOutcome = (typeof RESOLVABLE_OUTCOMES)[number];
+
+export const repositoryRoutes = (
+  service: RepositoryService,
+  permissionStore: PermissionStore
+): FastifyPluginAsync => {
   return async (fastify) => {
     fastify.get<{ Reply: RepositoryListResponse }>('/api/repositories', async () => {
       const repositories = service.listRepositories();
@@ -41,6 +50,40 @@ export const repositoryRoutes = (service: RepositoryService): FastifyPluginAsync
       async (request, reply) => {
         service.deleteRepository(request.params.id);
         return reply.status(204).send();
+      }
+    );
+
+    // Resolve a pending permission decision (API-CONTRACT §17: an ASK is a
+    // durable decision for user attention, not an indefinite hidden wait).
+    fastify.post<{ Params: { id: string; decisionId: string }; Body: unknown; Reply: { decision: PermissionDecision } }>(
+      '/api/repositories/:id/permissions/decisions/:decisionId/resolve',
+      async (request) => {
+        const outcome = (request.body as { outcome?: unknown } | undefined)?.outcome;
+        if (
+          typeof outcome !== 'string' ||
+          !(RESOLVABLE_OUTCOMES as readonly string[]).includes(outcome)
+        ) {
+          throw new ValidationError(
+            `outcome must be one of: ${RESOLVABLE_OUTCOMES.join(', ')}.`
+          );
+        }
+
+        const decision = permissionStore.getDecision(request.params.decisionId);
+        const notFound = () =>
+          new DomainError(
+            'PERMISSION_DECISION_NOT_FOUND',
+            `Permission decision "${request.params.decisionId}" not found for repository "${request.params.id}".`,
+            404
+          );
+        if (!decision || decision.repositoryId !== request.params.id) {
+          throw notFound();
+        }
+
+        const resolved = permissionStore.resolveDecision(decision.id, outcome as ResolvableOutcome);
+        if (!resolved) {
+          throw notFound();
+        }
+        return { decision: resolved };
       }
     );
   };
