@@ -2,8 +2,8 @@
  * R15 — Production buildApp() AUTONOMOUS DAG campaign qualification
  * (Change 017: true A->B state dependency through the watcher/loop seam).
  *
- * Intended proof (both scenarios below are fully implemented but MUST stay
- * skipped until the production blockers documented here are fixed):
+ * Intended proof (both scenarios below run for real; the production blockers
+ * they originally caught were FOUND AND FIXED during Change 017):
  *   create repo via app seam -> start run via REST -> create durable typed
  *   packets -> push an isolated DAG dispatch marker (strategy: "DAG" +
  *   executionPlan.dagNodes) to the bare remote -> production watcher

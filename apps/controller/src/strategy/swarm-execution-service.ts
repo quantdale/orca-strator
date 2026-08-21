@@ -38,6 +38,7 @@ import type { UsageTelemetryService } from "../usage/usage-telemetry-service.js"
 import type { WorkPacketService } from "../packets/work-packet-service.js";
 import type { WorkPacketStore } from "../packets/work-packet-store.js";
 import type { WorktreeIsolationService } from "../packets/worktree-isolation-service.js";
+import type { StrategyStagingHandle } from "../packets/worktree-isolation-service.js";
 import type { IntegrationService } from "../packets/integration-service.js";
 import { toWslPath } from "../wsl-path.js";
 import type { StrategyRunStore } from "./strategy-run-store.js";
@@ -121,6 +122,16 @@ export class SwarmExecutionService {
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private readonly active = new Map<string, ActiveStrategy>();
   private readonly hooks = new Map<string, StrategyExecutionHooks>();
+  /**
+   * Change 018 R2: per-strategyRunId integration mutex (promise chain). Every
+   * operation that touches the strategy staging checkout — staging creation,
+   * node cherry-pick, final integration — runs exclusively under it, so no two
+   * Git index operations can race by construction. Worker EXECUTION stays
+   * parallel; only staging ownership is serialized.
+   */
+  private readonly integrationLocks = new Map<string, Promise<void>>();
+  /** Change 018 R1: the single staging checkout per strategy run. */
+  private readonly stagings = new Map<string, StrategyStagingHandle>();
 
   constructor(options: SwarmExecutionServiceOptions) {
     this.repositoryStore = options.repositoryStore;
@@ -386,6 +397,12 @@ export class SwarmExecutionService {
       const run = this.runStore.get(record.runId);
       if (!run)
         throw new ValidationError(`Campaign ${record.runId} not found.`);
+      // Change 018 review F6: a direct strategy RESUME must not contradict
+      // campaign state — the campaign must itself be PAUSED.
+      if (run.status !== "PAUSED")
+        throw new ValidationError(
+          `Cannot resume strategy while campaign is ${run.status}.`,
+        );
       const packets = record.packetIds
         .map((packetId) => this.packetService.get(packetId))
         .filter((packet): packet is WorkPacket => Boolean(packet));
@@ -408,6 +425,96 @@ export class SwarmExecutionService {
           this.hooks.get(strategyRunId),
         ).catch((error) => this.failStrategy(strategyRunId, error));
       return resumed ?? updated;
+    } else if (
+      (decision === "STOP" || decision === "KILL") &&
+      !active &&
+      record.status === "PAUSED"
+    ) {
+      // A paused actor has no live executeRecord loop to observe the requested
+      // control state; settle it synchronously so campaign controls cannot hang
+      // and campaign/strategy states can never contradict.
+      const terminalStatus: StrategyRunStatus =
+        decision === "STOP" ? "CANCELLED" : "RECOVERY_REQUIRED";
+      const blocker =
+        decision === "STOP"
+          ? "USER_STOP: paused strategy stopped."
+          : "EMERGENCY_KILLED: paused strategy killed.";
+      const packets = record.packetIds
+        .map((packetId) => this.packetService.get(packetId))
+        .filter((packet): packet is WorkPacket => Boolean(packet));
+      for (const packet of packets) {
+        const existing = this.packetService.getResult(packet.packetId);
+        if (existing?.status === "COMPLETED") continue;
+        this.packetService.recordResult(
+          repository,
+          packet,
+          this.syntheticResult(packet, "CANCELLED", blocker, null),
+        );
+      }
+      // Terminal worktree semantics: STOP releases (policy violations keep
+      // their worktree); KILL preserves everything for recovery.
+      await Promise.all(
+        packets.map(async (packet) => {
+          if (decision === "KILL") return;
+          const worktree = this.packetStore.getWorktreeByPacket(packet.packetId);
+          if (
+            worktree &&
+            ["ACTIVE", "STALE", "ALLOCATED"].includes(worktree.status)
+          ) {
+            const result = this.packetService.getResult(packet.packetId);
+            if (result?.blocker === "POLICY_VIOLATION") return;
+            await this.worktreeService
+              .release(repository, worktree.worktreeId)
+              .catch(() => {});
+          }
+        }),
+      );
+      const staging = this.stagings.get(strategyRunId);
+      if (staging) {
+        try {
+          await this.worktreeService.removeStagingWorktree(repository, staging);
+        } catch {}
+      }
+      const finishedAt = new Date().toISOString();
+      const settled =
+        this.strategyStore.update(strategyRunId, {
+          status: terminalStatus,
+          controlState: nextState,
+          finishedAt,
+          lastError: blocker,
+        }) ??
+        this.strategyStore.get(strategyRunId) ?? {
+          ...record,
+          status: terminalStatus,
+          controlState: nextState,
+          finishedAt,
+          lastError: blocker,
+          updatedAt: finishedAt,
+        };
+      this.publish(
+        {
+          type: "strategy.completed",
+          at: finishedAt,
+          repositoryId,
+          data: {
+            runId: record.runId,
+            iteration: record.iteration,
+            strategyRunId,
+            strategy: record.strategy,
+            strategyStatus: terminalStatus,
+            reason: blocker,
+          },
+        },
+        this.hooks.get(strategyRunId),
+      );
+      try {
+        this.hooks.get(strategyRunId)?.onCompleted?.(settled);
+      } catch {}
+      this.active.delete(strategyRunId);
+      this.hooks.delete(strategyRunId);
+      this.stagings.delete(strategyRunId);
+      this.integrationLocks.delete(strategyRunId);
+      return settled;
     }
     return this.strategyStore.get(strategyRunId) ?? updated;
   }
@@ -550,7 +657,11 @@ export class SwarmExecutionService {
       throw new ValidationError(
         "Swarm packet dependency graph contains a cycle.",
       );
-    if (this.strategyStore.getActiveForRun(runId))
+    // A RECOVERY_REQUIRED record is ownership-terminal (documents the
+    // interrupted iteration) and must not permanently block a new authorized
+    // strategy start (Change 018 review F3 recovery dead-end).
+    const blocking = this.strategyStore.getActiveForRun(runId);
+    if (blocking && blocking.status !== "RECOVERY_REQUIRED")
       throw new ValidationError(
         `A strategy is already active for campaign ${runId}.`,
       );
@@ -590,7 +701,7 @@ export class SwarmExecutionService {
     });
   }
 
-  /** Resolve the current local `main` HEAD SHA (used as the DAG per-node base). */
+  /** Resolve the current local `main` HEAD SHA (used as the DAG strategy base fallback). */
   private async currentMainSha(
     repository: RepositoryRecord,
   ): Promise<string | null> {
@@ -603,17 +714,339 @@ export class SwarmExecutionService {
     }
   }
 
-  /** Integrate a single completed packet's commit onto persistent main (DAG per-node). */
-  private async integrateSingle(
+  /**
+   * Change 018 R2: serialize every staging-checkout operation for a strategy
+   * run through a per-run promise chain. Each caller chains onto the stored
+   * tail; rejections are swallowed in the stored tail so the chain never
+   * breaks, while the caller still receives its own outcome.
+   */
+  private withIntegrationLock<T>(
+    strategyRunId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.integrationLocks.get(strategyRunId) ?? Promise.resolve();
+    const run = previous.then(operation);
+    this.integrationLocks.set(
+      strategyRunId,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return run;
+  }
+
+  /**
+   * Change 018 R1/R3: resolve the immutable base every DAG node, the staging
+   * lineage, and every SWARM worker derives from. Dispatch-authorized runs
+   * carry an explicit strategyBaseSha; REST-started strategies capture main
+   * once, before the first worker launches, and backfill the record so resume
+   * reuses the same snapshot.
+   */
+  private async resolveStrategyBase(
     repository: RepositoryRecord,
+    record: StrategyRunRecord,
+  ): Promise<string | null> {
+    if (record.strategyBaseSha && /^[0-9a-f]{40}$/i.test(record.strategyBaseSha))
+      return record.strategyBaseSha;
+    const captured = await this.currentMainSha(repository);
+    if (captured && !record.strategyBaseSha)
+      this.strategyStore.update(record.strategyRunId, { strategyBaseSha: captured });
+    return captured;
+  }
+
+  /**
+   * Change 018 R3: original staged commit SHAs of the packet's TRANSITIVE
+   * dependencies, in completion order. The scheduler only launches a node once
+   * its direct dependencies completed, so completion order is a topological
+   * order and replaying in it is parent-before-child by construction.
+   */
+  private transitiveDependencyCommits(
     packet: WorkPacket,
+    packets: WorkPacket[],
+    results: Map<string, WorkPacketResult>,
+  ): string[] {
+    const byId = new Map(packets.map((candidate) => [candidate.packetId, candidate]));
+    const seen = new Set<string>();
+    const queue = [...packet.dependencies];
+    const commits: { createdAt: string; sha: string }[] = [];
+    while (queue.length > 0) {
+      const dependencyId = queue.shift()!;
+      if (seen.has(dependencyId)) continue;
+      seen.add(dependencyId);
+      const dependency = byId.get(dependencyId);
+      if (dependency) queue.push(...dependency.dependencies);
+      const result =
+        results.get(dependencyId) ?? this.packetService.getResult(dependencyId);
+      const sha = result?.worktree?.commitSha;
+      if (result?.status === "COMPLETED" && sha)
+        commits.push({ createdAt: result.createdAt, sha });
+    }
+    return commits
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((entry) => entry.sha);
+  }
+
+  /**
+   * Change 018 R1: cherry-pick one accepted node commit into the strategy's
+   * staging checkout (never onto persistent user main). Failure returns a
+   * structured INTEGRATION_CONFLICT/BLOCKED report so the existing conflict
+   * semantics apply unchanged — staged instead of integrated.
+   */
+  private async stageNodeCommit(
+    repository: RepositoryRecord,
+    record: StrategyRunRecord,
     result: WorkPacketResult,
   ): Promise<IntegrationReport> {
-    return this.integrationService.integrateSingleCommit(
-      repository,
-      packet,
-      result,
+    const commitSha = result.worktree?.commitSha;
+    const reportBase = {
+      schemaVersion: 1 as const,
+      repositoryId: repository.id,
+      runId: result.runId,
+      iteration: result.iteration,
+      integratedPacketIds: [] as string[],
+      results: [result],
+      createdAt: new Date().toISOString(),
+    };
+    if (!commitSha)
+      return {
+        ...reportBase,
+        status: "BLOCKED",
+        finalCommitSha: null,
+        blocker: "Completed result has no worktree branch/commit provenance.",
+      };
+    try {
+      return await this.withIntegrationLock(record.strategyRunId, async () => {
+        const staging = await this.ensureStagingCheckout(repository, record);
+        const picked = await this.worktreeService.cherryPickIntoStaging(
+          repository,
+          staging,
+          commitSha,
+        );
+        if (!picked.ok)
+          return {
+            ...reportBase,
+            status: "INTEGRATION_CONFLICT" as const,
+            finalCommitSha: null,
+            blocker: `Git integration failed and was aborted: ${picked.error}`,
+          };
+        return {
+          ...reportBase,
+          status: "COMPLETED" as const,
+          integratedPacketIds: [result.packetId],
+          finalCommitSha: picked.head,
+          blocker: null,
+        };
+      });
+    } catch (error: any) {
+      return {
+        ...reportBase,
+        status: "BLOCKED",
+        finalCommitSha: null,
+        blocker: `STAGING_UNAVAILABLE: ${error?.message ?? String(error)}`,
+      };
+    }
+  }
+
+  /** Lazily create/reuse the run's single staging checkout. Call under the mutex. */
+  private async ensureStagingCheckout(
+    repository: RepositoryRecord,
+    record: StrategyRunRecord,
+  ): Promise<StrategyStagingHandle> {
+    const existing = this.stagings.get(record.strategyRunId);
+    if (existing) return existing;
+    const baseSha =
+      record.strategyBaseSha && /^[0-9a-f]{40}$/i.test(record.strategyBaseSha)
+        ? record.strategyBaseSha
+        : await this.currentMainSha(repository);
+    if (!baseSha)
+      throw new Error("Cannot resolve an immutable base for the staging checkout.");
+    const staging = await this.worktreeService.ensureStaging(repository, {
+      strategyRunId: record.strategyRunId,
+      runId: record.runId,
+      baseSha,
+    });
+    this.stagings.set(record.strategyRunId, staging);
+    return staging;
+  }
+
+  /**
+   * Change 018 restart continuation: original worker commit SHAs of EVERY
+   * accepted COMPLETED result belonging to this campaign iteration — across
+   * ALL strategy runs of the campaign, including runs interrupted by a
+   * controller restart whose commits were never landed. Completion order is
+   * deterministic and topological (a node only completes after its declared
+   * dependencies), so replaying in this order is parent-before-child.
+   */
+  private acceptedIterationResultCommits(
+    record: StrategyRunRecord,
+  ): { createdAt: string; sha: string }[] {
+    const seen = new Set<string>();
+    const commits: { createdAt: string; sha: string }[] = [];
+    for (const result of this.packetService.listResults(record.runId)) {
+      const sha = result.worktree?.commitSha;
+      if (
+        result.iteration !== record.iteration ||
+        result.status !== "COMPLETED" ||
+        !sha ||
+        seen.has(sha)
+      )
+        continue;
+      seen.add(sha);
+      commits.push({ createdAt: result.createdAt, sha });
+    }
+    return commits.sort(
+      (a, b) =>
+        a.createdAt.localeCompare(b.createdAt) || a.sha.localeCompare(b.sha),
     );
+  }
+
+  /**
+   * Change 018 restart continuation: bring the staging lineage up to the full
+   * accepted state of the campaign iteration before it is merged. A fresh
+   * strategy run reuses pre-existing COMPLETED results without re-staging
+   * their commits, so its own lineage would otherwise silently DROP the
+   * previously accepted commits of interrupted prior runs at final
+   * integration. Commits already present (the normal case: zero extra work)
+   * are detected cheaply via merge-base --is-ancestor; missing ones are
+   * cherry-picked exactly like stageNodeCommit picks. Any failed pick aborts
+   * with a structured outcome — the landing never proceeds half-reconciled.
+   * Call under the integration mutex.
+   */
+  private async reconcileStagingLineage(
+    repository: RepositoryRecord,
+    staging: StrategyStagingHandle,
+    acceptedCommits: { createdAt: string; sha: string }[],
+  ): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        status: IntegrationReport["status"];
+        blocker: string;
+      }
+  > {
+    for (const { sha } of acceptedCommits) {
+      const present = await this.worktreeService.isCommitAncestorOfHead(
+        repository,
+        staging.path,
+        sha,
+      );
+      if (present) continue;
+      const picked = await this.worktreeService.cherryPickIntoStaging(
+        repository,
+        staging,
+        sha,
+      );
+      if (!picked.ok)
+        return {
+          ok: false,
+          status: "INTEGRATION_CONFLICT",
+          blocker: `LINEAGE_RECONCILIATION_CONFLICT: cherry-pick of previously accepted commit ${sha} failed and was aborted: ${picked.error}`,
+        };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Change 018 R1: final qualified integration at strategy terminal. From a
+   * CLEAN persistent main, bring the staging lineage forward: first reconcile
+   * it against EVERY accepted COMPLETED result of the campaign iteration
+   * (restart continuation — a fresh run inherits prior runs' accepted results
+   * without their commits), then ff-only merge; if main advanced, rebase the
+   * staging branch onto main (abort-on-failure) then ff again. Any unsafe
+   * condition yields a structured non-COMPLETED outcome — success is never
+   * faked. Returns null when nothing was ever staged (no accepted node),
+   * leaving the aggregate untouched.
+   */
+  private async landStagingLineage(
+    repository: RepositoryRecord,
+    record: StrategyRunRecord,
+  ): Promise<{
+    status: IntegrationReport["status"];
+    finalCommitSha: string | null;
+    blocker: string | null;
+  } | null> {
+    // Restart continuation: reconcile BEFORE touching main so accepted commits
+    // of interrupted prior strategy runs cannot be silently dropped by this
+    // run's lineage. An empty accepted set => nothing was ever staged.
+    const acceptedCommits = this.acceptedIterationResultCommits(record);
+    if (acceptedCommits.length === 0) return null;
+    let mainStatus = "";
+    try {
+      mainStatus = await this.gitClient.getWorkingTreeStatus(
+        this.gitContext(repository, repository.localPath),
+      );
+    } catch (error: any) {
+      return {
+        status: "BLOCKED",
+        finalCommitSha: null,
+        blocker: `MAIN_STATUS_UNAVAILABLE: ${error?.message ?? String(error)}`,
+      };
+    }
+    if (mainStatus.trim())
+      return {
+        status: "BLOCKED",
+        finalCommitSha: null,
+        blocker:
+          "FINAL_INTEGRATION_DIRTY_MAIN: persistent main checkout is dirty; the staging lineage was not merged.",
+      };
+    let staging = this.stagings.get(record.strategyRunId);
+    if (!staging) {
+      try {
+        staging = await this.ensureStagingCheckout(repository, record);
+      } catch (error: any) {
+        return {
+          status: "BLOCKED",
+          finalCommitSha: null,
+          blocker: `STAGING_UNAVAILABLE: ${error?.message ?? String(error)}`,
+        };
+      }
+    }
+    const reconciled = await this.reconcileStagingLineage(
+      repository,
+      staging,
+      acceptedCommits,
+    );
+    if (!reconciled.ok)
+      return {
+        status: reconciled.status,
+        finalCommitSha: null,
+        blocker: reconciled.blocker,
+      };
+    const fastForward = await this.worktreeService.mergeFastForwardIntoMain(
+      repository,
+      staging.branch,
+    );
+    if (fastForward.ok) {
+      await this.worktreeService.removeStagingWorktree(repository, staging);
+      return { status: "COMPLETED", finalCommitSha: fastForward.head, blocker: null };
+    }
+    const rebased = await this.worktreeService.rebaseStagingOntoMain(
+      repository,
+      staging,
+    );
+    if (!rebased.ok)
+      return {
+        status: "INTEGRATION_CONFLICT",
+        finalCommitSha: null,
+        blocker: `FINAL_INTEGRATION_CONFLICT: cannot fast-forward or rebase the staging lineage onto main. ${rebased.error}`,
+      };
+    const secondFastForward = await this.worktreeService.mergeFastForwardIntoMain(
+      repository,
+      staging.branch,
+    );
+    if (!secondFastForward.ok)
+      return {
+        status: "BLOCKED",
+        finalCommitSha: null,
+        blocker: `FINAL_INTEGRATION_FAILED: staging rebased onto main but the fast-forward failed. ${secondFastForward.error}`,
+      };
+    await this.worktreeService.removeStagingWorktree(repository, staging);
+    return {
+      status: "COMPLETED",
+      finalCommitSha: secondFastForward.head,
+      blocker: null,
+    };
   }
 
   private async executeRecord(
@@ -661,6 +1094,13 @@ export class SwarmExecutionService {
         pending.delete(packet.packetId);
       }
     }
+    // Change 018 R3: DAG nodes, the staging lineage, and SWARM workers derive
+    // from ONE immutable base. Dispatch-authorized runs carry it explicitly;
+    // REST-started strategies capture main once here and backfill the record
+    // so resume reuses the same snapshot instead of drifting refs/heads/main.
+    const strategyBase = await this.resolveStrategyBase(repository, record);
+    if (strategyBase && !record.strategyBaseSha)
+      record.strategyBaseSha = strategyBase;
 
     try {
       let idlePolls = 0;
@@ -854,29 +1294,16 @@ export class SwarmExecutionService {
               continue;
             }
 
-            // Item #7/#8: workers derive from a deterministic base. SWARM uses the
-            // immutable strategy base; DAG allocates each node from the CURRENT
-            // main (which already contains its dependencies' integrated output).
+            // Change 018 R3: workers derive from the immutable strategy base.
+            // SWARM uses it directly; a DAG node additionally replays its
+            // AUTHORIZED transitive dependency commits (original staged SHAs,
+            // completion order) into its own worktree before the worker starts
+            // — never sibling output, never user-main noise.
             const isDag = record.strategy === "DAG";
-            const baseSha = isDag
-              ? ((await this.currentMainSha(repository)) ?? undefined)
-              : (record.strategyBaseSha ?? undefined);
+            const baseSha = strategyBase ?? undefined;
             const dependencyInputShas = isDag
-              ? packet.dependencies
-                  .map(
-                    (dependency) =>
-                      results.get(dependency)?.worktree?.commitSha ??
-                      this.packetService.getResult(dependency)?.worktree
-                        ?.commitSha ??
-                      null,
-                  )
-                  .filter((sha): sha is string => Boolean(sha))
+              ? this.transitiveDependencyCommits(packet, packets, results)
               : [];
-            hooks.onNodeAllocated?.(
-              packet.packetId,
-              baseSha ?? "",
-              dependencyInputShas,
-            );
             let worktree;
             try {
               this.packetService.updateStatus(packet.packetId, "STARTING");
@@ -884,14 +1311,38 @@ export class SwarmExecutionService {
                 repository,
                 packet,
                 baseSha,
+                isDag && dependencyInputShas.length > 0
+                  ? (target) =>
+                      this.worktreeService.replayCommits(
+                        repository,
+                        target.path,
+                        dependencyInputShas,
+                      )
+                  : undefined,
+              );
+              if (isDag && dependencyInputShas.length > 0) {
+                // Provenance: the worktree row keeps the ORIGINAL staged
+                // dependency SHAs; its baseSha (persisted by allocate) is the
+                // post-replay HEAD the worker actually derives from.
+                this.packetStore.updateWorktree(worktree.worktreeId, {
+                  dependencyInputShas,
+                });
+              }
+              hooks.onNodeAllocated?.(
+                packet.packetId,
+                worktree.baseSha,
+                dependencyInputShas,
               );
               this.packetService.updateStatus(packet.packetId, "RUNNING");
             } catch (error: any) {
               this.schedulerService.release(requestId);
+              const message = error?.message ?? String(error);
               const result = this.syntheticResult(
                 packet,
                 "BLOCKED",
-                `WORKTREE_ALLOCATION_FAILED: ${error?.message ?? String(error)}`,
+                message.startsWith("DEPENDENCY_REPLAY_FAILED")
+                  ? message
+                  : `WORKTREE_ALLOCATION_FAILED: ${message}`,
                 null,
               );
               results.set(
@@ -931,16 +1382,18 @@ export class SwarmExecutionService {
                 result,
               );
               let integration: IntegrationReport | null = null;
-              // Item #8: DAG integrates each completed node immediately so a
-              // dependent node's later allocation sees the accepted output.
+              // Change 018 R1/R2: a DAG node's accepted commit is cherry-picked
+              // into the run's staging checkout under the integration mutex.
+              // Persistent user main is NOT touched during node staging; the
+              // final qualified integration happens once at strategy terminal.
               if (
                 record.strategy === "DAG" &&
                 persisted.status === "COMPLETED" &&
                 persisted.worktree?.commitSha
               ) {
-                integration = await this.integrateSingle(
+                integration = await this.stageNodeCommit(
                   repository,
-                  packet,
+                  record,
                   persisted,
                 );
                 hooks.onNodeIntegrated?.(
@@ -949,9 +1402,10 @@ export class SwarmExecutionService {
                   integration,
                 );
                 if (integration.status !== "COMPLETED") {
-                  // A node whose accepted output did not integrate (e.g. a
-                  // cherry-pick conflict) must not count as COMPLETED in the
-                  // DAG aggregate; surface the typed integration outcome.
+                  // A node whose accepted output did not stage (e.g. a
+                  // cherry-pick conflict against staged sibling output) must
+                  // not count as COMPLETED in the DAG aggregate; surface the
+                  // typed staging outcome.
                   persisted = {
                     ...persisted,
                     status: "BLOCKED",
@@ -963,7 +1417,7 @@ export class SwarmExecutionService {
                       ...persisted.risks,
                       `node_integration=${integration.status}`,
                     ],
-                    summary: `Worker ${packet.workstream} completed but its integration did not (${integration.status}).`,
+                    summary: `Worker ${packet.workstream} completed but its staging did not (${integration.status}).`,
                   };
                   this.packetService.updateStatus(
                     packet.packetId,
@@ -1102,14 +1556,12 @@ export class SwarmExecutionService {
         status = "CANCELLED";
         blocker = "USER_STOP: explicit swarm stop requested.";
       } else if (record.strategy === "DAG") {
-        // DAG integration is performed per-node during execution; aggregate it.
+        // Change 018 R1: node commits were staged (never integrated) during
+        // execution; perform the FINAL qualified integration of the staging
+        // lineage onto a clean persistent main, then aggregate truthfully.
         const completedIds = finalResults
           .filter((result) => result?.status === "COMPLETED")
           .map((result) => result!.packetId);
-        let finalCommitSha: string | null = null;
-        try {
-          finalCommitSha = await this.currentMainSha(repository);
-        } catch {}
         const allCompleted =
           finalResults.length > 0 &&
           finalResults.every((result) => result?.status === "COMPLETED");
@@ -1131,19 +1583,35 @@ export class SwarmExecutionService {
             : anyFailed
               ? "BLOCKED"
               : "PARTIAL";
+        const landing = await this.withIntegrationLock(
+          record.strategyRunId,
+          () => this.landStagingLineage(repository, record),
+        );
+        let finalCommitSha: string | null = landing?.finalCommitSha ?? null;
+        if (!finalCommitSha) {
+          try {
+            finalCommitSha = await this.currentMainSha(repository);
+          } catch {}
+        }
+        const landingFailure =
+          landing && landing.status !== "COMPLETED" ? landing : null;
+        const integrationStatus =
+          dagStatus === "COMPLETED" && landingFailure
+            ? landingFailure.status
+            : dagStatus;
         integration = {
           schemaVersion: 1,
           repositoryId: repository.id,
           runId: run.id,
           iteration: run.currentIteration,
-          status: dagStatus,
+          status: integrationStatus,
           integratedPacketIds: completedIds,
           results: finalResults.filter((result): result is WorkPacketResult =>
             Boolean(result),
           ),
           finalCommitSha,
           blocker: allCompleted
-            ? null
+            ? (landingFailure?.blocker ?? null)
             : "Some DAG nodes did not complete successfully.",
           createdAt: new Date().toISOString(),
         };
@@ -1256,6 +1724,17 @@ export class SwarmExecutionService {
               finishedAt,
             };
       if (status !== "PAUSED" && status !== "RECOVERY_REQUIRED") {
+        // Change 018 R1: remove the staging checkout at strategy terminal
+        // (branch retained as provenance). A failed final integration leaves
+        // the checkout in place for inspection instead.
+        if (record.strategy === "DAG") {
+          const staging = this.stagings.get(record.strategyRunId);
+          if (staging)
+            await this.worktreeService.removeStagingWorktree(
+              repository,
+              staging,
+            );
+        }
         await Promise.all(
           packets.map(async (packet) => {
             const worktree = this.packetStore.getWorktreeByPacket(
@@ -1276,6 +1755,20 @@ export class SwarmExecutionService {
             }
           }),
         );
+      }
+      // Change 018 R3/F2: a KILL (or STOP) that lands while final integration
+      // is still running must win over the just-computed integration outcome —
+      // otherwise a strategy could report COMPLETED under a campaign already
+      // marked RECOVERY_REQUIRED/STOPPED. Re-read the latched control state
+      // after all async work and let the control decision override.
+      const latestControlState =
+        this.strategyStore.get(record.strategyRunId)?.controlState ?? "NONE";
+      if (latestControlState === "KILL_REQUESTED") {
+        status = "RECOVERY_REQUIRED";
+        blocker = "EMERGENCY_KILLED: kill requested during strategy finalization.";
+      } else if (latestControlState === "STOP_REQUESTED") {
+        status = "CANCELLED";
+        blocker = "USER_STOP: stop requested during strategy finalization.";
       }
       const final = this.strategyStore.update(record.strategyRunId, {
         status,
@@ -1325,8 +1818,13 @@ export class SwarmExecutionService {
       return this.strategyStore.get(record.strategyRunId) ?? record;
     } finally {
       this.active.delete(record.strategyRunId);
-      if (this.strategyStore.get(record.strategyRunId)?.status !== "PAUSED")
+      this.integrationLocks.delete(record.strategyRunId);
+      if (this.strategyStore.get(record.strategyRunId)?.status !== "PAUSED") {
+        // A PAUSED run keeps its staging handle: RESUME continues the same
+        // lineage in the same checkout. Every terminal state drops it.
+        this.stagings.delete(record.strategyRunId);
         this.hooks.delete(record.strategyRunId);
+      }
     }
   }
 
@@ -1519,7 +2017,6 @@ export class SwarmExecutionService {
       packet.allowedPaths.length > 0
         ? filesChanged.filter((file) => !isPathAllowed(file, packet.allowedPaths))
         : [];
-    console.log("TEMP-DEBUG buildWorkerResult packet=", packet.packetId, "allowed=", JSON.stringify(packet.allowedPaths), "filesChanged=", JSON.stringify(filesChanged), "violating=", JSON.stringify(violatingPaths));
     let usageMetricIds: string[] = [];
     const metric = await this.usageTelemetryService?.captureAdapterUsage(
       adapter,

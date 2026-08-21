@@ -9,6 +9,7 @@ interface DagNodeRow {
   status: DagNodeStatus;
   budget_json: string;
   dependency_input_shas_json: string;
+  node_base_sha: string | null;
   attempt: number;
   max_retries: number;
   waiting_reason: string | null;
@@ -27,9 +28,9 @@ export class DagNodeStore {
       .prepare(`
       INSERT INTO execution_dag_nodes (
         strategy_run_id, node_id, packet_id, depends_on_json, status,
-        budget_json, dependency_input_shas_json, attempt, max_retries,
+        budget_json, dependency_input_shas_json, node_base_sha, attempt, max_retries,
         waiting_reason, started_at, finished_at, result_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .run(
         record.strategyRunId,
@@ -39,6 +40,7 @@ export class DagNodeStore {
         record.status,
         JSON.stringify(record.budget),
         JSON.stringify(record.dependencyInputShas ?? []),
+        record.nodeBaseSha ?? null,
         record.attempt,
         record.maxRetries,
         record.waitingReason,
@@ -111,6 +113,7 @@ export class DagNodeStore {
         | "attempt"
         | "maxRetries"
         | "dependencyInputShas"
+        | "nodeBaseSha"
       >
     >,
   ): DagNodeRecord | null {
@@ -126,7 +129,7 @@ export class DagNodeStore {
       UPDATE execution_dag_nodes
       SET status = ?, attempt = ?, max_retries = ?, waiting_reason = ?,
           started_at = ?, finished_at = ?, result_id = ?, dependency_input_shas_json = ?,
-          updated_at = ?
+          node_base_sha = ?, updated_at = ?
       WHERE strategy_run_id = ? AND node_id = ?
     `)
       .run(
@@ -138,6 +141,7 @@ export class DagNodeStore {
         next.finishedAt,
         next.resultId,
         JSON.stringify(next.dependencyInputShas ?? []),
+        next.nodeBaseSha ?? null,
         next.updatedAt,
         strategyRunId,
         nodeId,
@@ -155,6 +159,9 @@ export class DagNodeStore {
       status: row.status,
       budget: this.parseBudget(row.budget_json),
       dependencyInputShas: this.parseArray(row.dependency_input_shas_json),
+      // Omitted when unset so pre-existing DagNodeRecord literals (tests,
+      // callers) keep comparing equal against fetched rows.
+      ...(row.node_base_sha ? { nodeBaseSha: row.node_base_sha } : {}),
       attempt: row.attempt,
       maxRetries: row.max_retries,
       waitingReason: row.waiting_reason,

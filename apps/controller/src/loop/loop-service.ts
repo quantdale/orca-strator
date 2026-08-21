@@ -31,7 +31,13 @@ import {
 } from "../browser/browser-manager.js";
 import type { RunStore } from "./run-store.js";
 import type { RunPolicyStore } from "./run-policy-store.js";
+import type { StrategyRunStore } from "../strategy/strategy-run-store.js";
 import type { IterationExecutionCoordinator } from "./iteration-execution-coordinator.js";
+import {
+  POSTFLIGHT_BLOCKED_PREFIX,
+  formatPostflightBlocker,
+  isRemotePublishConfirmed,
+} from "./strategy-ownership.js";
 
 export interface LoopServiceOptions {
   repoStore: RepositoryStore;
@@ -42,6 +48,7 @@ export interface LoopServiceOptions {
   browserManager: BrowserManager;
   solControlStore?: SolControlStore | null;
   runPolicyStore?: RunPolicyStore;
+  strategyRunStore?: StrategyRunStore | null;
   coordinator?: IterationExecutionCoordinator;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
 }
@@ -57,6 +64,7 @@ export class LoopService {
   private readonly browserManager: BrowserManager;
   private readonly solControlStore: SolControlStore | null;
   private readonly runPolicyStore?: RunPolicyStore;
+  private readonly strategyRunStore: StrategyRunStore | null;
   private coordinator?: IterationExecutionCoordinator;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
 
@@ -77,6 +85,7 @@ export class LoopService {
     this.browserManager = options.browserManager;
     this.solControlStore = options.solControlStore ?? null;
     this.runPolicyStore = options.runPolicyStore;
+    this.strategyRunStore = options.strategyRunStore ?? null;
     this.coordinator = options.coordinator;
     this.eventPublisher = options.eventPublisher;
   }
@@ -490,13 +499,22 @@ export class LoopService {
    * Strategy-completion entry point (SWARM/DAG). Mirrors `onExecutorCompleted`:
    * consumes the authorizing dispatch, honors drain/ceiling boundaries, and
    * wakes Sol on `COMPLETED`. Never maps a strategy result to `GOAL_COMPLETE`.
+   *
+   * R1: the outcome is AUTHORITATIVE over postflight. An engine COMPLETED only
+   * takes the success path when the remote publication is confirmed
+   * (`PUBLISHED` + `remoteVerified`); otherwise the run goes to
+   * RECOVERY_REQUIRED with durable evidence, the dispatch stays unconsumed,
+   * and no COMPLETED wake is sent. PARTIAL/BLOCKED keep their BLOCKED review
+   * mapping but reflect publication truthfully in run lastError/event data.
+   * A late/duplicate callback for an already-applied completion (dispatch
+   * consumed) is a no-op.
    */
   async onStrategyCompleted(
     repositoryId: string,
     dispatchId: string,
     status: StrategyRunStatus,
-    _record: StrategyRunRecord,
-    _remote: RemotePublishResult | null,
+    record: StrategyRunRecord,
+    remote: RemotePublishResult | null,
   ): Promise<void> {
     let activeRun: RunRecord | null;
     try {
@@ -512,22 +530,62 @@ export class LoopService {
       return;
     }
 
-    const isCompleted = status === "COMPLETED";
+    // Idempotency: a consumed authorizing dispatch means this completion was
+    // already applied — late/duplicate callbacks must not re-consume or re-wake.
+    try {
+      const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
+      if (dispatch && dispatch.status === "consumed") return;
+    } catch {
+      return; // DB closed during teardown (Fix #11)
+    }
+
+    const publicationConfirmed = isRemotePublishConfirmed(remote);
+
     if (activeRun.status === "DRAINING") {
       // Drain boundary: completion is honored only at the next Sol boundary.
+      // F-MED-1: even while draining, an engine COMPLETED consumes the dispatch
+      // as successful only when remote publication is confirmed; otherwise the
+      // iteration routes to durable postflight-blocked evidence instead of a
+      // false success. Non-COMPLETED outcomes keep the drain semantics below
+      // (ceiling -> CEILING_REACHED, stop -> STOPPED).
+      if (status === "COMPLETED" && !publicationConfirmed) {
+        await this.markPostflightBlocked(repositoryId, record, remote);
+        return;
+      }
       await this.applyIterationCompletion(
         repositoryId,
         activeRun,
         dispatchId,
-        isCompleted,
+        status === "COMPLETED",
         "RECOVERY_REQUIRED",
         true,
       );
       return;
     }
 
-    // Item #5: COMPLETED -> next Sol handoff; PARTIAL/BLOCKED -> BLOCKED for
-    // review; everything else -> RECOVERY_REQUIRED. Never GOAL_COMPLETE.
+    if (status === "COMPLETED") {
+      if (publicationConfirmed) {
+        // Success path exactly as before: consume dispatch, ceiling gates,
+        // COMPLETED Sol wake -> SOL_REVIEWING.
+        await this.applyIterationCompletion(
+          repositoryId,
+          activeRun,
+          dispatchId,
+          true,
+          "RECOVERY_REQUIRED",
+          true,
+        );
+        return;
+      }
+      // Engine success but unconfirmed/failed publication: do NOT consume the
+      // dispatch as successful and do NOT send a COMPLETED wake.
+      await this.markPostflightBlocked(repositoryId, record, remote);
+      return;
+    }
+
+    // Non-COMPLETED outcomes only (COMPLETED is fully intercepted above by the
+    // R1 remote-publication gate): PARTIAL/BLOCKED -> BLOCKED for review;
+    // everything else -> RECOVERY_REQUIRED. Never GOAL_COMPLETE.
     const terminalState: LoopState =
       status === "PARTIAL" || status === "BLOCKED"
         ? "BLOCKED"
@@ -536,10 +594,160 @@ export class LoopService {
       repositoryId,
       activeRun,
       dispatchId,
-      isCompleted,
+      false,
       terminalState,
       true,
+      publicationConfirmed ? undefined : formatPostflightBlocker(remote),
     );
+  }
+
+  /**
+   * R1: transition a run to RECOVERY_REQUIRED after a COMPLETED strategy whose
+   * remote publication was not confirmed. Durable evidence lives on the
+   * strategy record (written by the coordinator) and in the event stream; the
+   * authorizing dispatch stays unconsumed so `retryPendingPostflight` can find
+   * the iteration later.
+   */
+  async markPostflightBlocked(
+    repositoryId: string,
+    record: StrategyRunRecord,
+    remote: RemotePublishResult | null,
+  ): Promise<void> {
+    const blocker = `${POSTFLIGHT_BLOCKED_PREFIX} ${formatPostflightBlocker(remote)}`;
+    let run: RunRecord | null;
+    try {
+      run = this.runStore.get(record.runId);
+    } catch {
+      return; // DB closed during teardown (Fix #11)
+    }
+    if (!run) return;
+
+    if (run.status === "EXECUTOR_PENDING" || run.status === "EXECUTING") {
+      this.runStore.updateStatus(run.id, "RECOVERY_REQUIRED", {
+        lastError: blocker,
+        finishedAt: new Date().toISOString(),
+      });
+      this.publishStateChange(repositoryId, run.id, "RECOVERY_REQUIRED");
+      this.cancelWallClockCeiling(repositoryId);
+    } else if (run.status === "RECOVERY_REQUIRED") {
+      // Retry attempt failed again: refresh the recovery evidence in place.
+      this.runStore.updateStatus(run.id, "RECOVERY_REQUIRED", {
+        lastError: blocker,
+      });
+    } else {
+      // The campaign already moved past this iteration (terminal/review
+      // state); strategy-record evidence remains the durable trace.
+      return;
+    }
+
+    this.publishEvent({
+      type: "loop.postflight_blocked",
+      at: new Date().toISOString(),
+      repositoryId,
+      data: {
+        runId: run.id,
+        iteration: record.iteration,
+        dispatchId: record.dispatchId ?? undefined,
+        strategyRunId: record.strategyRunId,
+        strategy: record.strategy,
+        reason: blocker,
+        remote: remote
+          ? {
+              status: remote.status,
+              pushedSha: remote.pushedSha,
+              resultSha: remote.resultSha,
+              remoteVerified: remote.remoteVerified,
+              blocker: remote.blocker,
+            }
+          : null,
+      },
+    } as any); // custom event type: follows the existing cast pattern
+  }
+
+  /**
+   * R2: finish a completed-but-unconfirmed iteration after the coordinator
+   * successfully republished it. Consumes the authorizing dispatch and runs
+   * the exact live success continuation (ceiling gates + COMPLETED Sol wake).
+   * No model worker is ever spawned here. Refuses as a no-op when the
+   * campaign is mid-flight on a newer iteration, so a confirmed old
+   * publication can never consume a stale dispatch.
+   */
+  async completePostflightRetry(
+    repositoryId: string,
+    record: StrategyRunRecord,
+  ): Promise<"WAKE_SUBMITTED" | "CAMPAIGN_CLOSED" | "ALREADY_APPLIED"> {
+    const dispatchId = record.dispatchId;
+    if (!dispatchId) return "ALREADY_APPLIED";
+    let dispatch: ReturnType<DispatchStore["get"]> = null;
+    try {
+      dispatch = this.dispatchStore?.get(dispatchId) ?? null;
+    } catch {
+      return "ALREADY_APPLIED"; // DB closed during teardown (Fix #11)
+    }
+    if (!dispatch || dispatch.status === "consumed") return "ALREADY_APPLIED";
+
+    let run: RunRecord | null;
+    try {
+      run = this.runStore.get(record.runId);
+    } catch {
+      return "ALREADY_APPLIED";
+    }
+    if (!run) return "ALREADY_APPLIED";
+
+    // R1 concurrency guard: while the campaign is mid-flight on a newer
+    // iteration, a confirmed old publication must not consume its stale
+    // dispatch or wake Sol. Refuse without consuming so the dispatch/retry
+    // evidence stays intact for later reconciliation.
+    if (
+      [
+        "EXECUTING",
+        "EXECUTOR_PENDING",
+        "SOL_PENDING",
+        "SOL_REVIEWING",
+      ].includes(run.status)
+    ) {
+      this.publishEvent({
+        type: "loop.postflight_retry_refused",
+        at: new Date().toISOString(),
+        repositoryId,
+        data: {
+          runId: run.id,
+          iteration: record.iteration,
+          dispatchId,
+          strategyRunId: record.strategyRunId,
+          strategy: record.strategy,
+          runStatus: run.status,
+          reason:
+            "postflight retry refused: campaign is mid-flight on a newer iteration",
+        },
+      } as any); // custom event type: follows the existing cast pattern
+      return "ALREADY_APPLIED";
+    }
+
+    // The consumed-status check above proves the dispatch store is wired.
+    this.dispatchStore?.updateStatus(dispatchId, "consumed");
+
+    if (
+      [
+        "STOPPED",
+        "CEILING_REACHED",
+        "GOAL_COMPLETE",
+        "BLOCKED",
+        "NEEDS_HUMAN",
+        "SOL_STALLED",
+        "EXECUTOR_UNAVAILABLE",
+        "ATTENTION_REQUIRED",
+      ].includes(run.status)
+    ) {
+      return "CAMPAIGN_CLOSED";
+    }
+    if (run.status === "DRAINING") {
+      // The drain boundary machinery owns closure for draining campaigns.
+      return "CAMPAIGN_CLOSED";
+    }
+
+    const woke = await this.continueCompletedIteration(repositoryId, run);
+    return woke ? "WAKE_SUBMITTED" : "CAMPAIGN_CLOSED";
   }
 
   /**
@@ -555,6 +763,7 @@ export class LoopService {
     isCompleted: boolean,
     terminalState: LoopState,
     hasResult: boolean,
+    failureDetail?: string,
   ): Promise<void> {
     if (activeRun.status === "DRAINING") {
       const isCeiling = this.isCeilingPendingEffective(repositoryId, activeRun);
@@ -614,81 +823,96 @@ export class LoopService {
 
     if (isCompleted) {
       this.dispatchStore?.updateStatus(dispatchId, "consumed");
-
-      const maxIterations = activeRun.maxIterations;
-      if (activeRun.currentIteration >= maxIterations) {
-        this.publishBudgetExpired(
-          repositoryId,
-          activeRun,
-          "CAMPAIGN_ITERATION_CEILING",
-          "EXECUTOR_ACTIVITY",
-        );
-        this.runStore.updateStatus(activeRun.id, "DRAINING", {
-          drainReason: "ITERATION_CEILING",
-        });
-        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
-        this.ceilingPending.add(repositoryId);
-        const refreshed = this.runStore.get(activeRun.id);
-        if (refreshed && refreshed.status === "DRAINING") {
-          this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
-            lastError: "Iteration ceiling reached (drained at boundary)",
-            finishedAt: new Date().toISOString(),
-            drainReason: null,
-          });
-          this.publishStateChange(
-            repositoryId,
-            activeRun.id,
-            "CEILING_REACHED",
-          );
-        }
-        this.cancelWallClockCeiling(repositoryId);
-        return;
-      }
-
-      if (this.isWallClockCeilingExceeded(activeRun)) {
-        this.publishBudgetExpired(
-          repositoryId,
-          activeRun,
-          "CAMPAIGN_WALL_CLOCK_CEILING",
-          "EXECUTOR_ACTIVITY",
-        );
-        this.runStore.updateStatus(activeRun.id, "DRAINING", {
-          drainReason: "WALL_CLOCK_CEILING",
-        });
-        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
-        this.ceilingPending.add(repositoryId);
-        const refreshed = this.runStore.get(activeRun.id);
-        if (refreshed && refreshed.status === "DRAINING") {
-          this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
-            lastError: "Wall-clock ceiling reached (drained at boundary)",
-            finishedAt: new Date().toISOString(),
-            drainReason: null,
-          });
-          this.publishStateChange(
-            repositoryId,
-            activeRun.id,
-            "CEILING_REACHED",
-          );
-        }
-        this.ceilingPending.delete(repositoryId);
-        this.runStore.clearDrainReason(activeRun.id);
-        this.cancelWallClockCeiling(repositoryId);
-        return;
-      }
-
-      await this.submitSolWakeForRun(repositoryId, activeRun, "COMPLETED");
+      await this.continueCompletedIteration(repositoryId, activeRun);
       return;
     }
 
+    const baseError =
+      terminalState === "RECOVERY_REQUIRED"
+        ? "Strategy turn completed without a valid result; treat as invalid/incomplete."
+        : `Strategy reported ${terminalState}.`;
     this.runStore.updateStatus(activeRun.id, terminalState, {
-      lastError:
-        terminalState === "RECOVERY_REQUIRED"
-          ? "Strategy turn completed without a valid result; treat as invalid/incomplete."
-          : `Strategy reported ${terminalState}.`,
+      lastError: failureDetail
+        ? `${baseError} (publication: ${failureDetail})`
+        : baseError,
       finishedAt: new Date().toISOString(),
     });
     this.publishStateChange(repositoryId, activeRun.id, terminalState);
     this.cancelWallClockCeiling(repositoryId);
+  }
+
+  /**
+   * Success continuation shared by the live completion path and the R2
+   * postflight retry: iteration/wall-clock ceiling gates followed by the
+   * COMPLETED Sol wake. Returns true when Sol was woken for the iteration.
+   */
+  private async continueCompletedIteration(
+    repositoryId: string,
+    activeRun: RunRecord,
+  ): Promise<boolean> {
+    const maxIterations = activeRun.maxIterations;
+    if (activeRun.currentIteration >= maxIterations) {
+      this.publishBudgetExpired(
+        repositoryId,
+        activeRun,
+        "CAMPAIGN_ITERATION_CEILING",
+        "EXECUTOR_ACTIVITY",
+      );
+      this.runStore.updateStatus(activeRun.id, "DRAINING", {
+        drainReason: "ITERATION_CEILING",
+      });
+      this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
+      this.ceilingPending.add(repositoryId);
+      const refreshed = this.runStore.get(activeRun.id);
+      if (refreshed && refreshed.status === "DRAINING") {
+        this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
+          lastError: "Iteration ceiling reached (drained at boundary)",
+          finishedAt: new Date().toISOString(),
+          drainReason: null,
+        });
+        this.publishStateChange(
+          repositoryId,
+          activeRun.id,
+          "CEILING_REACHED",
+        );
+      }
+      this.cancelWallClockCeiling(repositoryId);
+      return false;
+    }
+
+    if (this.isWallClockCeilingExceeded(activeRun)) {
+      this.publishBudgetExpired(
+        repositoryId,
+        activeRun,
+        "CAMPAIGN_WALL_CLOCK_CEILING",
+        "EXECUTOR_ACTIVITY",
+      );
+      this.runStore.updateStatus(activeRun.id, "DRAINING", {
+        drainReason: "WALL_CLOCK_CEILING",
+      });
+      this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
+      this.ceilingPending.add(repositoryId);
+      const refreshed = this.runStore.get(activeRun.id);
+      if (refreshed && refreshed.status === "DRAINING") {
+        this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", {
+          lastError: "Wall-clock ceiling reached (drained at boundary)",
+          finishedAt: new Date().toISOString(),
+          drainReason: null,
+        });
+        this.publishStateChange(
+          repositoryId,
+          activeRun.id,
+          "CEILING_REACHED",
+        );
+      }
+      this.ceilingPending.delete(repositoryId);
+      this.runStore.clearDrainReason(activeRun.id);
+      this.cancelWallClockCeiling(repositoryId);
+      return false;
+    }
+
+    await this.submitSolWakeForRun(repositoryId, activeRun, "COMPLETED");
+    return true;
   }
 
   /** Production wiring entry point: watcher detected a durable Sol control marker (H). */
@@ -932,6 +1156,17 @@ export class LoopService {
     }
   }
 
+  /**
+   * F-LOW-1: clear loop-owned timers (busy-retry backpressure + wall-clock
+   * ceilings) so none can fire after coordinator shutdown / DB close.
+   */
+  shutdown(): void {
+    for (const t of this.busyRetryTimers.values()) clearTimeout(t);
+    this.busyRetryTimers.clear();
+    for (const t of this.wallClockTimers.values()) clearTimeout(t);
+    this.wallClockTimers.clear();
+  }
+
   async drainRun(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
@@ -984,12 +1219,47 @@ export class LoopService {
       });
       this.publishStateChange(repositoryId, activeRun.id, "GOAL_COMPLETE");
     } else if (action === "retry") {
-      this.runStore.updateStatus(activeRun.id, "SOL_PENDING");
-      this.publishStateChange(repositoryId, activeRun.id, "SOL_PENDING");
-      await this.submitSolWakeForRun(repositoryId, activeRun, "INITIAL");
+      // F-MED-2: a POSTFLIGHT_BLOCKED iteration must never rerun model workers.
+      // Delegate to the coordinator's postflight-only retry (same persisted
+      // report, publication re-applied); fall back to the legacy Sol
+      // re-dispatch path when no postflight evidence exists / no coordinator
+      // or strategy store is wired (focused unit tests).
+      if (
+        this.coordinator &&
+        this.hasPostflightBlockedEvidence(activeRun.id)
+      ) {
+        await this.coordinator.retryPendingPostflight(repositoryId);
+      } else {
+        this.runStore.updateStatus(activeRun.id, "SOL_PENDING");
+        this.publishStateChange(repositoryId, activeRun.id, "SOL_PENDING");
+        await this.submitSolWakeForRun(repositoryId, activeRun, "INITIAL");
+      }
     }
 
     return this.runStore.get(activeRun.id)!;
+  }
+
+  /**
+   * True when any COMPLETED strategy record of the run carries
+   * POSTFLIGHT_BLOCKED evidence — the retryable-postflight signature that
+   * routes recovery to the postflight-only retry. PARTIAL/BLOCKED records
+   * carry publication evidence too, but their recovery is a Sol review, never
+   * a postflight-only retry.
+   */
+  private hasPostflightBlockedEvidence(runId: string): boolean {
+    if (!this.strategyRunStore) return false;
+    try {
+      return this.strategyRunStore
+        .listByRun(runId)
+        .some(
+          (record) =>
+            record.status === "COMPLETED" &&
+            typeof record.lastError === "string" &&
+            record.lastError.startsWith(POSTFLIGHT_BLOCKED_PREFIX),
+        );
+    } catch {
+      return false; // DB closed during teardown
+    }
   }
 
   private clearBusyRetry(repositoryId: string): void {
@@ -1335,7 +1605,7 @@ export class LoopService {
     }
   }
 
-  private handleWallClockCeiling(repositoryId: string): void {
+  private async handleWallClockCeiling(repositoryId: string): Promise<void> {
     const activeRun = this.runStore.getActiveRun(repositoryId);
     if (!activeRun) return;
     // Terminal already?
@@ -1371,6 +1641,23 @@ export class LoopService {
       // Propagate the drain to a live strategy actor (graceful stop at boundary).
       this.coordinator?.drainActiveStrategy(repositoryId);
       // Do NOT kill executor; let it finish naturally and handle at boundary.
+      return;
+    }
+    // A PAUSED strategy actor has no live engine loop; settle it through the
+    // paused-actor path so it cannot be stranded PAUSED under a terminal
+    // campaign (Change 018 review F4). The completion callback applies the
+    // durable WALL_CLOCK_CEILING drain boundary.
+    const pausedStrategy = this.coordinator?.getActiveStrategyRun(repositoryId);
+    if (pausedStrategy && pausedStrategy.status === "PAUSED") {
+      if (activeRun.status !== "DRAINING") {
+        this.runStore.updateStatus(activeRun.id, "DRAINING", {
+          lastError: "Wall-clock ceiling reached (draining)",
+          drainReason: "WALL_CLOCK_CEILING",
+        });
+        this.publishStateChange(repositoryId, activeRun.id, "DRAINING");
+      }
+      this.ceilingPending.add(repositoryId);
+      await this.coordinator?.stopPausedStrategy(repositoryId);
       return;
     }
     // No active actor – drain immediately to CEILING_REACHED.

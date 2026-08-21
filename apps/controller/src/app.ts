@@ -293,6 +293,7 @@ export async function buildApp(
       browserManager,
       solControlStore,
       runPolicyStore,
+      strategyRunStore,
       eventPublisher: (event) => eventBus.publish(event),
     });
 
@@ -325,6 +326,7 @@ export async function buildApp(
     repositoryStore: store,
     runStore,
     strategyRunStore,
+    dispatchStore,
     executorService,
     swarmExecutionService,
     dagExecutionService,
@@ -335,12 +337,30 @@ export async function buildApp(
   });
   loopService.setCoordinator(coordinator);
 
+  // Change 018 R2: after restart reconciliation, replay the postflight for
+  // completed-but-unconfirmed iterations (same persisted report, no worker
+  // rerun). Success consumes the dispatch and wakes Sol; failure stays in
+  // recovery with refreshed evidence.
+  try {
+    await coordinator.retryAllPendingPostflights();
+  } catch (err) {
+    console.warn(
+      "[app] pending postflight retry failed:",
+      (err as Error | null)?.message ?? String(err),
+    );
+  }
+
   watcherService.start();
 
   fastify.addHook("onClose", async () => {
     watcherService.stop();
+    // F-LOW-1: loop-owned timers (busy-retry + wall-clock) must not fire into
+    // teardown or after the DB closes.
+    loopService.shutdown();
     try {
-      coordinator.shutdown();
+      // R5: genuine async shutdown — route KILLs, await engine settlement and
+      // in-flight completion callbacks before browser/db teardown continues.
+      await coordinator.shutdown();
     } catch {
       /* best-effort during teardown */
     }
@@ -354,7 +374,7 @@ export async function buildApp(
   await fastify.register(
     watcherRoutes(watcherService, dispatchStore, repositoryService),
   );
-  await fastify.register(executorRoutes(executorService, repositoryService));
+  await fastify.register(executorRoutes(executorService, repositoryService, coordinator));
   await fastify.register(
     browserRoutes(browserManager, repositoryService, dispatchStore),
   );

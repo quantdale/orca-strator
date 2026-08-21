@@ -34,19 +34,15 @@
  *     iteration ({ ...run, currentIteration: 1 }); validateStart requires
  *     packet.iteration === dispatch.iteration.
  *   - SWARM workers derive from the immutable strategyBaseSha (the dispatch
- *     baseSha), unlike DAG nodes which allocate from current main.
+ *     baseSha), unlike DAG nodes which allocate from the strategy-owned
+ *     staging lineage (Change 018).
  *
- * Production gap observed while qualifying (NOT fixed here, test-side fixture
- * only): publishToRemote (apps/controller/src/packets/integration-service.ts,
- * manifest write ~line 473) writes .orca/results/<dispatchId>.json without
- * ensuring the directory exists. A repository whose FIRST iteration is a
- * strategy dispatch (no prior executor turn) has no .orca/results dir and the
- * durable publish returns BLOCKED with
- * "ENOENT ... .orca/results/<id>.json" — integration stays local-only, though
- * the loop still consumes the dispatch and wakes Sol. Real repositories have
- * the directory after any executor turn (result contract E), and this fixture
- * seeds it accordingly; a one-line recursive mkdir in publishToRemote would
- * close the edge case.
+ * FOUND AND FIXED DURING CHANGE 017/018: publishToRemote once wrote
+ * .orca/results/<dispatchId>.json without ensuring the directory existed,
+ * blocking first-iteration strategy publishes with ENOENT; production now
+ * mkdirs recursively before the manifest write
+ * (apps/controller/src/packets/integration-service.ts). This fixture no
+ * longer needs to pre-seed the directory.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

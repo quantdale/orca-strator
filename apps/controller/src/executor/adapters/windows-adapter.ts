@@ -37,7 +37,9 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
     if (process.platform === "win32") {
       try {
         await execFileAsync("taskkill", ["/pid", child.pid.toString(), "/T", "/F"], {
-          windowsHide: true
+          windowsHide: true,
+          // F-HIGH-2: bounded kill — a hung taskkill must never block shutdown.
+          timeout: 15_000
         });
       } catch {
         try {

@@ -1,7 +1,52 @@
-import type { ExecutionStrategy } from "@orca/shared";
+import type {
+  ExecutionStrategy,
+  RemotePublishResult,
+  StrategyRunStatus,
+} from "@orca/shared";
 
 /** Rich actor identity for one repository/campaign iteration. */
 export type IterationActor = "NONE" | "SOL" | "EXECUTOR" | "SWARM" | "DAG";
+
+/** Prefix persisted on a strategy record whose publication was not confirmed. */
+export const POSTFLIGHT_BLOCKED_PREFIX = "POSTFLIGHT_BLOCKED:";
+
+/** Strategy statuses that close the iteration actor boundary. */
+export const STRATEGY_TERMINAL_STATUSES: readonly StrategyRunStatus[] = [
+  "COMPLETED",
+  "PARTIAL",
+  "BLOCKED",
+  "FAILED",
+  "CANCELLED",
+  "RECOVERY_REQUIRED",
+];
+
+export function isStrategyTerminal(status: StrategyRunStatus): boolean {
+  return STRATEGY_TERMINAL_STATUSES.includes(status);
+}
+
+/**
+ * Authoritative postflight gate (Change 018 R1): an engine COMPLETED outcome
+ * only counts as a successful iteration when integrated main is verifiably
+ * durable on the remote.
+ */
+export function isRemotePublishConfirmed(
+  remote: RemotePublishResult | null,
+): boolean {
+  return (
+    !!remote && remote.status === "PUBLISHED" && remote.remoteVerified === true
+  );
+}
+
+/** Human-readable publication outcome for durable evidence fields/events. */
+export function formatPostflightBlocker(
+  remote: RemotePublishResult | null,
+): string {
+  if (!remote) return "postflight did not produce a publication result";
+  const blocker = remote.blocker
+    ? String(remote.blocker)
+    : "remote state could not be verified";
+  return `${remote.status}: ${blocker}`;
+}
 
 /**
  * Structured conflict returned when a strategy/executor start is rejected

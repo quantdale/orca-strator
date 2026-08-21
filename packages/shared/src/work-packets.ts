@@ -136,6 +136,34 @@ export interface IntegrationReport {
   finalCommitSha: string | null;
   blocker: string | null;
   createdAt: string;
+  /**
+   * Change 018 (additive, optional): how local main related to origin/main and
+   * whether it was reconciled when this report was published remotely. Absent
+   * for reports that were never published.
+   */
+  publication?: PublicationEvidence;
+}
+
+/** Change 018: how local `main` related to `origin/main` at publish time. */
+export type RemoteMainRelation =
+  | "UP_TO_DATE"
+  | "LOCAL_AHEAD"
+  | "REMOTE_AHEAD"
+  | "DIVERGED";
+
+/** Change 018: publication evidence recorded by IntegrationService.publishToRemote. */
+export interface PublicationEvidence {
+  relation: RemoteMainRelation;
+  /** True when local main was fast-forwarded/rebased onto origin/main before publishing. */
+  reconciled: boolean;
+  /** Actual local HEAD after reconciliation; durable evidence refers to this history. */
+  finalHead: string;
+  /**
+   * Change 018 (additive, optional): the integration HEAD as recorded before
+   * reconciliation rewrote history. Present only when reconciliation occurred;
+   * provenance only — durable evidence anchors at finalHead.
+   */
+  preReconciliationIntegrationSha?: string | null;
 }
 
 const pathList = z.array(z.string().trim().min(1).max(500)).max(500);

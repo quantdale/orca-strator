@@ -659,6 +659,16 @@ export const migrations: Migration[] = [
           ADD COLUMN execution_plan_json TEXT;
       `);
     }
+  },
+  {
+    version: 23,
+    name: "023_dag_node_base_sha",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE execution_dag_nodes
+          ADD COLUMN node_base_sha TEXT;
+      `);
+    }
   }
 ];
 

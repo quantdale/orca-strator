@@ -372,6 +372,7 @@ export class DagExecutionService {
               ? "WAITING_DEPENDENCY"
               : "QUEUED",
             dependencyInputShas: [],
+            nodeBaseSha: null,
             budget: packet.budget,
             attempt: 0,
             maxRetries: packet.budget.maxRetries,
@@ -393,8 +394,10 @@ export class DagExecutionService {
         this.applyEvent(strategyRunId.value, event);
       },
       // Item #8: record the deterministic dependency input SHAs captured when
-      // the node's worktree was allocated, and the node completion.
-      onNodeAllocated: (packetId, _baseSha, dependencyInputShas) => {
+      // the node's worktree was allocated, and the node completion. baseSha is
+      // the post-replay snapshot HEAD (strategyBaseSha + accepted transitive
+      // dependency commits) persisted as nodeBaseSha provenance.
+      onNodeAllocated: (packetId, baseSha, dependencyInputShas) => {
         if (!strategyRunId.value) return;
         const nodeId = context.nodes.find(
           (node) => node.packetId === packetId,
@@ -403,6 +406,7 @@ export class DagExecutionService {
         this.nodeStore.update(strategyRunId.value, nodeId, {
           status: "RUNNING",
           dependencyInputShas,
+          nodeBaseSha: baseSha || null,
           startedAt: new Date().toISOString(),
         });
       },

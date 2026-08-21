@@ -133,6 +133,13 @@ export interface DagNodeRecord extends DagNodeDefinition {
  waitingReason: string | null;
  /** Integrated commit SHAs of dependencies captured when the node became runnable. */
  dependencyInputShas: string[];
+ /**
+  * Change 018 (additive, optional): node worktree HEAD after authorized
+  * dependency replay — the last replayed staged dependency commit on top of
+  * the immutable strategy base. Null until the worktree is allocated.
+  * Optional so pre-existing record literals remain valid.
+  */
+ nodeBaseSha?: string | null;
  startedAt: string | null;
  finishedAt: string | null;
  resultId: string | null;

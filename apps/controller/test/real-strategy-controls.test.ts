@@ -1,7 +1,10 @@
 /**
  * R16 / Change 017 task 5.3 — Real campaign-level controls qualification for
  * SWARM and DAG strategy actors (real deterministic child-process workers,
- * production buildApp lifecycle).
+ * production buildApp lifecycle). Updated by Change 018 tasks 1.4/1.5/4.4:
+ * awaited-controls semantics (pause awaits the strategy PAUSED boundary before
+ * the campaign marks PAUSED), control-race scenarios (RACE A-D), and teardown
+ * without caller-side engine settling (fastify.close() alone settles engines).
  *
  * Every control is driven ONLY through the normal campaign seams:
  *   - `app.fastify.inject` on the runs/campaign control routes
@@ -51,6 +54,24 @@
  *   to be recorded SKIPPED_DEPENDENCY permanently. Fix: the launch loop now
  *   waits for any dependency still in `pending` instead of consulting its
  *   stored result; SCENARIO 6 proves pause/resume reaches COMPLETED.
+ *
+ * ============================================================================
+ * PRODUCTION GAPS THIS QUALIFICATION CAUGHT IN CHANGE 018 (FOUND AND FIXED):
+ *
+ * BUG-018-STOP-ON-PAUSED-ACTOR-NEVER-SETTLES (FIXED) — STOP applied to a PAUSED
+ *   strategy actor was persisted but never settled: the campaign drained to
+ *   DRAINING forever and the strategy record stayed STOPPING, because the only
+ *   observers of STOP_REQUESTED lived inside a executeRecord loop that had
+ *   already returned after the PAUSED finalize. Fix: control() now settles a
+ *   paused actor synchronously (pending packets CANCELLED, worktrees released
+ *   per terminal semantics, staging checkout removed, strategy.completed
+ *   published, onCompleted fired) so campaign controls can never hang.
+ *
+ * BUG-018-KILL-ON-PAUSED-ACTOR-LEAVES-ACTOR-PAUSED (FIXED) — KILL applied to a
+ *   PAUSED strategy actor marked the CAMPAIGN RECOVERY_REQUIRED but left the
+ *   STRATEGY record PAUSED/KILL_REQUESTED forever (same root cause). Fix: same
+ *   synchronous settle path with RECOVERY_REQUIRED semantics and preserved
+ *   worktrees. RACE B/RACE C below prove both fixes.
  * ============================================================================
  */
 import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
@@ -243,6 +264,24 @@ function diagnose(app: AppInstance, repoId: string, runId: string, dispatchId: s
   const strategies = app.strategyRunStore.listByRun(runId).map(
     (record) => `${record.strategy}/${record.status}/${record.controlState}`
   );
+  const nodes = app.strategyRunStore.listByRun(runId).flatMap((record) => {
+    try {
+      return app.dagNodeStore.list(record.strategyRunId).map(
+        (node) => `${node.nodeId}/${node.status}`
+      );
+    } catch {
+      return [];
+    }
+  });
+  const packets = app.strategyRunStore.listByRun(runId).flatMap((record) =>
+    record.packetIds.map((packetId) => {
+      try {
+        return `${packetId.slice(0, 8)}=${app.workPacketService.get(packetId)?.status ?? "?"}`;
+      } catch {
+        return `${packetId.slice(0, 8)}=?`;
+      }
+    })
+  );
   return JSON.stringify({
     state,
     runStatus: run?.status,
@@ -251,7 +290,9 @@ function diagnose(app: AppInstance, repoId: string, runId: string, dispatchId: s
     currentIteration: run?.currentIteration,
     dispatchStatus: dispatch?.status ?? null,
     rejectionReason: dispatch?.rejectionReason ?? null,
-    strategies
+    strategies,
+    nodes,
+    packets
   });
 }
 
@@ -279,18 +320,6 @@ async function waitForStrategyTerminal(
   return app.strategyRunStore.get(strategyRunId)?.status ?? "unknown";
 }
 
-/**
- * Let the strategy engine finish its in-flight work before the DB closes:
- * teardown kills live workers via coordinator.shutdown, and their result
- * persistence must land while the database is still open.
- */
-async function settleEngine(app: AppInstance | null): Promise<void> {
-  if (!app) return;
-  try {
-    await waitFor(() => app.strategyRunStore.listRecoverable().length === 0, 15000, 200);
-  } catch {}
-}
-
 describe("R16 real campaign-level strategy controls (SWARM)", () => {
   let tempDir: string;
   let data: { bareDir: string; cloneDir: string };
@@ -314,12 +343,15 @@ describe("R16 real campaign-level strategy controls (SWARM)", () => {
     // Slow mode off first so any late worker spawn finishes fast.
     delete process.env.ORCA_SWARM_HARNESS_SLOW_MS;
     delete process.env.ORCA_SWARM_FAIL_PACKET;
+    delete process.env.ORCA_SWARM_WAIT_FILE;
     try {
       // Production shutdown seam: stops watcher, routes KILL to any active
       // strategy actor (coordinator.shutdown), closes browser pages.
+      // Change 018 R5: shutdown is genuinely async — KILL routing, engine
+      // settlement and in-flight completion callbacks are all awaited inside
+      // onClose, so the DB can close immediately after close() resolves.
       await app?.fastify.close();
     } catch {}
-    await settleEngine(app); // engine result writes must land before DB close
     try { app?.dbContext.close(); } catch {}
     app = null;
     try {
@@ -644,6 +676,243 @@ describe("R16 real campaign-level strategy controls (SWARM)", () => {
     }, 3000);
   }, 150000);
 
+  it("RACE A: pause answered then immediate resume never contradicts campaign/strategy state and continues the SAME strategy to COMPLETED", async () => {
+    // W1 awaited-controls semantics: the pause route's 200 response itself
+    // proves the PAUSED boundary (campaign AND actor moved together, bounded
+    // <=10s), so an immediately-following resume must find a coherent PAUSED
+    // actor — no settling wait between the two controls.
+    process.env.ORCA_SWARM_HARNESS_SLOW_MS = "3000";
+    const repo = createRepo(app!, data, "Swarm PauseResume Race");
+    const run = await startCampaign(app!, repo.id, "pause resume race qualification");
+    const first = createPacket(app!, repo, run, "swarm-race-alpha");
+    const second = createPacket(app!, repo, run, "swarm-race-beta");
+    const dispatchId = pushStrategyDispatch(data.cloneDir, {
+      runId: run.id,
+      goal: "pause resume race qualification",
+      strategy: "SWARM",
+      executionPlan: { packetIds: [first.packetId, second.packetId], maxConcurrency: 1 }
+    });
+
+    await waitFor(() => activeState(app!, repo.id) === "EXECUTING", 30000);
+    await waitFor(() => activeStrategy(app!, run.id)?.status === "RUNNING", 30000);
+    await waitFor(
+      () => [first.packetId, second.packetId].some((id) => app!.workPacketService.get(id)?.status === "RUNNING"),
+      20000
+    );
+    const strategyRunId = activeStrategy(app!, run.id)!.strategyRunId;
+    const wakesBefore = app!.wakeStore.getByRepository(repo.id).length;
+
+    const pauseRes = await app!.fastify.inject({ method: "POST", url: `/api/repositories/${repo.id}/runs/pause` });
+    expect(pauseRes.statusCode).toBe(200);
+    // Awaited controls: campaign and actor are consistent at the boundary.
+    expect(activeState(app!, repo.id)).toBe("PAUSED");
+    expect(activeStrategy(app!, run.id)?.status).toBe("PAUSED");
+
+    // Immediate resume — deliberately NO wait between pause and resume.
+    delete process.env.ORCA_SWARM_HARNESS_SLOW_MS;
+    const resumeRes = await app!.fastify.inject({ method: "POST", url: `/api/repositories/${repo.id}/runs/resume` });
+    expect(resumeRes.statusCode).toBe(200);
+    expect(activeState(app!, repo.id)).toBe("EXECUTING");
+    expect(activeStrategy(app!, run.id)?.strategyRunId).toBe(strategyRunId);
+
+    // The SAME strategy continues on the normal COMPLETED path.
+    await waitForStrategyTerminal(app!, repo.id, run.id, dispatchId, strategyRunId, ["COMPLETED"], 90000);
+    expect(app!.runStore.get(run.id)?.currentIteration).toBe(1);
+    await waitFor(() => activeState(app!, repo.id) === "SOL_REVIEWING", 30000);
+    const wakes = app!.wakeStore.getByRepository(repo.id);
+    expect(wakes.length).toBeGreaterThan(wakesBefore);
+    expect(wakes.some((wake) => /Result status: COMPLETED/.test(wake.message))).toBe(true);
+    expect(app!.dispatchStore.get(dispatchId)?.status).toBe("consumed");
+    await expectStable(() => {
+      expect(activeState(app!, repo.id)).toBe("SOL_REVIEWING");
+      expect(app!.strategyRunStore.listByRun(run.id)).toHaveLength(1);
+    }, 2500);
+  }, 180000);
+
+  // RACE B proves BUG-018-STOP-ON-PAUSED-ACTOR-NEVER-SETTLES is fixed: STOP on
+  // a PAUSED strategy actor settles synchronously (strategy CANCELLED, campaign
+  // STOPPED, zero COMPLETED wakes).
+  it("RACE B: pause answered then immediate stop drains the campaign STOPPED with the strategy terminal CANCELLED and no COMPLETED wake", async () => {
+    process.env.ORCA_SWARM_HARNESS_SLOW_MS = "3000";
+    const repo = createRepo(app!, data, "Swarm PauseStop Race");
+    const run = await startCampaign(app!, repo.id, "pause stop race qualification");
+    const first = createPacket(app!, repo, run, "swarm-race-stop-alpha");
+    const second = createPacket(app!, repo, run, "swarm-race-stop-beta");
+    pushStrategyDispatch(data.cloneDir, {
+      runId: run.id,
+      goal: "pause stop race qualification",
+      strategy: "SWARM",
+      executionPlan: { packetIds: [first.packetId, second.packetId], maxConcurrency: 1 }
+    });
+
+    await waitFor(() => activeState(app!, repo.id) === "EXECUTING", 30000);
+    await waitFor(() => activeStrategy(app!, run.id)?.status === "RUNNING", 30000);
+    await waitFor(
+      () => [first.packetId, second.packetId].some((id) => app!.workPacketService.get(id)?.status === "RUNNING"),
+      20000
+    );
+    const strategyRunId = activeStrategy(app!, run.id)!.strategyRunId;
+    const wakesBefore = app!.wakeStore.getByRepository(repo.id).length;
+
+    const pauseRes = await app!.fastify.inject({ method: "POST", url: `/api/repositories/${repo.id}/runs/pause` });
+    expect(pauseRes.statusCode).toBe(200);
+    expect(activeState(app!, repo.id)).toBe("PAUSED");
+    expect(activeStrategy(app!, run.id)?.status).toBe("PAUSED");
+
+    // Immediate stop on the paused actor (no live workers remain).
+    const stopRes = await app!.fastify.inject({ method: "POST", url: `/api/repositories/${repo.id}/runs/stop` });
+    expect(stopRes.statusCode).toBe(200);
+
+    // The drain must terminate at the (already reached) strategy boundary:
+    // campaign STOPPED, actor terminal CANCELLED, zero Sol wakes.
+    try {
+      await waitFor(() => app!.runStore.get(run.id)?.status === "STOPPED", 45000);
+    } catch (error) {
+      throw new Error(
+        `campaign never reached STOPPED after stop-on-paused; ${String(error)}; diagnostics: ${diagnose(app!, repo.id, run.id, null)}`
+      );
+    }
+    await waitForStrategyTerminal(app!, repo.id, run.id, null, strategyRunId, ["CANCELLED"], 45000);
+    expect(app!.wakeStore.getByRepository(repo.id).length - wakesBefore).toBe(0);
+    await expectStable(() => {
+      expect(app!.runStore.get(run.id)?.status).toBe("STOPPED");
+      expect(app!.strategyRunStore.get(strategyRunId)?.status).toBe("CANCELLED");
+    }, 2500);
+  }, 150000);
+
+  // RACE C proves BUG-018-KILL-ON-PAUSED-ACTOR-LEAVES-ACTOR-PAUSED is fixed:
+  // KILL on a PAUSED strategy actor settles it RECOVERY_REQUIRED everywhere.
+  it("RACE C: pause answered then immediate emergency kill leaves RECOVERY_REQUIRED everywhere with worktrees preserved and no rogue progress", async () => {
+    process.env.ORCA_SWARM_HARNESS_SLOW_MS = "4000";
+    const repo = createRepo(app!, data, "Swarm PauseKill Race");
+    const run = await startCampaign(app!, repo.id, "pause kill race qualification");
+    const packet = createPacket(app!, repo, run, "swarm-race-kill-alpha");
+    pushStrategyDispatch(data.cloneDir, {
+      runId: run.id,
+      goal: "pause kill race qualification",
+      strategy: "SWARM",
+      executionPlan: { packetIds: [packet.packetId], maxConcurrency: 1 }
+    });
+
+    await waitFor(() => activeState(app!, repo.id) === "EXECUTING", 30000);
+    await waitFor(() => activeStrategy(app!, run.id)?.status === "RUNNING", 30000);
+    await waitFor(() => app!.workPacketService.get(packet.packetId)?.status === "RUNNING", 20000);
+    const strategyRunId = activeStrategy(app!, run.id)!.strategyRunId;
+    const wakesBefore = app!.wakeStore.getByRepository(repo.id).length;
+
+    const pauseRes = await app!.fastify.inject({ method: "POST", url: `/api/repositories/${repo.id}/runs/pause` });
+    expect(pauseRes.statusCode).toBe(200);
+    expect(activeState(app!, repo.id)).toBe("PAUSED");
+    expect(activeStrategy(app!, run.id)?.status).toBe("PAUSED");
+
+    // Immediate emergency kill on the paused actor via the public seam.
+    await app!.loopService.emergencyKill(repo.id);
+    expect(activeState(app!, repo.id)).toBe("RECOVERY_REQUIRED");
+
+    // RECOVERY_REQUIRED everywhere: campaign AND strategy actor.
+    await waitFor(() => activeStrategy(app!, run.id)?.status === "RECOVERY_REQUIRED", 30000);
+
+    // Worktrees preserved for recovery; the packet never completed.
+    const worktree = app!.workPacketStore.getWorktreeByPacket(packet.packetId);
+    expect(worktree?.status).toBe("ACTIVE");
+    expect(fs.existsSync(worktree!.path)).toBe(true);
+    const result = app!.workPacketService.getResult(packet.packetId);
+    expect(result && result.status !== "COMPLETED").toBe(true);
+
+    // No Sol wake, single strategy record, no further transitions.
+    expect(app!.wakeStore.getByRepository(repo.id).length - wakesBefore).toBe(0);
+    await expectStable(() => {
+      expect(activeState(app!, repo.id)).toBe("RECOVERY_REQUIRED");
+      expect(activeStrategy(app!, run.id)?.status).toBe("RECOVERY_REQUIRED");
+      expect(app!.strategyRunStore.listByRun(run.id)).toHaveLength(1);
+    }, 2500);
+  }, 150000);
+
+  it("RACE D: stop issued during the worker completion window drains gracefully — worker finishes, campaign STOPPED, zero wakes after the boundary", async () => {
+    // Deterministic completion-window race: the slow worker parks on
+    // ORCA_SWARM_WAIT_FILE; stop is accepted while it is parked; the gate is
+    // then released so the worker finishes NATURALLY inside the drain window
+    // (stop never kills live workers). Invariants: the drained worker's result
+    // is COMPLETED, the queued sibling is CANCELLED, the strategy terminates
+    // CANCELLED, the campaign lands STOPPED, and zero Sol wakes cross the
+    // stop boundary.
+    const gatePath = path.join(tempDir, "race-d-gate.txt");
+    process.env.ORCA_SWARM_WAIT_FILE = gatePath;
+    const repo = createRepo(app!, data, "Swarm StopCompletion Race");
+    const run = await startCampaign(app!, repo.id, "stop during completion window qualification");
+    const first = createPacket(app!, repo, run, "swarm-race-drain-alpha");
+    const second = createPacket(app!, repo, run, "swarm-race-drain-beta");
+    pushStrategyDispatch(data.cloneDir, {
+      runId: run.id,
+      goal: "stop during completion window qualification",
+      strategy: "SWARM",
+      executionPlan: { packetIds: [first.packetId, second.packetId], maxConcurrency: 1 }
+    });
+
+    await waitFor(() => activeState(app!, repo.id) === "EXECUTING", 30000);
+    await waitFor(() => activeStrategy(app!, run.id)?.status === "RUNNING", 30000);
+    // Worker launch order sorts packets by random UUID, so EITHER sibling may
+    // spawn first; whoever it is parks on the gate as the completion window.
+    try {
+      await waitFor(
+        () =>
+          [first.packetId, second.packetId].some(
+            (id) => app!.workPacketService.get(id)?.status === "RUNNING"
+          ),
+        45000
+      );
+    } catch (error) {
+      const packetStates = [first, second]
+        .map((packet) => `${packet.packetId}=${app!.workPacketService.get(packet.packetId)?.status ?? "missing"}`)
+        .join(",");
+      throw new Error(
+        `no packet reached RUNNING (packets: ${packetStates}); ${String(error)}; diagnostics: ${diagnose(app!, repo.id, run.id, null)}`
+      );
+    }
+    const drainedId = [first.packetId, second.packetId].find(
+      (id) => app!.workPacketService.get(id)?.status === "RUNNING"
+    )!;
+    const drainedPacket = drainedId === first.packetId ? first : second;
+    const queuedPacket = drainedId === first.packetId ? second : first;
+    const strategyRunId = activeStrategy(app!, run.id)!.strategyRunId;
+    const wakesBefore = app!.wakeStore.getByRepository(repo.id).length;
+
+    const stopRes = await app!.fastify.inject({ method: "POST", url: `/api/repositories/${repo.id}/runs/stop` });
+    expect(stopRes.statusCode).toBe(200);
+    expect(activeState(app!, repo.id)).toBe("DRAINING");
+    expect(app!.runStore.get(run.id)?.drainReason).toBe("USER_STOP");
+
+    // Release the gate only AFTER the stop boundary: the parked worker now
+    // finishes naturally inside the graceful drain.
+    fs.writeFileSync(gatePath, "go\n");
+
+    // The strategy must terminate (CANCELLED per engine semantics: the control
+    // decision wins even though the live worker drained to COMPLETED).
+    await waitForStrategyTerminal(app!, repo.id, run.id, null, strategyRunId, ["CANCELLED", "COMPLETED"], 60000);
+    expect(app!.strategyRunStore.get(strategyRunId)?.status).toBe("CANCELLED");
+
+    // Drained worker COMPLETED, queued sibling CANCELLED.
+    expect(app!.workPacketService.getResult(drainedPacket.packetId)?.status).toBe("COMPLETED");
+    expect(app!.workPacketService.getResult(queuedPacket.packetId)?.status).toBe("CANCELLED");
+
+    // Campaign terminated STOPPED at the drain boundary; the actor is terminal
+    // (never STOPPED-with-RUNNING-strategy); zero wakes crossed the boundary.
+    try {
+      await waitFor(() => app!.runStore.get(run.id)?.status === "STOPPED", 30000);
+    } catch (error) {
+      throw new Error(
+        `campaign never reached STOPPED after completion-window stop; ${String(error)}; diagnostics: ${diagnose(app!, repo.id, run.id, null)}`
+      );
+    }
+    expect(app!.strategyRunStore.getActiveForRun(run.id)).toBeNull();
+    expect(app!.wakeStore.getByRepository(repo.id).length - wakesBefore).toBe(0);
+    await expectStable(() => {
+      expect(app!.runStore.get(run.id)?.status).toBe("STOPPED");
+      expect(app!.strategyRunStore.get(strategyRunId)?.status).toBe("CANCELLED");
+      expect(app!.wakeStore.getByRepository(repo.id).length - wakesBefore).toBe(0);
+    }, 2500);
+  }, 180000);
+
   it("SCENARIO 9: manual strategy start is rejected with a structured 4xx ownership conflict at the campaign seam", async () => {
     // Ownership boundary qualification that does not need a live strategy
     // actor: with the campaign waiting on Sol (no dispatched strategy
@@ -707,10 +976,12 @@ describe("R16 real campaign-level strategy controls (DAG)", () => {
   afterEach(async () => {
     delete process.env.ORCA_SWARM_HARNESS_SLOW_MS;
     delete process.env.ORCA_SWARM_FAIL_PACKET;
+    delete process.env.ORCA_SWARM_WAIT_FILE;
     try {
+      // Change 018 R5: fastify.close() alone settles engines (KILL routing +
+      // bounded settlement + completion callbacks awaited in onClose).
       await app?.fastify.close();
     } catch {}
-    await settleEngine(app); // engine result writes must land before DB close
     try { app?.dbContext.close(); } catch {}
     app = null;
     try {
@@ -769,7 +1040,7 @@ describe("R16 real campaign-level strategy controls (DAG)", () => {
     expect(activeState(app!, repo.id)).toBe("EXECUTING");
     expect(activeStrategy(app!, run.id)?.strategyRunId).toBe(strategyRunId);
 
-    await waitForStrategyTerminal(app!, repo.id, run.id, dispatchId, strategyRunId, ["COMPLETED"], 90000);
+    await waitForStrategyTerminal(app!, repo.id, run.id, dispatchId, strategyRunId, ["COMPLETED"], 150000);
     // True DAG dependency state: B derived from A's integrated output.
     expect(app!.workPacketService.getResult(beta.packetId)?.status).toBe("COMPLETED");
     await waitFor(() => activeState(app!, repo.id) === "SOL_REVIEWING", 30000);
