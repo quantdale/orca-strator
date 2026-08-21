@@ -3,6 +3,7 @@ import { Shell } from "./components/Shell.js";
 import { RepositoryList } from "./components/RepositoryList.js";
 import { RepositoryDetail } from "./components/RepositoryDetail.js";
 import { RepositoryForm } from "./components/RepositoryForm.js";
+import { Settings } from "./components/Settings.js";
 import { ConfirmModal } from "./components/ConfirmModal.js";
 import { useRepositories } from "./lib/use-repositories.js";
 import type { CreateRepositoryInput, UpdateRepositoryInput } from "@orca/shared";
@@ -18,7 +19,7 @@ export const App: React.FC = () => {
     deleteRepository
   } = useRepositories();
 
-  const [currentView, setCurrentView] = useState<"list" | "add" | "detail" | "edit">("list");
+  const [currentView, setCurrentView] = useState<"list" | "add" | "detail" | "edit" | "settings">("list");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
 
@@ -30,6 +31,9 @@ export const App: React.FC = () => {
 
       if (pathname === "/repositories/new" || pathname === "/add" || hash === "add") {
         setCurrentView("add");
+        setSelectedRepoId(null);
+      } else if (pathname === "/settings" || hash === "settings") {
+        setCurrentView("settings");
         setSelectedRepoId(null);
       } else if (pathname.startsWith("/repositories/") && pathname.endsWith("/edit")) {
         const match = pathname.match(/^\/repositories\/([^/]+)\/edit$/);
@@ -68,10 +72,12 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const navigateTo = (view: "list" | "add" | "detail" | "edit", repoId?: string) => {
+  const navigateTo = (view: "list" | "add" | "detail" | "edit" | "settings", repoId?: string) => {
     let targetPath = "/";
     if (view === "add") {
       targetPath = "/repositories/new";
+    } else if (view === "settings") {
+      targetPath = "/settings";
     } else if (view === "detail" && repoId) {
       targetPath = `/repositories/${repoId}`;
     } else if (view === "edit" && repoId) {
@@ -87,6 +93,9 @@ export const App: React.FC = () => {
       setSelectedRepoId(null);
     } else if (view === "add") {
       setCurrentView("add");
+      setSelectedRepoId(null);
+    } else if (view === "settings") {
+      setCurrentView("settings");
       setSelectedRepoId(null);
     } else if (view === "detail" && repoId) {
       setCurrentView("detail");
@@ -142,6 +151,8 @@ export const App: React.FC = () => {
           isEditing={false}
         />
       )}
+
+      {currentView === "settings" && <Settings />}
 
       {currentView === "detail" && selectedRepo && (
         <RepositoryDetail

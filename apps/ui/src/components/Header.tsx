@@ -12,14 +12,20 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ status, currentView, onNavigate }) => {
   const [showTailscale, setShowTailscale] = useState(false);
   const [guidance, setGuidance] = useState<any>(null);
+  const [tailscaleError, setTailscaleError] = useState<string | null>(null);
 
   const openTailscale = async () => {
+    setTailscaleError(null);
     try {
       const res = await apiClient.getTailscaleGuidance();
       setGuidance(res.tailscale);
       setShowTailscale(true);
-    } catch {
-      // ignore
+    } catch (err) {
+      setTailscaleError(
+        err instanceof Error && err.message
+          ? `Could not load Tailscale guidance: ${err.message}`
+          : "Could not load Tailscale guidance from the controller."
+      );
     }
   };
 
@@ -90,6 +96,18 @@ export const Header: React.FC<HeaderProps> = ({ status, currentView, onNavigate 
               <span className="capitalize">{status}</span>
             </div>
 
+            {/* Settings Button */}
+            {currentView !== "settings" && (
+              <button
+                onClick={() => onNavigate("settings")}
+                className="rounded px-2.5 py-1 text-xs font-medium text-slate-300 border border-slate-700 hover:bg-slate-800 transition-colors"
+                title="Settings"
+                data-testid="settings-nav-button"
+              >
+                ⚙ Settings
+              </button>
+            )}
+
             {/* Navigation Action */}
             {currentView !== "add" && (
               <button
@@ -103,6 +121,21 @@ export const Header: React.FC<HeaderProps> = ({ status, currentView, onNavigate 
             )}
           </div>
         </div>
+
+        {tailscaleError && (
+          <div
+            className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 pb-3 sm:px-6"
+            data-testid="tailscale-error-banner"
+          >
+            <p className="text-xs text-rose-300">{tailscaleError}</p>
+            <button
+              onClick={() => setTailscaleError(null)}
+              className="shrink-0 text-xs text-slate-400 hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Tailscale Guidance Modal */}
