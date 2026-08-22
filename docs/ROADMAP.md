@@ -766,8 +766,13 @@ deterministic/internal qualification of the implemented runtime foundations.
 
 OpenSpec: `023-external-chrome-auth-bootstrap`
 
-Status: **implemented / MACHINE-GATED internally / real qualification pending
-one human sign-in**
+Status: **implemented / MACHINE-GATED internally / real qualification 9.1–9.4
+VERIFIED (2026-08-22): human Google sign-in completed in external setup Chrome,
+Check Login returned AUTHENTICATED, automation reuses the session with no
+OAuth re-run. Real finding: Cloudflare rejects HEADLESS Chrome even with the
+genuine installed binary + warm profile, so production automation runs HEADED.
+Remaining: one harmless real wake (awaits user-supplied dedicated Sol
+conversation URL) then final REAL_CHATGPT_AUTHENTICATED_PROFILE verdict.**
 
 Deliverables:
 
@@ -802,7 +807,8 @@ Qualification on this tree: fast tier 58 files / 300 tests green (including
 chrome-discovery, external-setup-browser, external-setup-manager,
 playwright-launch-guard, and auth-readiness suites), typecheck, build, lint,
 strict OpenSpec validation (23 passed / 0 failed), and `git diff --check` all
-pass. EXTERNAL_CHROME_AUTH_BOOTSTRAP and REAL_CHATGPT_AUTHENTICATED_PROFILE
-remain PENDING REAL QUALIFICATION until the human completes one Google sign-in
-inside the external setup window and BrowserManager reuses that session for a
-harmless real wake.
+pass. EXTERNAL_CHROME_AUTH_BOOTSTRAP is QUALIFIED with real evidence
+(2026-08-22). REAL_CHATGPT_AUTHENTICATED_PROFILE is partially qualified:
+AUTHENTICATED session reuse under headed installed-Chrome automation is proven;
+its final verdict awaits one harmless real wake once the user supplies the
+dedicated Sol conversation URL.
