@@ -13,21 +13,41 @@ describe("Browser REST Endpoints (Task 5)", () => {
   let tempDir: string;
   let appInstance: AppInstance;
   let mockDriver: MockBrowserDriver;
+  // Change 023: deterministic external setup-Chrome launcher seam.
+  const fakeSetupLauncher = {
+    spawned: [] as { exe: string; profile: string; url: string }[],
+    spawn(exe: string, profile: string, url: string) {
+      this.spawned.push({ exe, profile, url });
+      const pid = 8000 + this.spawned.length;
+      return {
+        pid,
+        exit: new Promise<{ code: number | null }>((resolve) =>
+          setTimeout(() => resolve({ code: 0 }), 30000),
+        ),
+      };
+    },
+    async close() {},
+    isRunning() {
+      return false;
+    },
+  };
 
   const mockRepo: RepositoryRecord = {
     id: "repo-browser-api",
     displayName: "Browser API Repo",
     githubRemote: "https://github.com/quantdale/browser-api.git",
+    enabled: true,
     localPath: "D:\\Projects\\BrowserApi",
     environment: "windows",
     wslDistribution: null,
     executorCli: "codex",
     executorModel: "gpt-5.6",
-    solConversationUrl: "https://chatgpt.com/c/67b5883a-3333-8001-a123-1234567890ab",
+    solConversationUrl:
+      "https://chatgpt.com/c/67b5883a-3333-8001-a123-1234567890ab",
     maxIterations: 20,
     maxRuntimeMinutes: 480,
     createdAt: "2026-08-19T10:00:00.000Z",
-    updatedAt: "2026-08-19T10:00:00.000Z"
+    updatedAt: "2026-08-19T10:00:00.000Z",
   };
 
   const mockDispatch: DispatchRecord = {
@@ -46,7 +66,7 @@ describe("Browser REST Endpoints (Task 5)", () => {
     status: "consumed",
     rejectionReason: null,
     createdAt: "2026-08-19T12:00:00.000Z",
-    updatedAt: "2026-08-19T12:00:00.000Z"
+    updatedAt: "2026-08-19T12:00:00.000Z",
   };
 
   beforeEach(async () => {
@@ -54,13 +74,21 @@ describe("Browser REST Endpoints (Task 5)", () => {
     const config = loadConfig({
       dbPath: path.join(tempDir, "test.sqlite"),
       dataDir: tempDir,
-      logLevel: "silent"
+      logLevel: "silent",
     });
 
     mockDriver = new MockBrowserDriver();
 
     appInstance = await buildApp(config, {
-      browserDriver: mockDriver
+      browserDriver: mockDriver,
+      // Change 023: deterministic external setup-Chrome seams (no machine deps).
+      discoverSystemChrome: async () => ({
+        status: "FOUND",
+        executablePath: "C:\\fake\\chrome.exe",
+        version: "142.0.7444.60",
+        source: "test",
+      }),
+      setupLauncher: fakeSetupLauncher,
     });
 
     const created = appInstance.repositoryService.createRepository({
@@ -73,7 +101,7 @@ describe("Browser REST Endpoints (Task 5)", () => {
       executorModel: mockRepo.executorModel,
       solConversationUrl: mockRepo.solConversationUrl,
       maxIterations: mockRepo.maxIterations,
-      maxRuntimeMinutes: mockRepo.maxRuntimeMinutes
+      maxRuntimeMinutes: mockRepo.maxRuntimeMinutes,
     });
 
     mockRepo.id = created.id;
@@ -90,7 +118,7 @@ describe("Browser REST Endpoints (Task 5)", () => {
   it("5.T1 GET /api/browser/status returns current browser status", async () => {
     const res = await appInstance.fastify.inject({
       method: "GET",
-      url: "/api/browser/status"
+      url: "/api/browser/status",
     });
 
     expect(res.statusCode).toBe(200);
@@ -102,14 +130,14 @@ describe("Browser REST Endpoints (Task 5)", () => {
   it("5.T2 POST /api/browser/setup/open and /close manage setup mode", async () => {
     const openRes = await appInstance.fastify.inject({
       method: "POST",
-      url: "/api/browser/setup/open"
+      url: "/api/browser/setup/open",
     });
     expect(openRes.statusCode).toBe(200);
     expect(openRes.json().status).toBe("opened");
 
     const closeRes = await appInstance.fastify.inject({
       method: "POST",
-      url: "/api/browser/setup/close"
+      url: "/api/browser/setup/close",
     });
     expect(closeRes.statusCode).toBe(200);
     expect(closeRes.json().status).toBe("closed");
@@ -120,8 +148,8 @@ describe("Browser REST Endpoints (Task 5)", () => {
       method: "POST",
       url: `/api/repositories/${mockRepo.id}/wake`,
       payload: {
-        dispatchId: mockDispatch.id
-      }
+        dispatchId: mockDispatch.id,
+      },
     });
 
     expect(res.statusCode).toBe(201);

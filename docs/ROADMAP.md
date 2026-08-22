@@ -761,3 +761,48 @@ qualifications remain explicitly UNQUALIFIED rather than faked: real
 ChatGPT-authenticated wake, Tailscale phone routing, real Kimi/Codex inference,
 and an authorized OpenCode server/provider. They do not invalidate the
 deterministic/internal qualification of the implemented runtime foundations.
+
+### Milestone 21 — External-Chrome auth bootstrap
+
+OpenSpec: `023-external-chrome-auth-bootstrap`
+
+Status: **implemented / MACHINE-GATED internally / real qualification pending
+one human sign-in**
+
+Deliverables:
+
+- Windows system-Chrome discovery (registry App Paths incl. WOW6432Node, then
+  ProgramFiles / ProgramFiles(x86) / LOCALAPPDATA) exposing FOUND/NOT_FOUND,
+  best-effort VERSION, and executablePath with no silent fallback;
+- an external setup-browser launcher that spawns ordinary installed Chrome
+  DIRECTLY (`chrome.exe --user-data-dir=<dedicated profile>
+  https://chatgpt.com/auth/login`) for human-controlled Google/OpenAI auth —
+  no Playwright attached, no anti-detection flags, no `--no-sandbox`, never the
+  user's personal profile;
+- external-Chrome PID ownership of the INTERACTIVE_SETUP profile lock with
+  release on human close and stale-PID recovery through durable liveness
+  checks; setup Chrome and Playwright automation can never write the profile
+  concurrently;
+- production automation (BrowserManager/PlaywrightDriver) launches the same
+  discovered installed Chrome against the SAME dedicated profile so a manual
+  session is reused without repeating Google OAuth under automation; missing
+  Chrome surfaces actionable CHROME_NOT_READY readiness instead of a silent
+  bundled-Chromium fallback;
+- profile-format migration guard: incompatible prior profiles are preserved as
+  timestamped backups and a clean dedicated profile is created — never deleted
+  silently, never copying auth cookies;
+- auth readiness (AUTHENTICATED / LOGIN_REQUIRED / VERIFICATION_REQUIRED /
+  UNKNOWN) from safe UI/navigation signals with cookie NAME families as
+  corroboration only; cookie VALUES never enter reports/logs/persistence;
+- truthful Settings UI: explanation copy, Chrome detected/version, dedicated
+  profile location, setup OPEN/CLOSED, authentication readiness, ownership,
+  and Open Setup Browser / Check Login / Close Setup Browser controls.
+
+Qualification on this tree: fast tier 58 files / 300 tests green (including
+chrome-discovery, external-setup-browser, external-setup-manager,
+playwright-launch-guard, and auth-readiness suites), typecheck, build, lint,
+strict OpenSpec validation (23 passed / 0 failed), and `git diff --check` all
+pass. EXTERNAL_CHROME_AUTH_BOOTSTRAP and REAL_CHATGPT_AUTHENTICATED_PROFILE
+remain PENDING REAL QUALIFICATION until the human completes one Google sign-in
+inside the external setup window and BrowserManager reuses that session for a
+harmless real wake.

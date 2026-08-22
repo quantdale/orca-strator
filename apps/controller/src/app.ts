@@ -60,6 +60,8 @@ import { swarmRoutes } from "./http/routes/swarm.js";
 import { dagRoutes } from "./http/routes/dag.js";
 
 import type { BrowserDriver } from "./browser/browser-driver.js";
+import type { SystemChromeInfo } from "./browser/chrome-discovery.js";
+import type { ExternalSetupLauncherLike } from "./browser/external-setup-browser.js";
 
 export interface AppInstance {
   fastify: FastifyInstance;
@@ -106,6 +108,10 @@ export async function buildApp(
     browserDriver?: BrowserDriver;
     browserManager?: BrowserManager;
     loopService?: LoopService;
+    /** Change 023 test seams for the external setup-Chrome flow. */
+    discoverSystemChrome?: () => Promise<SystemChromeInfo>;
+    setupLauncher?: ExternalSetupLauncherLike;
+    requireInstalledChromeForAutomation?: boolean;
   } = {},
 ): Promise<AppInstance> {
   const fastify = Fastify({
@@ -178,7 +184,8 @@ export async function buildApp(
     // Native enforcement claim comes from the latest capability probe; without
     // a READY probe the policy service records decisions as ADVISORY_ONLY.
     hasNativePermissionApi: (repositoryId) =>
-      capabilityStore.latest(repositoryId)?.snapshot.rich.permissionApi === "READY",
+      capabilityStore.latest(repositoryId)?.snapshot.rich.permissionApi ===
+      "READY",
     attentionHandler: (decision) => {
       if (!decision.runId) return;
       const run = runStore.get(decision.runId);
@@ -285,7 +292,19 @@ export async function buildApp(
       wakeStore,
       solOperationStore: new SqliteSolOperationStore(dbContext.db),
       eventPublisher: (event) => eventBus.publish(event),
+      // Change 023: production automation launches discovered installed Chrome
+      // against the dedicated profile; interactive setup spawns ordinary Chrome
+      // directly (never Playwright).
+      discoverSystemChrome: overrides.discoverSystemChrome,
+      setupLauncher: overrides.setupLauncher,
+      requireInstalledChromeForAutomation:
+        overrides.requireInstalledChromeForAutomation ??
+        !overrides.browserDriver,
     });
+
+  // Best-effort system-Chrome probe so Settings truthfully shows detected/
+  // version state shortly after startup; failures leave UNKNOWN.
+  void browserManager.refreshSystemChrome().catch(() => {});
 
   loopService =
     overrides.loopService ||
@@ -322,7 +341,12 @@ export async function buildApp(
       });
       if (!decision.runId) return;
       const run = runStore.getLatestRun(decision.repositoryId);
-      if (!run || run.id !== decision.runId || run.status !== "ATTENTION_REQUIRED") return;
+      if (
+        !run ||
+        run.id !== decision.runId ||
+        run.status !== "ATTENTION_REQUIRED"
+      )
+        return;
       const stillPending = permissionStore
         .listDecisions(decision.repositoryId)
         .some(
@@ -447,7 +471,9 @@ export async function buildApp(
   await fastify.register(
     watcherRoutes(watcherService, dispatchStore, repositoryService),
   );
-  await fastify.register(executorRoutes(executorService, repositoryService, coordinator));
+  await fastify.register(
+    executorRoutes(executorService, repositoryService, coordinator),
+  );
   await fastify.register(
     browserRoutes(browserManager, repositoryService, dispatchStore),
   );

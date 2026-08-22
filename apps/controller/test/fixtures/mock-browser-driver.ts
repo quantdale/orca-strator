@@ -1,4 +1,7 @@
-import type { BrowserDriver, BrowserPage } from "../../src/browser/browser-driver.js";
+import type {
+  BrowserDriver,
+  BrowserPage,
+} from "../../src/browser/browser-driver.js";
 
 export class MockBrowserPage implements BrowserPage {
   public currentUrl: string = "";
@@ -10,7 +13,10 @@ export class MockBrowserPage implements BrowserPage {
   public bodyText: string = "";
   public visibleSelectors = new Set<string>();
 
-  constructor(public readonly repositoryId: string, initialUrl: string) {
+  constructor(
+    public readonly repositoryId: string,
+    initialUrl: string,
+  ) {
     this.currentUrl = initialUrl;
   }
 
@@ -26,7 +32,10 @@ export class MockBrowserPage implements BrowserPage {
     this.clickedSelectors.push(selector);
   }
 
-  async waitForSelector(selector: string, _options?: { timeout?: number }): Promise<boolean> {
+  async waitForSelector(
+    selector: string,
+    _options?: { timeout?: number },
+  ): Promise<boolean> {
     if (this.visibleSelectors.size > 0) {
       return this.visibleSelectors.has(selector);
     }
@@ -34,7 +43,8 @@ export class MockBrowserPage implements BrowserPage {
   }
 
   async hasSelector(selector: string, _timeoutMs?: number): Promise<boolean> {
-    if (this.visibleSelectors.size > 0) return this.visibleSelectors.has(selector);
+    if (this.visibleSelectors.size > 0)
+      return this.visibleSelectors.has(selector);
     return false;
   }
 
@@ -71,10 +81,35 @@ export class MockBrowserDriver implements BrowserDriver {
   /** When true, every opened page reports ChatGPT "too many requests" (BUSY) via scoped text. */
   public forceBusy = false;
 
-  async launch(profileDir: string, headless: boolean): Promise<void> {
+  // Change 023 seams.
+  /** Every launch invocation, for asserting zero Playwright launches during setup. */
+  public launchCalls: {
+    profileDir: string;
+    headless: boolean;
+    executablePath?: string;
+  }[] = [];
+  /** Cookie NAME|DOMAIN labels surfaced as auth-readiness corroboration. */
+  public cookieNameDomains: string[] = [];
+  /** Optional configurator applied to pages opened for "__auth_check__". */
+  public authCheckSetup: ((page: MockBrowserPage) => void) | null = null;
+
+  async launch(
+    profileDir: string,
+    headless: boolean,
+    opts?: { executablePath?: string },
+  ): Promise<void> {
     this.running = true;
     this.profileDir = profileDir;
     this.headless = headless;
+    this.launchCalls.push({
+      profileDir,
+      headless,
+      executablePath: opts?.executablePath,
+    });
+  }
+
+  async getCookieNameDomains(): Promise<string[]> {
+    return this.cookieNameDomains;
   }
 
   async openPage(repositoryId: string, url: string): Promise<BrowserPage> {
@@ -87,6 +122,9 @@ export class MockBrowserDriver implements BrowserDriver {
       page = new MockBrowserPage(repositoryId, url);
       this.pages.set(repositoryId, page);
       this.history.set(repositoryId, page);
+      if (repositoryId === "__auth_check__" && this.authCheckSetup) {
+        this.authCheckSetup(page);
+      }
     } else if (page.currentUrl !== url) {
       await page.goto(url);
     }

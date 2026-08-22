@@ -1,6 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
-import type { TailscaleGuidance } from "@orca/shared";
-import type { BrowserStatusView, ProvisioningStatusView } from "../lib/api-client.js";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { AuthReadinessReport, TailscaleGuidance } from "@orca/shared";
+import type {
+  BrowserStatusView,
+  ProvisioningStatusView,
+} from "../lib/api-client.js";
 import { ApiError, apiClient } from "../lib/api-client.js";
 
 const TAILSCALE_GUIDANCE_TEXT =
@@ -21,16 +25,25 @@ export const Settings: React.FC = () => {
   const [browserLoading, setBrowserLoading] = useState(true);
   const [browserError, setBrowserError] = useState<string | null>(null);
 
-  const [provisioning, setProvisioning] = useState<ProvisioningStatusView | null>(null);
+  const [provisioning, setProvisioning] =
+    useState<ProvisioningStatusView | null>(null);
   const [provisioningLoading, setProvisioningLoading] = useState(true);
-  const [provisioningError, setProvisioningError] = useState<string | null>(null);
+  const [provisioningError, setProvisioningError] = useState<string | null>(
+    null,
+  );
 
   const [tailscale, setTailscale] = useState<TailscaleGuidance | null>(null);
   const [tailscaleLoading, setTailscaleLoading] = useState(true);
   const [tailscaleError, setTailscaleError] = useState<string | null>(null);
 
-  const [pendingAction, setPendingAction] = useState<"open" | "close" | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    "open" | "check" | "close" | null
+  >(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [authReport, setAuthReport] = useState<AuthReadinessReport | null>(
+    null,
+  );
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshBrowser = useCallback(async () => {
     setBrowserLoading(true);
@@ -50,7 +63,9 @@ export const Settings: React.FC = () => {
     try {
       setProvisioning(await apiClient.getProvisioningStatus());
     } catch (err) {
-      setProvisioningError(toErrorMessage(err, "Failed to load Chromium provisioning status."));
+      setProvisioningError(
+        toErrorMessage(err, "Failed to load Chromium provisioning status."),
+      );
     } finally {
       setProvisioningLoading(false);
     }
@@ -63,7 +78,9 @@ export const Settings: React.FC = () => {
       const res = await apiClient.getTailscaleGuidance();
       setTailscale(res.tailscale as TailscaleGuidance);
     } catch (err) {
-      setTailscaleError(toErrorMessage(err, "Failed to load Tailscale status."));
+      setTailscaleError(
+        toErrorMessage(err, "Failed to load Tailscale status."),
+      );
     } finally {
       setTailscaleLoading(false);
     }
@@ -82,7 +99,9 @@ export const Settings: React.FC = () => {
       await apiClient.openChatGptSetup();
       await refreshBrowser();
     } catch (err) {
-      setActionError(toErrorMessage(err, "Failed to open the ChatGPT setup browser."));
+      setActionError(
+        toErrorMessage(err, "Failed to open the ChatGPT setup browser."),
+      );
     } finally {
       setPendingAction(null);
     }
@@ -101,23 +120,65 @@ export const Settings: React.FC = () => {
     }
   };
 
-  // Derived per UI-UX-SPEC §19. BrowserStatus carries no verification timestamp,
-  // so "Last setup verification" is reported as unknown.
-  const profileConfigured = Boolean(browser?.profilePath);
-  const profileUse = !browser
-    ? null
-    : browser.isSetupOpen
-    ? "Setup active"
-    : browser.isRunning
-    ? "Automation active"
-    : "Available";
+  // Change 023 §6: explicit readiness check through safe UI/navigation signals.
+  const handleCheckLogin = async () => {
+    setAuthError(null);
+    setPendingAction("check");
+    try {
+      const report = await apiClient.checkChatGptAuth();
+      setAuthReport(report);
+      await refreshBrowser();
+    } catch (err) {
+      setAuthError(
+        toErrorMessage(err, "Failed to check ChatGPT login readiness."),
+      );
+    } finally {
+      setPendingAction(null);
+    }
+  };
 
-  const openConflictReason = !browser
-    ? null
-    : browser.isSetupOpen
-    ? "The headed setup browser is already open. Close it before launching another."
-    : browser.isRunning || browser.activePages > 0 || browser.lockHolderPid !== null
-    ? "Automated Chromium owns the profile; headed setup cannot reuse it. Wait for automated operations to finish."
+  // Derived per UI-UX-SPEC §19 + Change 023 §6.
+  const profileConfigured = Boolean(browser?.profilePath);
+  const profileUse = browser
+    ? browser.isSetupOpen
+      ? "Setup active"
+      : browser.isRunning
+        ? "Automation active"
+        : "Available"
+    : null;
+
+  const chromeLabel = browser
+    ? browser.systemChrome.status === "FOUND"
+      ? `Detected${browser.systemChrome.version ? ` · v${browser.systemChrome.version}` : ""}`
+      : browser.systemChrome.status === "NOT_FOUND"
+        ? "Not found — install Google Chrome"
+        : "Unknown (probe failed)"
+    : "Unknown";
+
+  const authLabel = authReport
+    ? authReport.status
+    : browser?.authReadiness
+      ? browser.authReadiness.status
+      : "Not checked";
+
+  const ownershipLabel = browser
+    ? browser.isSetupOpen && browser.setupPid !== null
+      ? `External setup Chrome (PID ${browser.setupPid})`
+      : browser.lockHolderPid === null
+        ? "Free — automation may acquire"
+        : browser.lockHolderPid === browser.setupPid
+          ? `External setup Chrome (PID ${browser.lockHolderPid})`
+          : `Automation / controller (PID ${browser.lockHolderPid})`
+    : "Unknown";
+
+  const openConflictReason = browser
+    ? browser.isSetupOpen
+      ? "The setup browser is already open. Close it before launching another."
+      : browser.isRunning ||
+          browser.activePages > 0 ||
+          browser.lockHolderPid !== null
+        ? "Automation owns the dedicated profile; setup cannot reuse it until automated operations finish."
+        : null
     : null;
 
   const actionsDisabled = pendingAction !== null || browserLoading;
@@ -127,7 +188,8 @@ export const Settings: React.FC = () => {
       <div>
         <h2 className="text-xl font-bold text-white sm:text-2xl">Settings</h2>
         <p className="text-sm text-slate-400">
-          Local automation, provisioning, and private phone access configuration.
+          Local automation, provisioning, and private phone access
+          configuration.
         </p>
       </div>
 
@@ -150,62 +212,162 @@ export const Settings: React.FC = () => {
         </div>
 
         {browserLoading && !browser && (
-          <p className="text-sm text-slate-500" data-testid="chatgpt-status-loading">
+          <p
+            className="text-sm text-slate-500"
+            data-testid="chatgpt-status-loading"
+          >
             Loading automation status…
           </p>
         )}
 
         {browserError && (
-          <div className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-sm text-rose-300" data-testid="chatgpt-status-error">
+          <div
+            className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-sm text-rose-300"
+            data-testid="chatgpt-status-error"
+          >
             {browserError}
           </div>
         )}
 
         {!browserLoading && !browserError && !browser && (
-          <p className="text-sm text-slate-500">No automation status available.</p>
+          <p className="text-sm text-slate-500">
+            No automation status available.
+          </p>
         )}
 
         {browser && (
           <>
+            {/* Change 023 §6 truthfulness copy */}
+            <p
+              className="rounded-lg border border-slate-800 bg-slate-950/60 p-3.5 text-sm leading-relaxed text-slate-300"
+              data-testid="chatgpt-setup-explanation"
+            >
+              Opens ordinary Google Chrome using Orca's dedicated browser
+              profile. Use this window to sign into ChatGPT manually. Close it
+              when login is complete. Orca automation will reuse this dedicated
+              profile afterward.
+            </p>
+
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <dt className="text-xs text-slate-500">Automation profile</dt>
-                <dd className={`mt-1 text-sm ${profileConfigured ? "text-emerald-400" : "text-amber-400"}`}>
-                  {profileConfigured ? "Configured" : "Not configured"}
+                <dt className="text-xs text-slate-500">
+                  Chrome detected/version
+                </dt>
+                <dd
+                  className={`mt-1 text-sm ${
+                    browser.systemChrome.status === "FOUND"
+                      ? "text-emerald-400"
+                      : browser.systemChrome.status === "NOT_FOUND"
+                        ? "text-rose-400"
+                        : "text-amber-400"
+                  }`}
+                  data-testid="chrome-detected"
+                >
+                  {chromeLabel}
                 </dd>
               </div>
 
               <div>
                 <dt className="text-xs text-slate-500">Profile use</dt>
-                <dd className="mt-1 text-sm text-slate-200">{profileUse ?? "Unknown"}</dd>
+                <dd className="mt-1 text-sm text-slate-200">
+                  {profileUse ?? "Unknown"}
+                </dd>
               </div>
 
               <div>
-                <dt className="text-xs text-slate-500">Last setup verification</dt>
-                <dd className="mt-1 text-sm text-slate-200">unknown</dd>
+                <dt className="text-xs text-slate-500">Setup browser</dt>
+                <dd
+                  className="mt-1 text-sm text-slate-200"
+                  data-testid="setup-browser-state"
+                >
+                  {browser.isSetupOpen ? "OPEN" : "CLOSED"}
+                  {browser.isSetupOpen &&
+                    browser.setupLauncherKind === "external-chrome" && (
+                      <span className="ml-2 text-xs text-slate-500">
+                        (ordinary Chrome, no automation)
+                      </span>
+                    )}
+                </dd>
+              </div>
+
+              <div>
+                <dt className="text-xs text-slate-500">
+                  Authentication readiness
+                </dt>
+                <dd
+                  className={`mt-1 text-sm ${
+                    authLabel === "AUTHENTICATED"
+                      ? "text-emerald-400"
+                      : authLabel === "LOGIN_REQUIRED" ||
+                          authLabel === "VERIFICATION_REQUIRED"
+                        ? "text-amber-400"
+                        : "text-slate-200"
+                  }`}
+                  data-testid="auth-readiness"
+                >
+                  {authLabel}
+                  {authReport && authReport.evidence.length > 0 && (
+                    <span className="ml-2 text-xs text-slate-500">
+                      ({authReport.evidence.join(", ")})
+                    </span>
+                  )}
+                </dd>
+              </div>
+
+              <div>
+                <dt className="text-xs text-slate-500">
+                  Automation-profile ownership
+                </dt>
+                <dd
+                  className="mt-1 text-sm text-slate-200"
+                  data-testid="profile-ownership"
+                >
+                  {ownershipLabel}
+                </dd>
               </div>
 
               <div>
                 <dt className="text-xs text-slate-500">Active pages</dt>
-                <dd className="mt-1 text-sm font-mono text-slate-200">{browser.activePages}</dd>
+                <dd className="mt-1 text-sm font-mono text-slate-200">
+                  {browser.activePages}
+                </dd>
               </div>
 
               <div className="sm:col-span-2">
-                <dt className="text-xs text-slate-500">Profile path</dt>
-                <dd className="mt-1 text-sm font-mono text-slate-200 bg-slate-950 p-2.5 rounded-lg border border-slate-800 break-all">
-                  {browser.profilePath}
+                <dt className="text-xs text-slate-500">
+                  Dedicated profile location
+                </dt>
+                <dd
+                  className={`mt-1 text-sm font-mono text-slate-200 bg-slate-950 p-2.5 rounded-lg border border-slate-800 break-all ${profileConfigured ? "" : "text-amber-400"}`}
+                >
+                  {profileConfigured ? browser.profilePath : "Not configured"}
                 </dd>
               </div>
             </dl>
 
             {openConflictReason && (
-              <p className="text-xs text-amber-400" data-testid="chatgpt-open-conflict">
+              <p
+                className="text-xs text-amber-400"
+                data-testid="chatgpt-open-conflict"
+              >
                 {openConflictReason}
               </p>
             )}
 
+            {authError && (
+              <p
+                className="text-xs text-rose-400"
+                data-testid="chatgpt-auth-error"
+              >
+                {authError}
+              </p>
+            )}
+
             {actionError && (
-              <div className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-sm text-rose-300" data-testid="chatgpt-action-error">
+              <div
+                className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-sm text-rose-300"
+                data-testid="chatgpt-action-error"
+              >
                 {actionError}
               </div>
             )}
@@ -217,7 +379,20 @@ export const Settings: React.FC = () => {
                 className="inline-flex items-center rounded-lg bg-cyan-600 px-3.5 py-2 text-xs font-medium text-white shadow hover:bg-cyan-500 transition-colors focus:outline-none sm:text-sm disabled:opacity-50 disabled:hover:bg-cyan-600"
                 data-testid="open-setup-browser-button"
               >
-                {pendingAction === "open" ? "Opening…" : "Open ChatGPT Setup Browser"}
+                {pendingAction === "open" ? "Opening…" : "Open Setup Browser"}
+              </button>
+              <button
+                onClick={() => void handleCheckLogin()}
+                disabled={actionsDisabled || Boolean(browser.isSetupOpen)}
+                title={
+                  browser.isSetupOpen
+                    ? "Close the setup browser before checking login"
+                    : "Verifies ChatGPT login using the dedicated profile"
+                }
+                className="inline-flex items-center rounded-lg border border-cyan-700 bg-slate-800 px-3.5 py-2 text-xs font-medium text-cyan-300 hover:bg-slate-700 transition-colors sm:text-sm disabled:opacity-50"
+                data-testid="check-login-button"
+              >
+                {pendingAction === "check" ? "Checking…" : "Check Login"}
               </button>
               <button
                 onClick={() => void handleCloseSetup()}
@@ -261,7 +436,9 @@ export const Settings: React.FC = () => {
         )}
 
         {!provisioningLoading && !provisioningError && !provisioning && (
-          <p className="text-sm text-slate-500">No provisioning status available.</p>
+          <p className="text-sm text-slate-500">
+            No provisioning status available.
+          </p>
         )}
 
         {provisioning && (
@@ -273,8 +450,8 @@ export const Settings: React.FC = () => {
                   provisioning.status === "ready"
                     ? "text-emerald-400"
                     : provisioning.status === "missing"
-                    ? "text-rose-400"
-                    : "text-amber-400"
+                      ? "text-rose-400"
+                      : "text-amber-400"
                 }`}
               >
                 {provisioning.status}
@@ -290,7 +467,9 @@ export const Settings: React.FC = () => {
 
             <div>
               <dt className="text-xs text-slate-500">Details</dt>
-              <dd className="mt-1 text-sm text-slate-300">{provisioning.details}</dd>
+              <dd className="mt-1 text-sm text-slate-300">
+                {provisioning.details}
+              </dd>
             </div>
           </dl>
         )}
@@ -327,7 +506,9 @@ export const Settings: React.FC = () => {
         )}
 
         {!tailscaleLoading && !tailscaleError && !tailscale && (
-          <p className="text-sm text-slate-500">No Tailscale status available.</p>
+          <p className="text-sm text-slate-500">
+            No Tailscale status available.
+          </p>
         )}
 
         {tailscale && (
@@ -336,18 +517,26 @@ export const Settings: React.FC = () => {
               <dt className="text-xs text-slate-500">Detected status</dt>
               <dd
                 className={`mt-1 text-sm ${
-                  tailscale.status === "configured" ? "text-emerald-400" : "text-amber-400"
+                  tailscale.status === "configured"
+                    ? "text-emerald-400"
+                    : "text-amber-400"
                 }`}
               >
-                {tailscale.status === "configured" ? "Available" : "Not configured"}
-                <span className="ml-2 text-xs text-slate-500">({tailscale.status})</span>
+                {tailscale.status === "configured"
+                  ? "Available"
+                  : "Not configured"}
+                <span className="ml-2 text-xs text-slate-500">
+                  ({tailscale.status})
+                </span>
               </dd>
             </div>
 
             {tailscale.details && (
               <div>
                 <dt className="text-xs text-slate-500">Details</dt>
-                <dd className="mt-1 text-sm text-slate-300">{tailscale.details}</dd>
+                <dd className="mt-1 text-sm text-slate-300">
+                  {tailscale.details}
+                </dd>
               </div>
             )}
 

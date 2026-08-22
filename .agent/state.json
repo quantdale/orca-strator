@@ -1,37 +1,37 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "MILESTONE_20_QUALIFIED",
+  "developmentStatus": "MILESTONE_21_IMPLEMENTED_AWAITING_HUMAN_SIGNIN",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 20,
-  "activeChange": null,
+  "activeMilestone": 21,
+  "activeChange": "023-external-chrome-auth-bootstrap",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "REAL EXTERNAL QUALIFICATION RESUMED from main 4048a08 and re-verified ChatGPT auth: STILL NOT_AUTHENTICATED (cookie-store inspected by name+host only across all chatgpt.com/openai.com hosts — no session-indicating cookie family; history shows zero login-flow navigation after controller's own 15:30 chatgpt.com load; profile disk writes stop ~15:41). NEW REAL-WORLD OBSERVATION: headed setup-browser window had been closed externally after ~15:36 while controller still reported isRunning:true (stale in-memory flag) — recovered cleanly through CANONICAL lifecycle only: POST /api/browser/setup/close released lock + cleared stale flag, POST /api/browser/setup/open relaunched headed Chromium on the SAME persistent profile (live chrome.exe verified). Classified normal public-API recovery, NOT a defect. Prior evidence unchanged: REAL_KIMI_INFERENCE=QUALIFIED, REAL_CODEX_INFERENCE=QUALIFIED (Change 022 fixes deac592), production controller proven, stale-lock recovery proven.",
-    "updatedAt": "2026-08-22T16:50:00+08:00",
-    "lastCompletedTask": "Resume-time auth re-verification + external-close browser recovery via canonical setup close/open; report addendum recorded in docs/REAL-DOGFOOD-QUALIFICATION.md.",
-    "lastVerification": "Auth verdict from three independent disk indicators (cookie names multi-family, history timeline, file mtimes); live Chromium process verified via Win32_Process CommandLine; no source changes so no test suite rerun per regression policy."
+    "summary": "Change 023 IMPLEMENTED AND MACHINE-GATED: interactive setup now spawns ordinary installed Chrome DIRECTLY as a child process (chrome.exe --user-data-dir=<dedicated profile> https://chatgpt.com/auth/login) with zero Playwright involvement; the external Chrome PID owns the INTERACTIVE_SETUP profile lock with release-on-exit and stale-PID recovery; production automation launches the same discovered installed Chrome through Playwright against the SAME dedicated profile (actionable CHROME_NOT_READY when absent); auth readiness classifies AUTHENTICATED/LOGIN_REQUIRED/VERIFICATION_REQUIRED/UNKNOWN from safe UI/navigation signals with cookie NAME corroboration only (values never read/logged/persisted); profile-format migration guard preserves incompatible profiles as timestamped backups; Settings UI truthfully shows Chrome detected/version, profile location, setup OPEN/CLOSED, readiness, ownership, with Open Setup Browser / Check Login / Close Setup Browser controls. Gates: fast tier 58 files / 300 tests green (incl. chrome-discovery, external-setup-browser, external-setup-manager, playwright-launch-guard, auth-readiness suites), typecheck, build, lint, strict OpenSpec validation 23/23, git diff --check all pass. Root cause of the original blocker stands confirmed: Google rejects Playwright-managed Chromium for OAuth; no bypass was implemented or permitted.",
+    "updatedAt": "2026-08-22T19:55:00+08:00",
+    "lastCompletedTask": "Change 023 full implementation, test suites, gates, docs (ROADMAP Milestone 21, TEST-STRATEGY §27, REAL-DOGFOOD addendum), tasks.md checkboxes 1.x–8.1 marked.",
+    "lastVerification": "npm test fast tier 58 files / 300 tests green; npm run typecheck; npm run build; npm run lint; npx openspec validate --all --strict (23 passed / 0 failed); git diff --check."
   },
-  "nextAction": "BLOCKED_MANUAL_AUTH (re-confirmed 16:45): human must complete ChatGPT login inside the freshly re-opened headed Orca setup-browser window (chatgpt.com, same persistent profile). The window is OPEN now. The moment auth exists: verify via cookie-name families, then create dedicated Sol conversation (Phase 5), register dogfood repo via POST /api/repositories (windows env, kimi.exe absolute path, model opencode/x-preview-f-free, conversation URL), start run via POST /api/repositories/:id/runs/start, observe fully autonomous Sol->dispatch#1->Kimi->result->Sol->dispatch#2->Kimi->result->GOAL_COMPLETE loop with ZERO transition injection (Phase 8), one Codex iteration through Orca (Phase 10), parallel read-only reviewer fan-out (Phase 13), complete docs/REAL-DOGFOOD-QUALIFICATION.md (Phase 14), close/fold Change 009 if justified (Phase 15). Tailscale separately requires one elevated install; OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED.",
+  "nextAction": "REAL QUALIFICATION (tasks 9.1–9.6): close any Orca browser processes; start production controller; invoke Open ChatGPT Setup Browser and verify the process is ordinary installed Chrome NOT Playwright-managed; HUMAN completes ChatGPT Google sign-in manually in that window (Orca never automates this step); human closes window; invoke POST /api/browser/auth/check expecting AUTHENTICATED; start BrowserManager automation on the SAME profile verifying session reuse without re-running Google OAuth; perform one harmless real ChatGPT wake. Then record QUALIFIED verdicts for EXTERNAL_CHROME_AUTH_BOOTSTRAP and REAL_CHATGPT_AUTHENTICATED_PROFILE in docs/REAL-DOGFOOD-QUALIFICATION.md and resume the real dogfood campaign (Sol -> dispatch#1 -> Kimi -> result -> Sol -> dispatch#2 -> Kimi -> result -> Sol -> GOAL_COMPLETE). Tailscale still requires one elevated install; OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED.",
   "blockers": [
     {
-      "code": "V1_NOT_YET_QUALIFIED",
-      "summary": "V1 remains NOT YET QUALIFIED only for the genuinely external dependencies (real ChatGPT-authenticated wake, Tailscale phone route, real Kimi/Codex inference burn); all internal production wiring is now machine-qualified with real Git / real child-process executors / real WSL / real service wiring.",
-      "evidence": "Real tier (test:real) now GREEN: emergency-kill isolation + wall-clock ceiling non-skipped and passing; Q.APP.1 + Q.WIN.1/WSL.1/3 solid; strict Sol control correlation + durable Sol-wake/BUSY-rehydration verified. Remaining UNQUALIFIED are external only (ChatGPT auth, Tailscale, inference burn) - honestly not faked.",
-      "nextAction": "When Chromium auth / Tailscale become available, run headed setup smoke + same-origin phone smoke; otherwise leave UNQUALIFIED."
+      "code": "AWAITING_HUMAN_CHATGPT_SIGNIN",
+      "summary": "EXTERNAL_CHROME_AUTH_BOOTSTRAP is implemented and machine-gated but its real qualification requires a human to complete ChatGPT Google sign-in inside the external setup Chrome window; Orca must never automate credentials/MFA.",
+      "evidence": "Change 023 code paths proven by deterministic fast-tier suites; only the human sign-in moment and one real wake remain.",
+      "nextAction": "Human opens Setup Browser via Settings/API, signs into ChatGPT with Google in ordinary Chrome, closes the window; then run Check Login and one harmless wake."
     },
     {
       "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",
-      "summary": "Real ChatGPT wake and Tailscale phone route require optional external dependencies absent on this machine; they must stay UNQUALIFIED rather than faked.",
-      "evidence": "Chromium present and provisionable via browser:install; Kimi/Codex present; ChatGPT auth and Tailscale absent.",
-      "nextAction": "When Chromium auth / Tailscale are available, run headed setup smoke and same-origin phone smoke; otherwise leave UNQUALIFIED."
+      "summary": "Tailscale phone route requires an elevated install absent on this machine; it stays UNQUALIFIED rather than faked.",
+      "evidence": "winget package available but elevation requires manual approval (exit 1602 non-elevated).",
+      "nextAction": "When Tailscale becomes available, run same-origin phone smoke; otherwise leave UNQUALIFIED."
     },
     {
       "code": "OPENCODE_EXTERNAL_UNQUALIFIED",
-      "summary": "The optional real OpenCode server/provider qualification remains UNQUALIFIED because no authorized ORCA_OPENCODE_QUALIFY_URL was supplied; deterministic protocol coverage is green and this does not block remaining safe work.",
-      "evidence": "real-opencode.test.ts is explicitly skipped with an UNQUALIFIED warning when ORCA_OPENCODE_QUALIFY_URL is absent; no OpenCode package or inference was installed or spent.",
-      "nextAction": "When an authorized local OpenCode server is available, set ORCA_OPENCODE_QUALIFY_URL and run npm run test:real."
+      "summary": "The optional real OpenCode server/provider qualification remains UNQUALIFIED because no authorized ORCA_OPENCODE_QUALIFY_URL was supplied.",
+      "evidence": "real-opencode.test.ts skips with an UNQUALIFIED warning when ORCA_OPENCODE_QUALIFY_URL is absent.",
+      "nextAction": "Set ORCA_OPENCODE_QUALIFY_URL when an authorized local server exists."
     }
   ],
   "developmentPolicies": {

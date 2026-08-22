@@ -52,24 +52,31 @@ export class ProfileLockManager {
     }
   }
 
-  acquire(reason: string): boolean {
+  /**
+   * Acquire the lock. `opts.ownerPid` lets a REAL external process (e.g. the
+   * ordinary Chrome child spawned for interactive setup, Change 023) own the
+   * lock: while that PID is alive, every other acquirer — including this
+   * controller process — is refused, preserving Finding J semantics.
+   */
+  acquire(reason: string, opts?: { ownerPid?: number }): boolean {
     fs.mkdirSync(path.dirname(this.lockFilePath), { recursive: true });
 
     const mode = resolveMode(reason);
+    const ownerPid = opts?.ownerPid ?? process.pid;
 
     const existing = this.getLockInfo();
     if (existing) {
-      if (existing.pid === process.pid && existing.mode === mode) {
-        return true; // Re-entrant same mode in same process.
+      if (existing.pid === ownerPid && existing.mode === mode) {
+        return true; // Re-entrant same mode in same owning process.
       }
 
       // Different mode (even in the same process) is an incompatible overlap (J).
-      if (existing.pid === process.pid && existing.mode !== mode) {
+      if (existing.pid === ownerPid && existing.mode !== mode) {
         return false;
       }
 
       if (this.isProcessAlive(existing.pid)) {
-        return false; // Owned by a live process with a different mode.
+        return false; // Owned by a live process (different PID or mode).
       }
 
       // Stale lock recovery — verify before removing.
@@ -79,14 +86,16 @@ export class ProfileLockManager {
     }
 
     const info: LockInfo = {
-      pid: process.pid,
+      pid: ownerPid,
       acquiredAt: new Date().toISOString(),
       mode,
-      reason
+      reason,
     };
 
     try {
-      fs.writeFileSync(this.lockFilePath, JSON.stringify(info, null, 2), { flag: "w" });
+      fs.writeFileSync(this.lockFilePath, JSON.stringify(info, null, 2), {
+        flag: "w",
+      });
       return true;
     } catch {
       return false;
@@ -94,8 +103,13 @@ export class ProfileLockManager {
   }
 
   release(): void {
+    this.releaseFor(process.pid);
+  }
+
+  /** Release only when the stored owner matches `pid` (e.g. external setup Chrome). */
+  releaseFor(pid: number): void {
     const existing = this.getLockInfo();
-    if (existing && existing.pid === process.pid) {
+    if (existing && existing.pid === pid) {
       try {
         fs.unlinkSync(this.lockFilePath);
       } catch {}
@@ -116,7 +130,8 @@ export class ProfileLockManager {
  */
 function resolveMode(reason: string): BrowserLockMode {
   const r = reason.toLowerCase();
-  if (r.includes("setup") || r.includes("interactive")) return "INTERACTIVE_SETUP";
+  if (r.includes("setup") || r.includes("interactive"))
+    return "INTERACTIVE_SETUP";
   if (r.includes("automated") || r.includes("wake")) return "AUTOMATED";
   return "AUTOMATED";
 }

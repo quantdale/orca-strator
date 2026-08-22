@@ -747,3 +747,48 @@ OpenCode scenario (`ORCA_OPENCODE_QUALIFY_URL` absent). All internal suites ran
 non-skipped. The external qualifications remain unchanged and honestly
 UNQUALIFIED: real ChatGPT-authenticated wake, the Tailscale phone route, real
 Kimi/Codex inference burn, and an authorized OpenCode server.
+
+## 27. Change 023 external-Chrome auth bootstrap matrix
+
+Fast-tier suites (mocked Chrome binary / fake child processes — no real Google
+login is ever automated):
+
+- `chrome-discovery.test.ts`: registry App Paths preferred (incl. WOW6432Node),
+  ProgramFiles / ProgramFiles(x86) / LOCALAPPDATA probe order, registry value
+  accepted only when the file exists, actionable NOT_FOUND, BLBeacon version
+  preference with version-subdirectory fallback, FOUND never fails on absent
+  version metadata.
+- `external-setup-browser.test.ts`: pinned argv snapshot proving EXACTLY
+  `--user-data-dir=<dedicated profile>` + login URL (and nothing else), PID
+  liveness, exit-promise wiring, tree-kill close, second-spawn refusal,
+  undefined-pid spawn failure surfaced as an error. Real-process mechanics are
+  proven with node.exe as a stand-in binary.
+- `external-setup-manager.test.ts`: ZERO automation-driver launches during
+  INTERACTIVE_SETUP; AUTOMATED acquisition refused while external Chrome owns
+  the lock; ownership released on human close freeing AUTOMATED; stale
+  external-PID recovery through durable liveness checks; conflict refusal with
+  no spawn while automation holds the profile; actionable NOT_FOUND error with
+  no fallback launch; migration guard backs up incompatible profiles
+  (timestamped backup preserved, fresh dedicated profile without auth state)
+  and leaves compatible profiles untouched; production automation requires
+  installed Chrome (`CHROME_NOT_READY` actionable failure) and passes the
+  discovered executablePath to the driver.
+- `playwright-launch-guard.test.ts`: persistent-context options pinned to
+  exactly `{headless, viewport}` plus optional `executablePath`; serialized
+  options can never contain AutomationControlled / `--no-sandbox` /
+  user-agent overrides / custom args; cookie access exposes NAME|DOMAIN labels
+  only (values asserted absent).
+- `auth-readiness.test.ts`: composer -> AUTHENTICATED; login affordances or
+  login redirect -> LOGIN_REQUIRED; challenge indicator ->
+  VERIFICATION_REQUIRED; no signals -> UNKNOWN; cookie NAME corroboration only
+  (UI-authenticated with zero session-family names demotes to UNKNOWN);
+  profile-busy returns UNKNOWN/profile-busy evidence and launches NOTHING;
+  report shape contains fixed label evidence only with no credential material.
+- `browser-api.test.ts` / `browser-integration.test.ts`: extended status
+  payload (systemChrome/authReadiness/setupLauncherKind/setupPid), setup
+  open/close via the external launcher seam, `POST /api/browser/auth/check`.
+
+Security invariants pinned by these tests: no anti-detection switches anywhere
+(launcher argv snapshot + driver options snapshot), no sandbox downgrades, no
+user-agent spoofing, cookie VALUES never read into reports/logs/persistence,
+and Google/OpenAI login is never automated.

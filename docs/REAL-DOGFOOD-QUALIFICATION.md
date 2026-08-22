@@ -160,3 +160,39 @@ Window left OPEN for the human login retry.
 
 No other external dependency is missing. Everything else continues
 automatically once item 1 is done.
+
+## Change 023 addendum — external-Chrome auth bootstrap (2026-08-22)
+
+The blocker above was root-caused: the Playwright-managed setup Chromium is
+rejected by Google OAuth ("This browser or app may not be secure"). Orca must
+not bypass that check. OpenSpec change `023-external-chrome-auth-bootstrap`
+separates HUMAN AUTHENTICATION from AUTOMATION instead:
+
+- INTERACTIVE_SETUP now spawns the ordinary installed Google Chrome binary
+  directly as a child process (`chrome.exe --user-data-dir=<dedicated profile>
+  https://chatgpt.com/auth/login`) with no Playwright/remote automation
+  attached; the spawned Chrome PID owns the INTERACTIVE_SETUP profile lock and
+  ownership is released when the human closes the window.
+- AUTOMATED browsing launches the same discovered installed Chrome through
+  Playwright against the SAME dedicated profile, reusing the human-created
+  session without repeating Google OAuth under automation.
+- Auth readiness (Check Login) derives AUTHENTICATED / LOGIN_REQUIRED /
+  VERIFICATION_REQUIRED / UNKNOWN primarily from safe UI/navigation signals,
+  corroborated by cookie NAME families only. Cookie VALUES are never read into
+  reports, logs, events, or persistence.
+- No anti-detection switches, sandbox downgrades, user-agent spoofing, or
+  credential automation exist anywhere in the implementation; this is pinned
+  by launcher argv snapshots and driver launch-options guard tests.
+
+Implementation status: implemented and machine-gated on this tree (fast tier
+58 files / 300 tests green including the new Change 023 suites; typecheck,
+build, lint, strict OpenSpec validation, and `git diff --check` all pass).
+
+Qualification verdict for this change:
+
+- EXTERNAL_CHROME_AUTH_BOOTSTRAP: **PENDING REAL QUALIFICATION** — requires the
+  human to complete Google sign-in inside the external setup Chrome window
+  (Orca never automates this step).
+- REAL_CHATGPT_AUTHENTICATED_PROFILE: **PENDING REAL QUALIFICATION** — verified
+  after Check Login reports AUTHENTICATED on the dedicated profile and one
+  harmless real wake succeeds under BrowserManager automation.
