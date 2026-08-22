@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildExecutorInvocation, resolveProfile } from "../src/executor/profiles.js";
+import {
+  buildExecutorInvocation,
+  resolveProfile,
+} from "../src/executor/profiles.js";
 import { WindowsPowerShellAdapter } from "../src/executor/adapters/windows-adapter.js";
 import { EXECUTOR_SPAWN_STDIO } from "../src/executor/adapters/executor-adapter.js";
 
@@ -8,7 +11,7 @@ describe("executor invocation profiles (Change 022)", () => {
     const invocation = buildExecutorInvocation("codex", {
       cli: "codex",
       model: "gpt-test-model",
-      prompt: "do the dispatch work"
+      prompt: "do the dispatch work",
     });
     // Verified against codex-cli 0.148.0 by real inference burn: without an
     // explicit sandbox the exec subcommand is read-only; workspace-write is
@@ -22,7 +25,7 @@ describe("executor invocation profiles (Change 022)", () => {
       "-m",
       "gpt-test-model",
       "--json",
-      "do the dispatch work"
+      "do the dispatch work",
     ]);
   });
 
@@ -30,24 +33,31 @@ describe("executor invocation profiles (Change 022)", () => {
     const invocation = buildExecutorInvocation("kimi", {
       cli: "kimi",
       model: "kimi-test-model",
-      prompt: "do the dispatch work"
+      prompt: "do the dispatch work",
     });
     expect(invocation.command).toBe("kimi");
-    expect(invocation.args).toEqual(["-m", "kimi-test-model", "-p", "do the dispatch work"]);
+    expect(invocation.args).toEqual([
+      "-m",
+      "kimi-test-model",
+      "-p",
+      "do the dispatch work",
+    ]);
   });
 
   it("generic profile stays pinned (model + positional prompt)", () => {
     const invocation = buildExecutorInvocation("generic", {
       cli: "custom-agent",
       model: "m1",
-      prompt: "work"
+      prompt: "work",
     });
     expect(invocation.args).toEqual(["--model", "m1", "work"]);
   });
 
   it("resolveProfile still routes brand CLIs before the generic fallback", () => {
     expect(resolveProfile("C:/tools/kimi/bin/kimi.exe")).toBe("kimi");
-    expect(resolveProfile("C:/Program Files/OpenAI/Codex/bin/codex.exe")).toBe("codex");
+    expect(resolveProfile("C:/Program Files/OpenAI/Codex/bin/codex.exe")).toBe(
+      "codex",
+    );
     expect(resolveProfile("opencode")).toBe("opencode");
     expect(resolveProfile("unknown-cli")).toBe("generic");
   });
@@ -64,7 +74,7 @@ describe("executor adapter stdio policy (Change 022)", () => {
       command: process.execPath,
       args: ["-e", "process.stdout.write('ok'); process.exit(0)"],
       cwd: process.cwd(),
-      env: {}
+      env: {},
     });
     // The whole point of Change 022: no open stdin pipe the controller never
     // closes, while stdout/stderr remain captured for executor logs.

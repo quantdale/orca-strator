@@ -17,7 +17,7 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
       permissionApi: "UNSUPPORTED" as const,
       usageTelemetry: "UNKNOWN" as const,
       sessionResume: "UNSUPPORTED" as const,
-      sessionHistory: "UNSUPPORTED" as const
+      sessionHistory: "UNSUPPORTED" as const,
     };
   }
 
@@ -26,12 +26,12 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
       cwd: context.cwd,
       env: {
         ...process.env,
-        ...context.env
+        ...context.env,
       },
       windowsHide: true,
       // Change 022: executor children must never see an open stdin pipe (see
       // EXECUTOR_SPAWN_STDIO). stdout/stderr stay captured for logs.
-      stdio: [...EXECUTOR_SPAWN_STDIO]
+      stdio: [...EXECUTOR_SPAWN_STDIO],
     });
   }
 
@@ -40,11 +40,15 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
 
     if (process.platform === "win32") {
       try {
-        await execFileAsync("taskkill", ["/pid", child.pid.toString(), "/T", "/F"], {
-          windowsHide: true,
-          // F-HIGH-2: bounded kill — a hung taskkill must never block shutdown.
-          timeout: 15_000
-        });
+        await execFileAsync(
+          "taskkill",
+          ["/pid", child.pid.toString(), "/T", "/F"],
+          {
+            windowsHide: true,
+            // F-HIGH-2: bounded kill — a hung taskkill must never block shutdown.
+            timeout: 15_000,
+          },
+        );
       } catch {
         // taskkill unavailable/timed out — fall back to a direct SIGKILL best effort.
         try {

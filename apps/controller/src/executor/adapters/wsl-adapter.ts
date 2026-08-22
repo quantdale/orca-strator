@@ -18,7 +18,7 @@ export class WslAdapter implements ExecutorAdapter {
       permissionApi: "UNSUPPORTED" as const,
       usageTelemetry: "UNKNOWN" as const,
       sessionResume: "UNSUPPORTED" as const,
-      sessionHistory: "UNSUPPORTED" as const
+      sessionHistory: "UNSUPPORTED" as const,
     };
   }
 
@@ -46,13 +46,13 @@ export class WslAdapter implements ExecutorAdapter {
       env: {
         ...process.env,
         ...context.env,
-        WSLENV: `${existingWslEnv}${wslEnvVars}`
+        WSLENV: `${existingWslEnv}${wslEnvVars}`,
       },
       windowsHide: true,
       shell: false,
       // Change 022: same stdin policy as the Windows adapter — see
       // EXECUTOR_SPAWN_STDIO in executor-adapter.ts.
-      stdio: [...EXECUTOR_SPAWN_STDIO]
+      stdio: [...EXECUTOR_SPAWN_STDIO],
     });
   }
 
@@ -61,11 +61,15 @@ export class WslAdapter implements ExecutorAdapter {
 
     if (process.platform === "win32") {
       try {
-        await execFileAsync("taskkill", ["/pid", child.pid.toString(), "/T", "/F"], {
-          windowsHide: true,
-          // F-HIGH-2: bounded kill — a hung taskkill must never block shutdown.
-          timeout: 15_000
-        });
+        await execFileAsync(
+          "taskkill",
+          ["/pid", child.pid.toString(), "/T", "/F"],
+          {
+            windowsHide: true,
+            // F-HIGH-2: bounded kill — a hung taskkill must never block shutdown.
+            timeout: 15_000,
+          },
+        );
       } catch {
         // taskkill unavailable/timed out — fall back to a direct SIGKILL best effort.
         try {
