@@ -9,7 +9,11 @@ import { DispatchStore } from "../src/watcher/dispatch-store.js";
 import { GitClient } from "../src/watcher/git-client.js";
 import { CommitInspector } from "../src/watcher/commit-inspector.js";
 import { WatcherService } from "../src/watcher/watcher-service.js";
-import type { RepositoryMutationEvent, DispatchMarker, RepositoryRecord } from "@orca/shared";
+import type {
+  RepositoryMutationEvent,
+  DispatchMarker,
+  RepositoryRecord,
+} from "@orca/shared";
 
 describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
   let tempBaseDir: string;
@@ -22,7 +26,11 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
   const publishedEvents: RepositoryMutationEvent[] = [];
 
   function git(cwd: string, args: string[]): string {
-    return execFileSync("git", args, { cwd, encoding: "utf8", windowsHide: true }).trim();
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      windowsHide: true,
+    }).trim();
   }
 
   beforeEach(() => {
@@ -62,14 +70,21 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       dispatchStore,
       gitClient,
       commitInspector,
-      eventPublisher: (event) => publishedEvents.push(event)
+      eventPublisher: (event) => publishedEvents.push(event),
     });
   });
 
   afterEach(() => {
     watcherService.stop();
     dbCtx.close();
-    fs.rmSync(tempBaseDir, { recursive: true, force: true });
+    // The watcher's directory watch handle can outlive stop() briefly on
+    // Windows; retry the cleanup instead of failing the suite on EPERM.
+    fs.rmSync(tempBaseDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   });
 
   it("6.T1 ordinary commit on remote main does not trigger dispatch", async () => {
@@ -82,11 +97,12 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       wslDistribution: null,
       executorCli: "codex",
       executorModel: "gpt-5.6",
-      solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
+      solConversationUrl:
+        "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
       maxIterations: 20,
       maxRuntimeMinutes: 480,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
     repoStore.create(repo);
 
@@ -116,11 +132,12 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       wslDistribution: null,
       executorCli: "codex",
       executorModel: "gpt-5.6",
-      solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
+      solConversationUrl:
+        "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
       maxIterations: 20,
       maxRuntimeMinutes: 480,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
     repoStore.create(repo);
 
@@ -140,16 +157,20 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       baseSha: initialSha,
       changePath: "openspec/changes/002-repository-watch-dispatch",
       goal: "Implement watcher test",
-      instructionsVersion: 1
+      instructionsVersion: 1,
     };
 
     fs.writeFileSync(
       path.join(dispatchDir, "disp-2026-001.json"),
-      JSON.stringify(dispatchPayload, null, 2)
+      JSON.stringify(dispatchPayload, null, 2),
     );
 
     git(workRepoDir, ["add", ".orca/dispatch/disp-2026-001.json"]);
-    git(workRepoDir, ["commit", "-m", "dispatch(disp-2026-001): isolated dispatch"]);
+    git(workRepoDir, [
+      "commit",
+      "-m",
+      "dispatch(disp-2026-001): isolated dispatch",
+    ]);
     git(workRepoDir, ["push", "origin", "main"]);
 
     await watcherService.pollRepository(repo.id);
@@ -160,7 +181,9 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     expect(dispatches[0].status).toBe("detected");
     expect(dispatches[0].goal).toBe("Implement watcher test");
 
-    const detectedEvent = publishedEvents.find((e) => e.type === "watcher.dispatch_detected");
+    const detectedEvent = publishedEvents.find(
+      (e) => e.type === "watcher.dispatch_detected",
+    );
     expect(detectedEvent).toBeDefined();
     expect(detectedEvent?.data?.dispatch?.id).toBe("disp-2026-001");
   });
@@ -175,11 +198,12 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       wslDistribution: null,
       executorCli: "codex",
       executorModel: "gpt-5.6",
-      solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
+      solConversationUrl:
+        "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
       maxIterations: 20,
       maxRuntimeMinutes: 480,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
     repoStore.create(repo);
 
@@ -197,15 +221,19 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       baseSha: initialSha,
       changePath: "openspec/changes/002-repository-watch-dispatch",
       goal: "Idempotency check",
-      instructionsVersion: 1
+      instructionsVersion: 1,
     };
 
     fs.writeFileSync(
       path.join(dispatchDir, "disp-2026-003.json"),
-      JSON.stringify(dispatchPayload, null, 2)
+      JSON.stringify(dispatchPayload, null, 2),
     );
     git(workRepoDir, ["add", ".orca/dispatch/disp-2026-003.json"]);
-    git(workRepoDir, ["commit", "-m", "dispatch(disp-2026-003): isolated dispatch"]);
+    git(workRepoDir, [
+      "commit",
+      "-m",
+      "dispatch(disp-2026-003): isolated dispatch",
+    ]);
     git(workRepoDir, ["push", "origin", "main"]);
 
     // Poll 1
@@ -216,7 +244,9 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     await watcherService.pollRepository(repo.id);
     expect(dispatchStore.getByRepository(repo.id)).toHaveLength(1);
 
-    const detectedEvents = publishedEvents.filter((e) => e.type === "watcher.dispatch_detected");
+    const detectedEvents = publishedEvents.filter(
+      (e) => e.type === "watcher.dispatch_detected",
+    );
     expect(detectedEvents).toHaveLength(1);
   });
 
@@ -230,11 +260,12 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       wslDistribution: null,
       executorCli: "codex",
       executorModel: "gpt-5.6",
-      solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
+      solConversationUrl:
+        "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
       maxIterations: 20,
       maxRuntimeMinutes: 480,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
     repoStore.create(repo);
 
@@ -252,16 +283,23 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       baseSha: initialSha,
       changePath: "openspec/changes/002-repository-watch-dispatch",
       goal: "Mixed test",
-      instructionsVersion: 1
+      instructionsVersion: 1,
     };
 
     fs.writeFileSync(
       path.join(dispatchDir, "disp-2026-004.json"),
-      JSON.stringify(dispatchPayload, null, 2)
+      JSON.stringify(dispatchPayload, null, 2),
     );
-    fs.writeFileSync(path.join(workRepoDir, "src_file.ts"), "export const x = 1;\n");
+    fs.writeFileSync(
+      path.join(workRepoDir, "src_file.ts"),
+      "export const x = 1;\n",
+    );
 
-    git(workRepoDir, ["add", ".orca/dispatch/disp-2026-004.json", "src_file.ts"]);
+    git(workRepoDir, [
+      "add",
+      ".orca/dispatch/disp-2026-004.json",
+      "src_file.ts",
+    ]);
     git(workRepoDir, ["commit", "-m", "dispatch and source changes mixed"]);
     git(workRepoDir, ["push", "origin", "main"]);
 
@@ -272,7 +310,9 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     expect(dispatches[0].status).toBe("rejected");
     expect(dispatches[0].rejectionReason).toContain("Mixed commit rejected");
 
-    const rejectedEvent = publishedEvents.find((e) => e.type === "watcher.dispatch_rejected");
+    const rejectedEvent = publishedEvents.find(
+      (e) => e.type === "watcher.dispatch_rejected",
+    );
     expect(rejectedEvent).toBeDefined();
   });
 
@@ -305,11 +345,12 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       wslDistribution: null,
       executorCli: "codex",
       executorModel: "gpt-5.6",
-      solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
+      solConversationUrl:
+        "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
       maxIterations: 20,
       maxRuntimeMinutes: 480,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const repo2: RepositoryRecord = {
@@ -321,11 +362,12 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       wslDistribution: null,
       executorCli: "codex",
       executorModel: "gpt-5.6",
-      solConversationUrl: "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890cd",
+      solConversationUrl:
+        "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890cd",
       maxIterations: 20,
       maxRuntimeMinutes: 480,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     repoStore.create(repo1);
@@ -346,12 +388,12 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
       baseSha: initialSha2,
       changePath: "openspec/changes/002-repository-watch-dispatch",
       goal: "Repo 2 dispatch",
-      instructionsVersion: 1
+      instructionsVersion: 1,
     };
 
     fs.writeFileSync(
       path.join(dispatchDir2, "disp-multi-2.json"),
-      JSON.stringify(dispatchPayload2, null, 2)
+      JSON.stringify(dispatchPayload2, null, 2),
     );
     git(workRepoDir2, ["add", ".orca/dispatch/disp-multi-2.json"]);
     git(workRepoDir2, ["commit", "-m", "dispatch(disp-multi-2): repo 2"]);
@@ -360,11 +402,11 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     // Poll both
     await Promise.all([
       watcherService.pollRepository(repo1.id),
-      watcherService.pollRepository(repo2.id)
+      watcherService.pollRepository(repo2.id),
     ]);
 
     expect(dispatchStore.getByRepository(repo1.id)).toHaveLength(0);
     expect(dispatchStore.getByRepository(repo2.id)).toHaveLength(1);
     expect(dispatchStore.getByRepository(repo2.id)[0].id).toBe("disp-multi-2");
-  });
+  }, 30000);
 });

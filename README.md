@@ -131,13 +131,13 @@ Honest status (this machine):
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
-Latest full qualification run on this tree (Changes 019 + 020): focused new
-tests 15/15, `npm run typecheck`, `npm run build`, and `npm run lint` exit 0;
-`git diff --check` clean; strict OpenSpec validation 20 passed / 0 failed; fast
-tier 51 test files / 248 tests green. The real tier's latest full run (Change
-018 campaign) passed 65 / 3 skipped / 0 failed, with every skip classified
-`EXPECTED_EXTERNAL_UNQUALIFIED` (WSL-distro-gated scenarios, OpenCode URL
-absent) and all internal suites non-skipped.
+Latest full qualification run on this tree (Changes 019 + 020 + 021): focused
+new tests green, `npm run typecheck`, `npm run build`, and `npm run lint` exit
+0; `git diff --check` clean; strict OpenSpec validation 21 passed / 0 failed;
+fast tier 52 test files / 253 tests green. The real tier's latest full run
+(Change 018 campaign) passed 65 / 3 skipped / 0 failed, with every skip
+classified `EXPECTED_EXTERNAL_UNQUALIFIED` (WSL-distro-gated scenarios,
+OpenCode URL absent) and all internal suites non-skipped.
 
 ## Durable development workflow
 
@@ -149,9 +149,9 @@ Orca-Strator is itself developed through disposable coding-agent sessions. The r
 2. Start coding agent.
 3. Run:
 
-```text
-/go
-```
+   ```text
+   /go
+   ```
 
 4. Agent recovers Git + durable state, reads active OpenSpec, and continues next coherent unfinished slice.
 5. It verifies work, updates task checkboxes and `.agent/state.json`, reconciles remote `main`, commits, and pushes.

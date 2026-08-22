@@ -730,6 +730,31 @@ Qualification: focused suites (`permission-resolution-flow.test.ts`,
 `OperationalIntelligencePanel.test.tsx`) green; same full battery as Milestone
 18.
 
+### Milestone 20 — Executor shutdown-path unit coverage
+
+OpenSpec: `021-executor-shutdown-unit-coverage` (folded into
+`openspec/specs/executor-shutdown-sweeps/`)
+
+Status: **complete / MACHINE-QUALIFIED internally (test-only change)**
+
+Deliverables:
+
+- startup orphan truth repair pinned by unit tests: persisted `running` and
+  `pending` executor runs are marked `failed` with a truthful restart cause,
+  terminal rows untouched, `orphanedExecutorRuns` counted;
+- shutdown kill sweep coverage for launch-intent runners whose child already
+  spawned but never graduated (no orphaned spawned child, kill-target identity
+  asserted);
+- sweep isolation: one rejecting process-tree termination does not abort the
+  shutdown sweep; every targeted runner receives a kill attempt;
+- emergency `killRun` during the launch-retry sleep produces no further spawn
+  attempts and leaves the persisted run in a terminal state;
+- machine-speed flake fixed en route: watcher 6.T5 received an explicit 30s
+  timeout matching its real-git workload plus retry-hardened Windows cleanup.
+
+Qualification: fast tier 52 files / 253 tests, typecheck, build, lint, diff
+check, strict OpenSpec validation 21 passed / 0 failed — all green.
+
 The post-V1 evolution scope is implemented and internally machine-qualified
 through the Change 017 campaign-loop composition. Genuinely external
 qualifications remain explicitly UNQUALIFIED rather than faked: real
