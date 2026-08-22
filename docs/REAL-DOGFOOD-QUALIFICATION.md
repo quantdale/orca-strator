@@ -1,8 +1,8 @@
 # Orca-Strator Real External Qualification Report
 
 Status: **IN PROGRESS — ChatGPT login boundary RESOLVED (Change 023 real
-qualification); remaining gates: dedicated Sol conversation URL + one
-harmless real wake (both user-owned)**
+qualification); dedicated Sol conversation URL supplied; harmless real wake
+SUCCEEDED; real Sol↔Kimi dogfood campaign RESUMED (phase 8 executing)**
 
 This report records factual evidence only. It contains no cookies, tokens, API
 keys, or browser profile secrets.
@@ -113,10 +113,10 @@ The window is intentionally left open for this action.
 
 | Phase | Status | Blocked by |
 | --- | --- | --- |
-| 5 Dedicated Sol conversation | PENDING | ChatGPT auth |
-| 7 Real authenticated wake smoke | PENDING | ChatGPT auth (folds into run start) |
-| 8 Two-iteration Sol↔Kimi loop | PENDING | Phase 5 |
-| 10 Codex via Orca (one real turn) | PENDING | Phase 5 |
+| 5 Dedicated Sol conversation | DONE (2026-08-22, user-supplied URL) | — |
+| 7 Real authenticated wake smoke | DONE (initial wake SUCCEEDED 15:00:58Z) | — |
+| 8 Two-iteration Sol↔Kimi loop | RUNNING (iteration 1 executing) | — |
+| 10 Codex via Orca (one real turn) | PENDING | Phase 8 completion |
 | 11 Tailscale phone route | BLOCKED_MANUAL_ELEVATION | One elevated install step |
 
 ## Addendum — resume verification (2026-08-22 ~16:40–16:50 +08:00)
@@ -216,3 +216,31 @@ the human session cleanly. Production automation therefore runs HEADED
 switches, no sandbox downgrades, no user-agent spoofing were added, and the
 launch-options guard tests now pin headed automation. Design §Automation
 channel and docs/RUNTIME-MODEL.md were updated to match observed reality.
+
+## Change 023 completion addendum — real wake + campaign resumed (2026-08-22 ~23:00 +08:00)
+
+The last user-owned input arrived: the dedicated Sol conversation URL.
+
+- Repository record created via production API for
+  `quantdale/orca-strator-dogfood` (Windows executor binding:
+  `kimi.exe`, user's configured model; watcher auto-started). Campaign goal +
+  Sol protocol + executor instructions were pushed as ordinary commits
+  (`c4fc149`) so both real actors read their contracts from Git.
+- Run `706002fd` started via `POST /runs/start`; **initial real wake
+  SUCCEEDED** (`sol.wake_submitted`, 2026-08-22T15:00:58Z): BrowserManager
+  launched the discovered installed Chrome v151.0.7922.138 headed against the
+  SAME dedicated authenticated profile and submitted the trusted wake into the
+  exact configured conversation. No Google OAuth re-run occurred under
+  automation.
+- Verdict updates: REAL_CHATGPT_AUTHENTICATED_PROFILE = **QUALIFIED**
+  (session reuse under headed installed-Chrome automation + one harmless real
+  wake); EXTERNAL_CHROME_AUTH_BOOTSTRAP remains QUALIFIED. Phase 5 and phase 7
+  gates are closed.
+- Real campaign resumed with all-real actors: within ~3 minutes of the wake,
+  real Sol pushed an ordinary work-contract commit (`c28e835`,
+  `openspec/changes/001-dogfood-iteration-1/tasks.md`) followed by a clean
+  isolated dispatch commit (`5b4d80c`,
+  `.orca/dispatch/2026-08-22T150239Z-i001-706002fd.json`) whose runId matched
+  the live run; the production watcher validated and consumed it and started
+  the real Kimi executor on iteration 1 (EXECUTING with live executor.log
+  activity). Phases 8–10 continue in this file as they complete.

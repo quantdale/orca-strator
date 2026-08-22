@@ -13,7 +13,7 @@ import { initDatabase, type DatabaseContext } from "../src/db/database.js";
 import { RepositoryStore } from "../src/repositories/repository-store.js";
 import { DispatchStore } from "../src/watcher/dispatch-store.js";
 import { ExecutorStore } from "../src/executor/executor-store.js";
-import { ExecutorService } from "../src/executor/executor-service.js";
+import { ExecutorService, executorIdentityMatches } from "../src/executor/executor-service.js";
 import type { GitClient } from "../src/watcher/git-client.js";
 import type { ExecutorResult } from "@orca/shared";
 
@@ -111,5 +111,58 @@ describe("Executor result semantic validation (negative corpus)", () => {
     const result = await (svc as any).readAndValidateResult("repo-v", "disp-1", { exitCode: 1 });
     expect(result).not.toBeNull();
     expect(result.status).toBe("FAILED");
+  });
+
+  function configureExecutorCli(executorCli: string) {
+    const current = repoStore.get("repo-v");
+    if (!current) throw new Error("repo-v missing");
+    repoStore.update({ ...current, executorCli });
+  }
+
+  it("accepts manifest cli echoing the exact configured path (Change 023 real-dogfood finding)", async () => {
+    configureExecutorCli("C:\\Users\\palac\\.kimi-code\\bin\\kimi.exe");
+    const result = await validateWith(
+      makeValidResult({ executor: { cli: "C:\\Users\\palac\\.kimi-code\\bin\\kimi.exe", model: "test-model", environment: "windows" } })
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("accepts manifest cli using a descriptive harness name for a path-configured executor", async () => {
+    configureExecutorCli("C:\\Users\\palac\\.kimi-code\\bin\\kimi.exe");
+    const result = await validateWith(
+      makeValidResult({ executor: { cli: "kimi-code-cli", model: "test-model", environment: "windows" } })
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("rejects a manifest from an unrelated harness even when names are descriptive", async () => {
+    configureExecutorCli("C:\\Users\\palac\\.kimi-code\\bin\\kimi.exe");
+    expect(await validateWith(
+      makeValidResult({ executor: { cli: "codex-cli", model: "test-model", environment: "windows" } })
+    )).toBeNull();
+  });
+});
+
+describe("executorIdentityMatches (real-world result correlation)", () => {
+  const KIMI_PATH = "C:\\Users\\palac\\.kimi-code\\bin\\kimi.exe";
+
+  it("exact raw echo matches", () => {
+    expect(executorIdentityMatches(KIMI_PATH, KIMI_PATH)).toBe(true);
+  });
+  it("bare basename matches configured path", () => {
+    expect(executorIdentityMatches(KIMI_PATH, "kimi.exe")).toBe(true);
+  });
+  it("stem without extension matches", () => {
+    expect(executorIdentityMatches(KIMI_PATH, "Kimi")).toBe(true);
+  });
+  it("descriptive harness name containing the stem matches", () => {
+    expect(executorIdentityMatches(KIMI_PATH, "kimi-code-cli")).toBe(true);
+  });
+  it("unrelated harness name is rejected", () => {
+    expect(executorIdentityMatches(KIMI_PATH, "codex-cli")).toBe(false);
+  });
+  it("empty or garbage reports are rejected", () => {
+    expect(executorIdentityMatches(KIMI_PATH, "")).toBe(false);
+    expect(executorIdentityMatches(KIMI_PATH, "***")).toBe(false);
   });
 });

@@ -63,6 +63,24 @@ const MAX_PERSISTED_LOG_LINES = 200;
 /** Persisted run attempt IDs are always crypto.randomUUID output (see startRun). */
 const RUN_ATTEMPT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Real-world result correlation (Change 023 dogfood finding): executors report
+ * their own harness name (e.g. "kimi-code-cli"), which can never equal the
+ * user-configured absolute CLI path. Accept the exact configured value, its
+ * basename, or a normalized identity match; still reject unrelated harnesses.
+ */
+export function executorIdentityMatches(configuredCli: string, reportedCli: string): boolean {
+  if (reportedCli === configuredCli) return true;
+  const configuredStem = path
+    .basename(configuredCli)
+    .replace(/\.(exe|cmd|bat|ps1)$/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const reported = reportedCli.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!configuredStem || !reported) return false;
+  return reported === configuredStem || reported.includes(configuredStem);
+}
+
 export class ExecutorService {
   private readonly repoStore: RepositoryStore;
   private readonly dispatchStore: DispatchStore;
@@ -222,6 +240,7 @@ export class ExecutorService {
           ORCA_DISPATCH_PATH: `.orca/dispatch/${dispatch.id}.json`,
           ORCA_CHANGE_PATH: dispatch.changePath,
           ORCA_ITERATION: dispatch.iteration.toString(),
+          ORCA_EXECUTOR_CLI: repo.executorCli,
           ORCA_EXECUTOR_MODEL: repo.executorModel,
           ORCA_ENVIRONMENT: repo.environment,
           ORCA_PREFLIGHT_EVIDENCE: JSON.stringify({ dirty: preflightEvidence.dirty, localHead: preflightEvidence.localHead, remoteHead: preflightEvidence.remoteHead, statusSummary: preflightEvidence.statusSummary }),
@@ -530,7 +549,7 @@ export class ExecutorService {
     if (validated.runId !== dispatch.runId) return null;
     if (validated.iteration !== dispatch.iteration) return null;
     if (validated.baseSha !== dispatch.baseSha && validated.baseSha !== dispatch.commitSha) return null;
-    if (validated.executor.cli !== repo.executorCli) return null;
+    if (!executorIdentityMatches(repo.executorCli, validated.executor.cli)) return null;
     if (validated.executor.model !== repo.executorModel) return null;
     if (validated.executor.environment !== repo.environment) return null;
 

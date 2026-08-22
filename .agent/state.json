@@ -1,26 +1,20 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "MILESTONE_21_REAL_QUALIFICATION_MOSTLY_VERIFIED",
+  "developmentStatus": "MILESTONE_21_REAL_DOGFOOD_CAMPAIGN_RUNNING",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
   "activeMilestone": 21,
   "activeChange": "023-external-chrome-auth-bootstrap",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 023 REAL QUALIFICATION tasks 9.1-9.4 VERIFIED on production controller: external setup Chrome v151.0.7922.138 spawned as ordinary child process (no Playwright) for human ChatGPT Google sign-in; window closed -> profile ownership released cleanly; POST /api/browser/auth/check returned AUTHENTICATED (ui:composer-visible, cookies:session-family-present, profileUsableByAutomation:true) proving automation reuses the human session with NO Google OAuth re-run. REAL FINDING folded back: Cloudflare serves 'Just a moment' to HEADLESS Chrome even with genuine installed binary + warm authenticated profile; headed launches of the same binary pass cleanly -> production automation now runs HEADED via AUTOMATION_HEADED constant (launch mode only, zero stealth flags; options-shape guard unchanged); auth-readiness gained bounded settle-polling (15s) because domcontentloaded often precedes SPA hydration/managed-challenge clearance. Design §Automation channel, RUNTIME-MODEL, REAL-DOGFOOD-QUALIFICATION updated; tasks.md section 9 checked through 9.4 plus evidence log section 10. Gates: fast tier 58 files / 300 tests green, typecheck, build, lint, strict OpenSpec validation 23/23, git diff --check all pass.",
-    "updatedAt": "2026-08-22T20:40:00+08:00",
-    "lastCompletedTask": "Real qualification 9.1-9.4 + headed-Chrome correction + settle-poll readiness; verdicts recorded in qualification doc and tasks evidence log.",
-    "lastVerification": "npm test fast tier 58 files / 300 tests green; npm run typecheck; npm run build (controller dist = running controller); npm run lint; npx openspec validate --all --strict (23 passed / 0 failed); git diff --check."
+    "summary": "REAL_CHATGPT_AUTHENTICATED_PROFILE = QUALIFIED (2026-08-22 ~23:00 +08:00): user supplied the dedicated Sol conversation URL; smoke repository created via production API (orca-strator-dogfood, kimi.exe binding); run 706002fd initial wake sol.wake_submitted SUCCEEDED through headed installed-Chrome automation on the SAME authenticated dedicated profile with NO Google OAuth re-run; real Sol authored work-contract c28e835 + isolated schema-valid dispatch 5b4d80c within ~3 minutes; production watcher consumed it and real Kimi executed iteration 1 correctly (dogfood-log.md + result manifest pushed). REAL DEFECT found+fixed by dogfood: readAndValidateResult required manifest executor.cli === full configured CLI path (impossible for real executors; Kimi's truthful 'kimi-code-cli' manifest was rejected -> RECOVERY_REQUIRED). Fix: executorIdentityMatches() normalized correlation (exact echo / basename / descriptive-name stem containment, unrelated harnesses still rejected) + ORCA_EXECUTOR_CLI env var passed to executors + dogfood AGENTS.md correlation rules updated. Gates after fix: focused 19/19, fast tier 58 files / 309 tests, typecheck, build, lint, git diff --check all green.",
+    "updatedAt": "2026-08-22T23:45:00+08:00",
+    "lastCompletedTask": "Harmless real wake qualification (tasks 9.5/9.6) + real-dogfood executor.cli correlation defect fix.",
+    "lastVerification": "npx vitest run executor-result-validation.test.ts 19/19; npm test fast tier 58 files / 309 tests; npm run typecheck; npm run build; npm run lint; git diff --check."
   },
-  "nextAction": "Finish task 9.5's final step: ask user for their dedicated Sol conversation URL (chatgpt.com/c/... from the signed-in account), create a smoke repository + dispatch via production API, fire one harmless real wake under BrowserManager headed automation, then record the REAL_CHATGPT_AUTHENTICATED_PROFILE final QUALIFIED verdict and resume the real dogfood campaign (Sol -> dispatch#1 -> Kimi -> result -> Sol -> dispatch#2 -> Kimi -> result -> Sol -> GOAL_COMPLETE). Tailscale still requires one elevated install; OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED.",
+  "nextAction": "Commit/push this checkpoint, restart the production controller on the fixed build, POST /runs/recover {action:'retry'} for run 706002fd (re-wakes Sol), then drive the campaign to completion: Sol dispatch#2 -> Kimi -> result -> Sol -> GOAL_COMPLETE control marker; record phase 8 evidence in docs/REAL-DOGFOOD-QUALIFICATION.md; then Codex one-turn qualification (phase 10) while Tailscale stays BLOCKED_MANUAL_ELEVATION and OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED.",
   "blockers": [
-    {
-      "code": "AWAITING_SOL_CONVERSATION_URL",
-      "summary": "The harmless real wake (task 9.5 final step) needs the user-owned dedicated Sol conversation URL from the signed-in ChatGPT account; Orca cannot invent or automate conversation selection.",
-      "evidence": "docs/REAL-DOGFOOD-QUALIFICATION.md phase 5 remains PENDING; production DB has no repositories; no durable record of a dedicated conversation URL exists anywhere.",
-      "nextAction": "User pastes chatgpt.com/c/<id> URL; wire into smoke repo + dispatch; fire wake; record final verdict."
-    },
     {
       "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",
       "summary": "Tailscale phone route requires an elevated install absent on this machine; it stays UNQUALIFIED rather than faked.",

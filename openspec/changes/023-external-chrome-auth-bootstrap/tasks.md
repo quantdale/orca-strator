@@ -83,9 +83,9 @@
 - [x] 9.3 HUMAN completes ChatGPT Google sign-in manually in that window
   (Orca never automates this step); human closes window.
 - [x] 9.4 Invoke Check Login → AUTHENTICATED expected.
-- [ ] 9.5 Start BrowserManager automation on SAME profile; verify session
+- [x] 9.5 Start BrowserManager automation on SAME profile; verify session
   reused (no Google OAuth re-run under automation); one harmless real wake.
-- [ ] 9.6 Record QUALIFIED verdicts (EXTERNAL_CHROME_AUTH_BOOTSTRAP,
+- [x] 9.6 Record QUALIFIED verdicts (EXTERNAL_CHROME_AUTH_BOOTSTRAP,
   REAL_CHATGPT_AUTHENTICATED_PROFILE) in qualification doc; resume real
   dogfood campaign (Sol → dispatch#1 → Kimi → result → Sol → dispatch#2 →
   Kimi → result → Sol → GOAL_COMPLETE).
@@ -115,3 +115,21 @@
 - 9.6 EXTERNAL_CHROME_AUTH_BOOTSTRAP: QUALIFIED.
   REAL_CHATGPT_AUTHENTICATED_PROFILE: session-reuse half QUALIFIED; final
   verdict awaits the harmless real wake.
+
+## 11. Real qualification completion (2026-08-22 ~23:00 +08:00)
+
+- User supplied the dedicated Sol conversation URL (chatgpt.com/c/<uuid>,
+  user-owned config; recorded only in the production DB repository record).
+- Smoke repository created via production API (`POST /api/repositories`,
+  Windows env, real kimi.exe + user model binding); watcher auto-started.
+- Run started via `POST /api/repositories/:id/runs/start` →
+  `sol.wake_submitted` **SUCCEEDED** at 2026-08-22T15:00:58Z through
+  BrowserManager headed automation using the discovered installed Chrome
+  (v151.0.7922.138) and the SAME dedicated authenticated profile — the
+  harmless real wake completed with NO Google OAuth re-run under automation.
+- REAL_CHATGPT_AUTHENTICATED_PROFILE: QUALIFIED (auth reuse + real wake).
+- Campaign resumed with real actors: Sol authored an ordinary work-contract
+  commit plus a schema-valid isolated dispatch commit within ~3 minutes of the
+  wake; the production watcher consumed it and the real Kimi executor began
+  iteration 1. Loop continuation evidence lives in docs/REAL-DOGFOOD-QUALIFICATION.md
+  phase 8 and the campaign timeline API.
