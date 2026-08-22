@@ -12,7 +12,13 @@
  * harness, register it in PROFILES; nothing else needs to change.
  */
 
-export type ExecutorProfileId = "kimi" | "codex" | "generic" | "test" | "swarm-test" | "opencode";
+export type ExecutorProfileId =
+  | "kimi"
+  | "codex"
+  | "generic"
+  | "test"
+  | "swarm-test"
+  | "opencode";
 
 export interface ExecutorInvocation {
   /** Executable to spawn (the resolved cli, possibly a script path). */
@@ -47,11 +53,13 @@ import { toWslPath } from "../wsl-path.js";
  * controller never guesses where the test fixture lives; it is only used by the
  * qualification tests, never in production.
  */
-export function buildTestInvocation(params: BuildInvocationParams): ExecutorInvocation {
+export function buildTestInvocation(
+  params: BuildInvocationParams,
+): ExecutorInvocation {
   const harnessPath = process.env.ORCA_TEST_EXECUTOR_HARNESS;
   if (!harnessPath) {
     throw new Error(
-      "ORCA_TEST_EXECUTOR_HARNESS is not set; cannot build a test executor invocation."
+      "ORCA_TEST_EXECUTOR_HARNESS is not set; cannot build a test executor invocation.",
     );
   }
   // Under WSL the harness must run with the Linux node and a Linux mount path
@@ -59,21 +67,23 @@ export function buildTestInvocation(params: BuildInvocationParams): ExecutorInvo
   if (params.environment === "wsl") {
     return {
       command: "node",
-      args: [toWslPath(harnessPath)]
+      args: [toWslPath(harnessPath)],
     };
   }
   return {
     command: process.execPath,
-    args: [harnessPath]
+    args: [harnessPath],
   };
 }
 
 /** Deterministic worker-only harness used by the real swarm qualification tier. */
-export function buildSwarmTestInvocation(params: BuildInvocationParams): ExecutorInvocation {
+export function buildSwarmTestInvocation(
+  params: BuildInvocationParams,
+): ExecutorInvocation {
   const harnessPath = process.env.ORCA_SWARM_TEST_HARNESS;
   if (!harnessPath) {
     throw new Error(
-      "ORCA_SWARM_TEST_HARNESS is not set; cannot build a swarm test invocation."
+      "ORCA_SWARM_TEST_HARNESS is not set; cannot build a swarm test invocation.",
     );
   }
   if (params.environment === "wsl") {
@@ -82,54 +92,76 @@ export function buildSwarmTestInvocation(params: BuildInvocationParams): Executo
   return { command: process.execPath, args: [harnessPath] };
 }
 
-function buildKimiInvocation(params: BuildInvocationParams): ExecutorInvocation {
+function buildKimiInvocation(
+  params: BuildInvocationParams,
+): ExecutorInvocation {
   // Kimi Code CLI verified (--help 0.34.0): `kimi -m <model> -p "<prompt>"` (also --model)
   // Use -p for prompt (documented non-interactive mode).
   return {
     command: params.cli,
-    args: ["-m", params.model, "-p", params.prompt]
+    args: ["-m", params.model, "-p", params.prompt],
   };
 }
 
-function buildCodexInvocation(params: BuildInvocationParams): ExecutorInvocation {
-  // Codex CLI verified (0.147.0): `codex exec -m <model> -C <dir> [--json] "<prompt>"`
-  // Non-interactive exec subcommand; --cd is -C. Do not burn quota in qualification; syntax only.
+function buildCodexInvocation(
+  params: BuildInvocationParams,
+): ExecutorInvocation {
+  // Codex CLI verified by real inference burn (0.148.0, 2026-08-22): without an
+  // explicit sandbox the exec subcommand defaults to a read-only workspace and
+  // cannot act; `workspace-write` is unusable on Windows (sandbox helper
+  // missing in 0.148.0 -> patch/shell tools unavailable). `-s danger-full-access`
+  // gives a working shell for git commit/push under the supervised runner.
   return {
     command: params.cli,
-    args: ["exec", "-m", params.model, "--json", params.prompt]
+    args: [
+      "exec",
+      "-s",
+      "danger-full-access",
+      "-m",
+      params.model,
+      "--json",
+      params.prompt,
+    ],
   };
 }
 
-function buildOpenCodeInvocation(params: BuildInvocationParams): ExecutorInvocation {
+function buildOpenCodeInvocation(
+  params: BuildInvocationParams,
+): ExecutorInvocation {
   // OpenCode's documented headless CLI is `opencode run --model <provider/model> <message>`.
   // The model remains user-owned; this profile only describes invocation shape.
   return {
     command: params.cli,
-    args: ["run", "--model", params.model, params.prompt]
+    args: ["run", "--model", params.model, params.prompt],
   };
 }
 
-function buildGenericInvocation(params: BuildInvocationParams): ExecutorInvocation {
+function buildGenericInvocation(
+  params: BuildInvocationParams,
+): ExecutorInvocation {
   // Fallback for custom harnesses. Passes model + prompt as positional args and
   // lets the harness read dispatch/run identity from ORCA_* environment vars.
   return {
     command: params.cli,
-    args: ["--model", params.model, params.prompt]
+    args: ["--model", params.model, params.prompt],
   };
 }
 
-const PROFILES: Record<ExecutorProfileId, (p: BuildInvocationParams) => ExecutorInvocation> = {
+const PROFILES: Record<
+  ExecutorProfileId,
+  (p: BuildInvocationParams) => ExecutorInvocation
+> = {
   kimi: buildKimiInvocation,
   codex: buildCodexInvocation,
   opencode: buildOpenCodeInvocation,
   generic: buildGenericInvocation,
   test: buildTestInvocation,
-  "swarm-test": buildSwarmTestInvocation
+  "swarm-test": buildSwarmTestInvocation,
 };
 
 export function buildExecutorInvocation(
   profile: ExecutorProfileId,
-  params: BuildInvocationParams
+  params: BuildInvocationParams,
 ): ExecutorInvocation {
   return PROFILES[profile](params);
 }

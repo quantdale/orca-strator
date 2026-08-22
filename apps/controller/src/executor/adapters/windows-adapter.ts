@@ -1,6 +1,7 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import type { ExecutorAdapter, ExecutionContext } from "./executor-adapter.js";
+import { EXECUTOR_SPAWN_STDIO } from "./executor-adapter.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -27,7 +28,10 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
         ...process.env,
         ...context.env
       },
-      windowsHide: true
+      windowsHide: true,
+      // Change 022: executor children must never see an open stdin pipe (see
+      // EXECUTOR_SPAWN_STDIO). stdout/stderr stay captured for logs.
+      stdio: [...EXECUTOR_SPAWN_STDIO]
     });
   }
 
@@ -42,14 +46,19 @@ export class WindowsPowerShellAdapter implements ExecutorAdapter {
           timeout: 15_000
         });
       } catch {
+        // taskkill unavailable/timed out — fall back to a direct SIGKILL best effort.
         try {
           child.kill("SIGKILL");
-        } catch {}
+        } catch {
+          // Process already gone; the kill sweep is best-effort by design.
+        }
       }
     } else {
       try {
         child.kill("SIGTERM");
-      } catch {}
+      } catch {
+        // Process already gone; nothing left to terminate.
+      }
     }
   }
 

@@ -27,6 +27,13 @@ export interface ExecutorProbeContext extends ExecutionContext {
   level: ProbeLevel;
 }
 
+/**
+ * Change 022: executor children must never see an open stdin pipe. A CLI that
+ * reads stdin until EOF (e.g. `codex exec`) would block forever because the
+ * controller never writes to or closes the pipe. stdout/stderr stay captured.
+ */
+export const EXECUTOR_SPAWN_STDIO = ["ignore", "pipe", "pipe"] as const;
+
 export interface ExecutorAdapter {
   capabilities?(context?: Partial<ExecutionContext>): ExecutorAdapterCapabilities;
   probe?(context: ExecutorProbeContext): Promise<ExecutorAdapterCapabilities>;

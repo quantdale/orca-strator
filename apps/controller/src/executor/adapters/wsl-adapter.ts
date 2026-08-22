@@ -1,6 +1,7 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import type { ExecutorAdapter, ExecutionContext } from "./executor-adapter.js";
+import { EXECUTOR_SPAWN_STDIO } from "./executor-adapter.js";
 import { toWslPath } from "../../wsl-path.js";
 
 const execFileAsync = promisify(execFile);
@@ -48,7 +49,10 @@ export class WslAdapter implements ExecutorAdapter {
         WSLENV: `${existingWslEnv}${wslEnvVars}`
       },
       windowsHide: true,
-      shell: false
+      shell: false,
+      // Change 022: same stdin policy as the Windows adapter — see
+      // EXECUTOR_SPAWN_STDIO in executor-adapter.ts.
+      stdio: [...EXECUTOR_SPAWN_STDIO]
     });
   }
 
@@ -63,14 +67,19 @@ export class WslAdapter implements ExecutorAdapter {
           timeout: 15_000
         });
       } catch {
+        // taskkill unavailable/timed out — fall back to a direct SIGKILL best effort.
         try {
           child.kill("SIGKILL");
-        } catch {}
+        } catch {
+          // Process already gone; the kill sweep is best-effort by design.
+        }
       }
     } else {
       try {
         child.kill("SIGTERM");
-      } catch {}
+      } catch {
+        // Process already gone; nothing left to terminate.
+      }
     }
   }
 
