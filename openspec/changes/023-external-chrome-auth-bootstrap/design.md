@@ -122,6 +122,12 @@ closeSetupBrowser():
   silently reused against the shared profile (format-compatibility guard).
 - Launch options remain exactly `{ headless, viewport,
   executablePath? }` — pinned by test to prove no forbidden flags can creep in.
+- Real-qualification amendment: production automation passes
+  `headless=false`. Cloudflare serves a "Just a moment" interstitial to
+  headless Chrome even with the genuine installed binary and the warm,
+  human-authenticated profile, while headed launches reuse that session
+  cleanly. This is a launch-mode choice only — no stealth flags, no UA
+  spoofing, and the options-shape guard above is unchanged.
 
 ### 5. Auth readiness (`auth-readiness.ts`)
 

@@ -102,6 +102,12 @@ export function isSessionIndicatingCookieName(nameDomain: string): boolean {
   return SESSION_COOKIE_NAME_PATTERNS.some((re) => re.test(name));
 }
 
+/** Bounded settle window: SPA hydration + managed-challenge clearance can
+ * legitimately take several seconds after domcontentloaded before either the
+ * composer or a login affordance renders (Change 023 real qualification). */
+export const AUTH_SIGNAL_SETTLE_MS = 15000;
+const AUTH_SIGNAL_POLL_MS = 1000;
+
 /** Gather UI/navigation signals from a loaded chatgpt.com page. */
 export async function collectAuthSignals(page: BrowserPage): Promise<{
   composerVisible: boolean;
@@ -109,22 +115,34 @@ export async function collectAuthSignals(page: BrowserPage): Promise<{
   redirectedToLogin: boolean;
   challengeIndicatorVisible: boolean;
 }> {
-  const composerVisible =
-    (await page.hasSelector(AUTH_SIGNAL_SELECTORS.composer[0], 2500)) ||
-    (await page.hasSelector(AUTH_SIGNAL_SELECTORS.composer[1], 1000));
-  const loginAffordanceVisible =
-    (await page.hasSelector(AUTH_SIGNAL_SELECTORS.loginAffordance[0], 1500)) ||
-    (await page.hasSelector(AUTH_SIGNAL_SELECTORS.loginAffordance[1], 750));
-  const redirectedToLogin = page.url().includes("/auth/login");
-  const challengeIndicatorVisible = await page.hasSelector(
-    AUTH_SIGNAL_SELECTORS.challenge[0],
-    750,
-  );
+  const deadline = Date.now() + AUTH_SIGNAL_SETTLE_MS;
+  for (;;) {
+    const composerVisible =
+      (await page.hasSelector(AUTH_SIGNAL_SELECTORS.composer[0], 2500)) ||
+      (await page.hasSelector(AUTH_SIGNAL_SELECTORS.composer[1], 1000));
+    const loginAffordanceVisible =
+      (await page.hasSelector(AUTH_SIGNAL_SELECTORS.loginAffordance[0], 1500)) ||
+      (await page.hasSelector(AUTH_SIGNAL_SELECTORS.loginAffordance[1], 750));
+    const redirectedToLogin = page.url().includes("/auth/login");
+    const challengeIndicatorVisible = await page.hasSelector(
+      AUTH_SIGNAL_SELECTORS.challenge[0],
+      750,
+    );
 
-  return {
-    composerVisible,
-    loginAffordanceVisible,
-    redirectedToLogin,
-    challengeIndicatorVisible,
-  };
+    const decisive =
+      composerVisible ||
+      loginAffordanceVisible ||
+      redirectedToLogin ||
+      challengeIndicatorVisible;
+
+    if (decisive || Date.now() >= deadline) {
+      return {
+        composerVisible,
+        loginAffordanceVisible,
+        redirectedToLogin,
+        challengeIndicatorVisible,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, AUTH_SIGNAL_POLL_MS));
+  }
 }

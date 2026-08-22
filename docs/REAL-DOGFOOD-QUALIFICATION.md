@@ -1,6 +1,8 @@
 # Orca-Strator Real External Qualification Report
 
-Status: **IN PROGRESS — blocked at one genuine manual boundary (ChatGPT login)**
+Status: **IN PROGRESS — ChatGPT login boundary RESOLVED (Change 023 real
+qualification); remaining gates: dedicated Sol conversation URL + one
+harmless real wake (both user-owned)**
 
 This report records factual evidence only. It contains no cookies, tokens, API
 keys, or browser profile secrets.
@@ -190,9 +192,27 @@ build, lint, strict OpenSpec validation, and `git diff --check` all pass).
 
 Qualification verdict for this change:
 
-- EXTERNAL_CHROME_AUTH_BOOTSTRAP: **PENDING REAL QUALIFICATION** — requires the
-  human to complete Google sign-in inside the external setup Chrome window
-  (Orca never automates this step).
-- REAL_CHATGPT_AUTHENTICATED_PROFILE: **PENDING REAL QUALIFICATION** — verified
-  after Check Login reports AUTHENTICATED on the dedicated profile and one
-  harmless real wake succeeds under BrowserManager automation.
+- EXTERNAL_CHROME_AUTH_BOOTSTRAP: **QUALIFIED (2026-08-22)** — real evidence:
+  the production controller spawned ordinary installed Chrome v151.0.7922.138
+  as the setup browser (`chrome.exe --user-data-dir=<dedicated profile>
+  https://chatgpt.com/auth/login`, no Playwright attachment); a human
+  completed ChatGPT Google sign-in inside that window and closed it; profile
+  ownership released cleanly (`lockHolderPid: null`).
+- REAL_CHATGPT_AUTHENTICATED_PROFILE: **PARTIALLY QUALIFIED** — `POST
+  /api/browser/auth/check` returned `AUTHENTICATED` (evidence:
+  `ui:composer-visible`, `cookies:session-family-present`,
+  `profileUsableByAutomation: true`) on a headed installed-Chrome automation
+  launch against the SAME profile, proving session reuse with NO Google OAuth
+  re-run. Final verdict still requires one harmless real wake under
+  BrowserManager automation, which awaits the user-supplied dedicated Sol
+  conversation URL (phase 5, user-owned configuration).
+
+Real-qualification finding folded back into implementation (2026-08-22):
+headless Playwright launches of the genuine installed Chrome receive a
+Cloudflare "Just a moment" interstitial on chatgpt.com even with the warm,
+human-authenticated profile, while headed launches of the same binary reuse
+the human session cleanly. Production automation therefore runs HEADED
+(headless=false). This is a launch-mode choice only: no anti-detection
+switches, no sandbox downgrades, no user-agent spoofing were added, and the
+launch-options guard tests now pin headed automation. Design §Automation
+channel and docs/RUNTIME-MODEL.md were updated to match observed reality.

@@ -1,25 +1,25 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "MILESTONE_21_IMPLEMENTED_AWAITING_HUMAN_SIGNIN",
+  "developmentStatus": "MILESTONE_21_REAL_QUALIFICATION_MOSTLY_VERIFIED",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
   "activeMilestone": 21,
   "activeChange": "023-external-chrome-auth-bootstrap",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "Change 023 IMPLEMENTED AND MACHINE-GATED: interactive setup now spawns ordinary installed Chrome DIRECTLY as a child process (chrome.exe --user-data-dir=<dedicated profile> https://chatgpt.com/auth/login) with zero Playwright involvement; the external Chrome PID owns the INTERACTIVE_SETUP profile lock with release-on-exit and stale-PID recovery; production automation launches the same discovered installed Chrome through Playwright against the SAME dedicated profile (actionable CHROME_NOT_READY when absent); auth readiness classifies AUTHENTICATED/LOGIN_REQUIRED/VERIFICATION_REQUIRED/UNKNOWN from safe UI/navigation signals with cookie NAME corroboration only (values never read/logged/persisted); profile-format migration guard preserves incompatible profiles as timestamped backups; Settings UI truthfully shows Chrome detected/version, profile location, setup OPEN/CLOSED, readiness, ownership, with Open Setup Browser / Check Login / Close Setup Browser controls. Gates: fast tier 58 files / 300 tests green (incl. chrome-discovery, external-setup-browser, external-setup-manager, playwright-launch-guard, auth-readiness suites), typecheck, build, lint, strict OpenSpec validation 23/23, git diff --check all pass. Root cause of the original blocker stands confirmed: Google rejects Playwright-managed Chromium for OAuth; no bypass was implemented or permitted.",
-    "updatedAt": "2026-08-22T19:55:00+08:00",
-    "lastCompletedTask": "Change 023 full implementation, test suites, gates, docs (ROADMAP Milestone 21, TEST-STRATEGY §27, REAL-DOGFOOD addendum), tasks.md checkboxes 1.x–8.1 marked.",
-    "lastVerification": "npm test fast tier 58 files / 300 tests green; npm run typecheck; npm run build; npm run lint; npx openspec validate --all --strict (23 passed / 0 failed); git diff --check."
+    "summary": "Change 023 REAL QUALIFICATION tasks 9.1-9.4 VERIFIED on production controller: external setup Chrome v151.0.7922.138 spawned as ordinary child process (no Playwright) for human ChatGPT Google sign-in; window closed -> profile ownership released cleanly; POST /api/browser/auth/check returned AUTHENTICATED (ui:composer-visible, cookies:session-family-present, profileUsableByAutomation:true) proving automation reuses the human session with NO Google OAuth re-run. REAL FINDING folded back: Cloudflare serves 'Just a moment' to HEADLESS Chrome even with genuine installed binary + warm authenticated profile; headed launches of the same binary pass cleanly -> production automation now runs HEADED via AUTOMATION_HEADED constant (launch mode only, zero stealth flags; options-shape guard unchanged); auth-readiness gained bounded settle-polling (15s) because domcontentloaded often precedes SPA hydration/managed-challenge clearance. Design §Automation channel, RUNTIME-MODEL, REAL-DOGFOOD-QUALIFICATION updated; tasks.md section 9 checked through 9.4 plus evidence log section 10. Gates: fast tier 58 files / 300 tests green, typecheck, build, lint, strict OpenSpec validation 23/23, git diff --check all pass.",
+    "updatedAt": "2026-08-22T20:40:00+08:00",
+    "lastCompletedTask": "Real qualification 9.1-9.4 + headed-Chrome correction + settle-poll readiness; verdicts recorded in qualification doc and tasks evidence log.",
+    "lastVerification": "npm test fast tier 58 files / 300 tests green; npm run typecheck; npm run build (controller dist = running controller); npm run lint; npx openspec validate --all --strict (23 passed / 0 failed); git diff --check."
   },
-  "nextAction": "REAL QUALIFICATION (tasks 9.1–9.6): close any Orca browser processes; start production controller; invoke Open ChatGPT Setup Browser and verify the process is ordinary installed Chrome NOT Playwright-managed; HUMAN completes ChatGPT Google sign-in manually in that window (Orca never automates this step); human closes window; invoke POST /api/browser/auth/check expecting AUTHENTICATED; start BrowserManager automation on the SAME profile verifying session reuse without re-running Google OAuth; perform one harmless real ChatGPT wake. Then record QUALIFIED verdicts for EXTERNAL_CHROME_AUTH_BOOTSTRAP and REAL_CHATGPT_AUTHENTICATED_PROFILE in docs/REAL-DOGFOOD-QUALIFICATION.md and resume the real dogfood campaign (Sol -> dispatch#1 -> Kimi -> result -> Sol -> dispatch#2 -> Kimi -> result -> Sol -> GOAL_COMPLETE). Tailscale still requires one elevated install; OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED.",
+  "nextAction": "Finish task 9.5's final step: ask user for their dedicated Sol conversation URL (chatgpt.com/c/... from the signed-in account), create a smoke repository + dispatch via production API, fire one harmless real wake under BrowserManager headed automation, then record the REAL_CHATGPT_AUTHENTICATED_PROFILE final QUALIFIED verdict and resume the real dogfood campaign (Sol -> dispatch#1 -> Kimi -> result -> Sol -> dispatch#2 -> Kimi -> result -> Sol -> GOAL_COMPLETE). Tailscale still requires one elevated install; OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED.",
   "blockers": [
     {
-      "code": "AWAITING_HUMAN_CHATGPT_SIGNIN",
-      "summary": "EXTERNAL_CHROME_AUTH_BOOTSTRAP is implemented and machine-gated but its real qualification requires a human to complete ChatGPT Google sign-in inside the external setup Chrome window; Orca must never automate credentials/MFA.",
-      "evidence": "Change 023 code paths proven by deterministic fast-tier suites; only the human sign-in moment and one real wake remain.",
-      "nextAction": "Human opens Setup Browser via Settings/API, signs into ChatGPT with Google in ordinary Chrome, closes the window; then run Check Login and one harmless wake."
+      "code": "AWAITING_SOL_CONVERSATION_URL",
+      "summary": "The harmless real wake (task 9.5 final step) needs the user-owned dedicated Sol conversation URL from the signed-in ChatGPT account; Orca cannot invent or automate conversation selection.",
+      "evidence": "docs/REAL-DOGFOOD-QUALIFICATION.md phase 5 remains PENDING; production DB has no repositories; no durable record of a dedicated conversation URL exists anywhere.",
+      "nextAction": "User pastes chatgpt.com/c/<id> URL; wire into smoke repo + dispatch; fire wake; record final verdict."
     },
     {
       "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",

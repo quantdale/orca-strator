@@ -302,7 +302,7 @@ The dedicated browser profile is a globally exclusive machine-local resource.
 
 The following both require the same lock:
 
-1. normal on-demand headless Browser Manager;
+1. normal on-demand Browser Manager automation (headed on the genuine installed Chrome — Change 023 real qualification showed Cloudflare interstitials reject headless Chrome);
 2. headed **Open ChatGPT Setup Browser** flow.
 
 Therefore:

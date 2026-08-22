@@ -69,6 +69,14 @@ const DEFAULT_SOL_TIMEOUT_MS = 20 * 60 * 1000;
 /** Bounded BUSY backpressure before a wake is reported SOL_STALLED (L, item #3). */
 export const BUSY_MAX_RETRIES = 3;
 export const BUSY_RETRY_MS = 3500;
+/**
+ * Automation runs HEADED on the genuine installed Chrome: real qualification
+ * (Change 023) showed Cloudflare serves a "Just a moment" interstitial to
+ * headless Chrome even with the authentic binary + warm profile, while headed
+ * automation reuses the human-established session cleanly. This is a launch
+ * mode, never an anti-detection workaround.
+ */
+const AUTOMATION_HEADED = false;
 
 export class BrowserManager {
   private readonly profileDir: string;
@@ -325,7 +333,7 @@ export class BrowserManager {
 
       const launchOpts = await this.resolveAutomationLaunchOptions();
       if (!this.driver.isRunning()) {
-        await this.driver.launch(this.profileDir, true, launchOpts);
+        await this.driver.launch(this.profileDir, AUTOMATION_HEADED, launchOpts);
       }
       const page = await this.driver.openPage(
         "__auth_check__",
@@ -474,9 +482,9 @@ export class BrowserManager {
       if (!this.driver.isRunning()) {
         await this.driver.launch(
           this.profileDir,
-          true,
+          AUTOMATION_HEADED,
           await this.resolveAutomationLaunchOptions(),
-        ); // Headless for automated wake
+        ); // Headed: Cloudflare interstitials reject headless Chrome
       }
 
       const page = await this.driver.openPage(
@@ -907,7 +915,7 @@ export class BrowserManager {
       }
       await this.driver.launch(
         this.profileDir,
-        true,
+        AUTOMATION_HEADED,
         await this.resolveAutomationLaunchOptions(),
       );
     }

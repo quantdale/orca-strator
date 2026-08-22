@@ -26,7 +26,7 @@ describe("PlaywrightDriver launch options guard (Change 023)", () => {
 
     expect(captured).toHaveLength(2);
 
-    // Headless automated wake.
+    // Headless passthrough stays available to direct driver callers.
     expect(Object.keys(captured[0]).sort()).toEqual(["headless", "viewport"]);
     expect(captured[0].headless).toBe(true);
     expect(captured[0].viewport).toEqual({ width: 1280, height: 800 });

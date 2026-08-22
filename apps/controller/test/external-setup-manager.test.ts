@@ -312,6 +312,8 @@ describe("BrowserManager external setup-Chrome flow (Change 023)", () => {
     expect(mockDriver.launchCalls[0].executablePath).toBe(
       FOUND_CHROME.executablePath,
     );
-    expect(mockDriver.launchCalls[0].headless).toBe(true);
+    // Change 023 real qualification: automation is HEADED (Cloudflare rejects
+    // headless Chrome with an interstitial even on the genuine binary).
+    expect(mockDriver.launchCalls[0].headless).toBe(false);
   });
 });

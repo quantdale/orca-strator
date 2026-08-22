@@ -77,15 +77,41 @@
 
 ## 9. Real qualification (external-chrome-auth-bootstrap)
 
-- [ ] 9.1 Close all Orca browser processes; start production controller.
-- [ ] 9.2 Invoke Open Setup Browser; verify ordinary installed Chrome (not
+- [x] 9.1 Close all Orca browser processes; start production controller.
+- [x] 9.2 Invoke Open Setup Browser; verify ordinary installed Chrome (not
   Playwright-managed) on the dedicated profile.
-- [ ] 9.3 HUMAN completes ChatGPT Google sign-in manually in that window
+- [x] 9.3 HUMAN completes ChatGPT Google sign-in manually in that window
   (Orca never automates this step); human closes window.
-- [ ] 9.4 Invoke Check Login → AUTHENTICATED expected.
+- [x] 9.4 Invoke Check Login → AUTHENTICATED expected.
 - [ ] 9.5 Start BrowserManager automation on SAME profile; verify session
   reused (no Google OAuth re-run under automation); one harmless real wake.
 - [ ] 9.6 Record QUALIFIED verdicts (EXTERNAL_CHROME_AUTH_BOOTSTRAP,
   REAL_CHATGPT_AUTHENTICATED_PROFILE) in qualification doc; resume real
   dogfood campaign (Sol → dispatch#1 → Kimi → result → Sol → dispatch#2 →
   Kimi → result → Sol → GOAL_COMPLETE).
+
+## 10. Real-qualification evidence log (2026-08-22)
+
+- 9.1–9.2 VERIFIED: production controller on 47100; Open Setup Browser spawned
+  ordinary installed Chrome v151.0.7922.138 (`chrome.exe --user-data-dir=
+  <dedicated profile> https://chatgpt.com/auth/login`), zero Playwright
+  involvement; exit released profile ownership (`lockHolderPid: null`).
+- 9.3 DONE: human completed ChatGPT Google sign-in in the external window and
+  closed it (Orca never touched credentials).
+- 9.4 VERIFIED: `POST /api/browser/auth/check` returned
+  `AUTHENTICATED` with evidence `ui:composer-visible`,
+  `cookies:session-family-present`, `profileUsableByAutomation: true`.
+- REAL FINDING folded back into implementation: headless Playwright launches
+  receive a Cloudflare "Just a moment" interstitial even with the genuine
+  installed Chrome + warm authenticated profile; headed launches of the same
+  binary reuse the human session cleanly. Automation therefore runs HEADED
+  (`AUTOMATION_HEADED=false` headless flag) — launch mode only, no stealth.
+  Design §Automation channel + RUNTIME-MODEL updated accordingly; guard tests
+  updated to pin headed automation.
+- 9.5 PARTIAL: automation on SAME profile verified via the readiness check
+  path itself (headed installed-Chrome launch, session reused, no Google OAuth
+  re-run). The one harmless real wake remains PENDING the user-supplied
+  dedicated Sol conversation URL (qualification phase 5, user-owned config).
+- 9.6 EXTERNAL_CHROME_AUTH_BOOTSTRAP: QUALIFIED.
+  REAL_CHATGPT_AUTHENTICATED_PROFILE: session-reuse half QUALIFIED; final
+  verdict awaits the harmless real wake.
