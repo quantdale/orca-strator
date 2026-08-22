@@ -726,7 +726,7 @@ npm run build                         exit 0
 npm run lint                          exit 0
 git diff --check                      pass
 npx openspec validate --all --strict  18 passed / 0 failed
-npm test (fast tier)                  48 test files passed / 234 tests passed
+npm test (fast tier)                  48 test files passed / 237 tests passed
 npm run test:real                     14 files passed + 1 skipped file;
                                       65 passed / 3 skipped / 0 failed (exit 0)
 ```

@@ -134,7 +134,7 @@ Only the truly external ChatGPT browser boundary is mocked for pipeline proof; t
 Latest full qualification run on this tree (Change 018 campaign): `npm run
 typecheck`, `npm run build`, and `npm run lint` exit 0; `git diff --check`
 clean; strict OpenSpec validation 18 passed / 0 failed; fast tier 48 test files
-/ 234 tests green; real tier 65 passed / 3 skipped / 0 failed, with every skip
+/ 237 tests green; real tier 65 passed / 3 skipped / 0 failed, with every skip
 classified `EXPECTED_EXTERNAL_UNQUALIFIED` (WSL-distro-gated scenarios,
 OpenCode URL absent) and all internal suites non-skipped.
 

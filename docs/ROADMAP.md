@@ -668,7 +668,7 @@ Deliverables:
 
 Qualification (executed on this tree): typecheck, build, lint, `git diff
 --check`, and strict OpenSpec validation (18 passed / 0 failed) all pass; the
-fast tier passes 48 test files / 234 tests including the new 37-test protocol
+fast tier passes 48 test files / 237 tests including the new 37-test protocol
 schema/Zod conformance guard with four documented intentional divergences; the
 real tier passes 65 tests / 3 skips / 0 failures with every skip classified
 `EXPECTED_EXTERNAL_UNQUALIFIED`. External UNQUALIFIED items are unchanged:

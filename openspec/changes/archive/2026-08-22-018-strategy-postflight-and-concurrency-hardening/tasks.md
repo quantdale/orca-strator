@@ -38,4 +38,4 @@
 
 - [x] 6.1 npm test, npm run test:real, typecheck, build, lint, strict OpenSpec validation, git diff --check all pass.
 - [x] 6.2 Reconcile .agent/state.json, README, ROADMAP, ARCHITECTURE, RUNTIME-MODEL, DATA-MODEL, API-CONTRACT, TEST-STRATEGY, canonical specs truthfully.
-- [ ] 6.3 Commit/push coherent checkpoints to main.
+- [x] 6.3 Commit/push coherent checkpoints to main.
