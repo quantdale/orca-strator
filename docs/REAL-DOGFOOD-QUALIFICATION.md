@@ -117,6 +117,37 @@ The window is intentionally left open for this action.
 | 10 Codex via Orca (one real turn) | PENDING | Phase 5 |
 | 11 Tailscale phone route | BLOCKED_MANUAL_ELEVATION | One elevated install step |
 
+## Addendum — resume verification (2026-08-22 ~16:40–16:50 +08:00)
+
+Resumed from main `4048a08` after the human was given the opportunity to log in.
+
+**Auth verdict: still NOT_AUTHENTICATED.** Evidence (cookie values never read):
+
+- Cookie-store copy inspected by NAME+host only, across ALL chatgpt.com /
+  openai.com hosts (not one hard-coded name): fresh NextAuth CSRF/callback-url
+  cookies exist on chatgpt.com (set by any page visit) but NO session-indicating
+  cookie family appeared anywhere; all `.auth.openai.com` artifacts date from the
+  morning's failed Google OAuth attempt.
+- History DB: last entry is the controller's own plain `https://chatgpt.com/`
+  load at ~15:30; zero login-flow navigation after it.
+- Profile disk writes stop at 15:36–15:41 — no human browsing activity since.
+
+**New real-world observation:** the headed setup-browser window had been closed
+externally sometime after ~15:36 (no `chrome.exe` process held the Orca profile;
+only the controller node process remained as recorded lock holder), while the
+controller still reported `isRunning:true` (stale in-memory flag).
+Recovery through the CANONICAL lifecycle only:
+
+1. `POST /api/browser/setup/close` → cleared stale state, released profile lock
+   (`lockHolderPid:null`). No process kill, no lock file surgery.
+2. `POST /api/browser/setup/open` → relaunched headed Chromium on the SAME
+   persistent profile at chatgpt.com (verified live `chrome.exe` PID with
+   `--user-data-dir=...Orca-Strator\browser\profile`).
+
+Classified as normal recovery via public API, NOT an Orca defect (the manager
+self-heals via close→open; only an un-recoverable stall here would be a defect).
+Window left OPEN for the human login retry.
+
 ## Manual actions required to unblock
 
 1. **ChatGPT login** (unblocks everything core): complete sign-in inside the
