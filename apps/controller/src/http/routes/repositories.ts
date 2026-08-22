@@ -13,7 +13,8 @@ type ResolvableOutcome = (typeof RESOLVABLE_OUTCOMES)[number];
 
 export const repositoryRoutes = (
   service: RepositoryService,
-  permissionStore: PermissionStore
+  permissionStore: PermissionStore,
+  onPermissionResolved?: (decision: PermissionDecision) => void
 ): FastifyPluginAsync => {
   return async (fastify) => {
     fastify.get<{ Reply: RepositoryListResponse }>('/api/repositories', async () => {
@@ -96,6 +97,9 @@ export const repositoryRoutes = (
             409
           );
         }
+        // Change 020: publish durable resolution evidence; the app-level
+        // callback owns event emission and the attention-park re-drive.
+        onPermissionResolved?.(resolved);
         return { decision: resolved };
       }
     );

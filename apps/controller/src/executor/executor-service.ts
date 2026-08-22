@@ -88,6 +88,8 @@ export class ExecutorService {
   private readonly pendingRunners = new Map<string, { runner: ExecutorRunner; runAttemptId: string }>();
   /** Set by shutdown(); aborts in-flight launches and refuses new runs. */
   private shuttingDown = false;
+  /** Repositories with a startRun call still inside async setup; closed the concurrent-start TOCTOU window. */
+  private readonly startingRepositories = new Set<string>();
 
   constructor(options: ExecutorServiceOptions) {
     this.repoStore = options.repoStore;
@@ -120,6 +122,27 @@ export class ExecutorService {
       throw new ValidationError(`ExecutorService is shutting down; refusing new run for repository ${repositoryId}`);
     }
 
+    // Synchronous check-and-set before any await: two overlapping starts must
+    // not both pass the runner guards below while neither has registered its
+    // runner yet (concurrent-start TOCTOU closure).
+    if (this.startingRepositories.has(repositoryId)) {
+      throw new ValidationError(`Executor start already in progress for repository ${repositoryId}`);
+    }
+    this.startingRepositories.add(repositoryId);
+    try {
+      return await this.launchRun(repositoryId, dispatchId, repo, options);
+    } finally {
+      this.startingRepositories.delete(repositoryId);
+    }
+  }
+
+  /** Launch one executor run; caller owns the per-repository start-intent guard. */
+  private async launchRun(
+    repositoryId: string,
+    dispatchId: string,
+    repo: RepositoryRecord,
+    options: ExecutorStartOptions
+  ): Promise<ExecutorRunRecord> {
     if (this.activeRunners.has(repositoryId) || this.pendingRunners.has(repositoryId)) {
       throw new ValidationError(`Executor is already running for repository ${repositoryId}`);
     }

@@ -718,15 +718,24 @@ tightening them is deliberate future schema work, not drift.
 
 ## 26. Qualification tier evidence (as of this qualification run)
 
-Executed gates on this tree during the Change 018 qualification campaign:
+Executed gates on this tree after the Changes 019 + 020 implementation waves
+(executor-start serialization + stale-lease reconciliation; permission
+ask-resolution end-to-end), via `node scripts/verify-changes-019-020.mjs`:
 
 ```text
+focused new tests (019 + 020)         4 files / 15 tests passed
 npm run typecheck                     exit 0 (all workspaces)
+npm test (fast tier)                  51 test files passed / 248 tests passed
 npm run build                         exit 0
 npm run lint                          exit 0
 git diff --check                      pass
-npx openspec validate --all --strict  18 passed / 0 failed
-npm test (fast tier)                  48 test files passed / 237 tests passed
+npx openspec validate --all --strict  20 passed / 0 failed
+```
+
+The real tier was last executed in full during the Change 018 qualification
+campaign with these results, which remain the latest real-tier evidence:
+
+```text
 npm run test:real                     14 files passed + 1 skipped file;
                                       65 passed / 3 skipped / 0 failed (exit 0)
 ```

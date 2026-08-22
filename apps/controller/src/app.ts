@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import type { ControllerConfig } from "./config/load-config.js";
+import type { PermissionDecision } from "@orca/shared";
 import { initDatabase, type DatabaseContext } from "./db/database.js";
 import { RepositoryStore } from "./repositories/repository-store.js";
 import { RepositoryService } from "./repositories/repository-service.js";
@@ -301,6 +302,50 @@ export async function buildApp(
       eventPublisher: (event) => eventBus.publish(event),
     });
 
+  // Change 020: resolution closes an attention-parked campaign when its last
+  // actionable ask settles; active actors are never contradicted.
+  const onPermissionResolved = (decision: PermissionDecision): void => {
+    try {
+      eventBus.publish({
+        type: "permission.resolved",
+        at: new Date().toISOString(),
+        repositoryId: decision.repositoryId,
+        data: {
+          decisionId: decision.id,
+          runId: decision.runId ?? undefined,
+          iteration: decision.iteration ?? undefined,
+          action: decision.action,
+          outcome: decision.outcome,
+          enforcement: decision.enforcement,
+          resolvedAt: decision.resolvedAt ?? undefined,
+        },
+      });
+      if (!decision.runId) return;
+      const run = runStore.getLatestRun(decision.repositoryId);
+      if (!run || run.id !== decision.runId || run.status !== "ATTENTION_REQUIRED") return;
+      const stillPending = permissionStore
+        .listDecisions(decision.repositoryId)
+        .some(
+          (candidate) =>
+            candidate.actionable &&
+            !candidate.resolvedAt &&
+            candidate.runId === decision.runId &&
+            candidate.id !== decision.id,
+        );
+      if (stillPending) return;
+      void loopService
+        .recoverRun(decision.repositoryId, "retry")
+        .catch((err) => {
+          console.warn(
+            "[app] permission-resolution recovery failed:",
+            (err as Error | null)?.message ?? String(err),
+          );
+        });
+    } catch (err) {
+      console.warn("[app] permission-resolved handling failed:", err);
+    }
+  };
+
   // Reconcile watched repositories when configuration changes (B).
   eventBus.subscribe((event) => {
     if (
@@ -360,6 +405,22 @@ export async function buildApp(
     );
   }
 
+  // Change 019: startup reconciliation consumer — recovery is
+  // ownership-terminal, so stale admission leases can never be re-admitted;
+  // close them with truthful evidence and surface one event per lease.
+  for (const lease of schedulerService.reconcileStaleLeases()) {
+    eventBus.publish({
+      type: "scheduler.lease_reconciled",
+      at: new Date().toISOString(),
+      repositoryId: lease.repositoryId,
+      data: {
+        requestId: lease.requestId,
+        status: lease.status,
+        reason: lease.reason,
+      },
+    });
+  }
+
   watcherService.start();
 
   fastify.addHook("onClose", async () => {
@@ -380,7 +441,9 @@ export async function buildApp(
   await fastify.register(websocket);
 
   await fastify.register(healthRoutes(dbContext.db));
-  await fastify.register(repositoryRoutes(repositoryService, permissionStore));
+  await fastify.register(
+    repositoryRoutes(repositoryService, permissionStore, onPermissionResolved),
+  );
   await fastify.register(
     watcherRoutes(watcherService, dispatchStore, repositoryService),
   );

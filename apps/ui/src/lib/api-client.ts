@@ -214,6 +214,19 @@ export function createApiClient(baseUrl = "") {
       return handleResponse<{ evaluation: PermissionEvaluation }>(res);
     },
 
+    async resolvePermissionDecision(
+      id: string,
+      decisionId: string,
+      outcome: "ALLOW" | "ALLOW_ONCE" | "DENY"
+    ): Promise<{ decision: PermissionDecision }> {
+      const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/permissions/decisions/${encodeURIComponent(decisionId)}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outcome })
+      });
+      return handleResponse<{ decision: PermissionDecision }>(res);
+    },
+
     async getUsage(id: string): Promise<{ metrics: UsageMetric[]; summary: UsageSummary }> {
       const res = await fetch(`${cleanBase}/api/repositories/${encodeURIComponent(id)}/usage`);
       return handleResponse<{ metrics: UsageMetric[]; summary: UsageSummary }>(res);

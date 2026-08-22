@@ -95,6 +95,33 @@ export class SchedulerService {
 
   listDecisions(limit = 200): SchedulerDecision[] { return this.store.listDecisions(limit); }
 
+  /**
+   * Startup reconciliation consumer for STALE_RECOVERABLE admissions: restart
+   * recovery proved no live owner confirmed these leases, and strategy recovery
+   * is ownership-terminal (a new authorized run mints new request IDs), so a
+   * stale lease can never be re-admitted. Close each as RELEASED with truthful
+   * evidence naming the owning strategy run when parseable. Idempotent; other
+   * statuses are untouched.
+   */
+  reconcileStaleLeases(): SchedulerDecision[] {
+    const reconciled: SchedulerDecision[] = [];
+    for (const decision of this.store.listDecisions(1000)) {
+      if (decision.status !== "STALE_RECOVERABLE") continue;
+      const [strategyRunId, rest] = decision.requestId.split(":");
+      const owningRun = strategyRunId && rest ? strategyRunId : null;
+      this.store.updateDecision(decision.requestId, {
+        status: "RELEASED",
+        reason: owningRun
+          ? `Stale admission lease closed after startup reconciliation; owning strategy run ${owningRun} cannot re-admit it (recovery is ownership-terminal).`
+          : "Stale admission lease closed after startup reconciliation; its owning request cannot be re-admitted.",
+        resolvedAt: new Date().toISOString()
+      });
+      const next = this.store.getDecision(decision.requestId);
+      if (next) reconciled.push(next);
+    }
+    return reconciled;
+  }
+
   private admitQueued(): void {
     for (const [requestId, request] of this.queued) {
       const policy = this.getPolicy();

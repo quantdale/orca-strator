@@ -22,6 +22,7 @@ export type EventType =
   | "executor.capability_probed"
   | "executor.usage_recorded"
   | "permission.decision"
+  | "permission.resolved"
   | "budget.expired"
   | "strategy.started"
   | "strategy.worker_queued"
@@ -31,7 +32,8 @@ export type EventType =
   | "strategy.control"
   | "strategy.integration_completed"
   | "strategy.completed"
-  | "strategy.recovery";
+  | "strategy.recovery"
+  | "scheduler.lease_reconciled";
 
 export interface RepositoryMutationEvent {
   type: EventType;

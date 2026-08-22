@@ -26,6 +26,8 @@ export const OperationalIntelligencePanel: React.FC<OperationalIntelligencePanel
   const [rolePolicy, setRolePolicy] = useState<RoleModelPolicy | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -74,6 +76,19 @@ export const OperationalIntelligencePanel: React.FC<OperationalIntelligencePanel
       setError(err?.message || "Executor probe failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resolveDecision = async (decisionId: string, outcome: "ALLOW" | "ALLOW_ONCE" | "DENY") => {
+    setResolvingId(decisionId);
+    setResolveError(null);
+    try {
+      await apiClient.resolvePermissionDecision(repositoryId, decisionId, outcome);
+      await refresh();
+    } catch (err: any) {
+      setResolveError(err?.message || "Resolving the permission decision failed");
+    } finally {
+      setResolvingId(null);
     }
   };
 
@@ -136,6 +151,30 @@ export const OperationalIntelligencePanel: React.FC<OperationalIntelligencePanel
             {decisions.slice(0, 4).map((decision) => <span key={decision.id} className={`rounded border px-1.5 py-0.5 text-[10px] ${badge(decision.outcome)}`}>{decision.action}: {decision.outcome}</span>)}
             {decisions.length === 0 && <span className="text-xs text-slate-600">No decisions recorded.</span>}
           </div>
+          {decisions.some((decision) => decision.actionable && !decision.resolvedAt) && (
+            <div className="mt-3 space-y-2" data-testid="pending-permission-decisions">
+              {decisions.filter((decision) => decision.actionable && !decision.resolvedAt).map((decision) => (
+                <div key={decision.id} className="rounded border border-amber-900/70 bg-amber-950/30 p-2">
+                  <div className="text-[11px] font-medium text-amber-200">Pending ask · {decision.action} · iteration {decision.iteration ?? "—"}</div>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {(["ALLOW", "ALLOW_ONCE", "DENY"] as const).map((outcome) => (
+                      <button
+                        key={outcome}
+                        type="button"
+                        disabled={resolvingId === decision.id}
+                        onClick={() => void resolveDecision(decision.id, outcome)}
+                        data-testid={`resolve-${decision.id}-${outcome}`}
+                        className="rounded border border-slate-700 bg-slate-900/80 px-2 py-1 text-[10px] font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        {outcome}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {resolveError && <p className="mt-2 text-[10px] text-rose-300" data-testid="permission-resolve-error">{resolveError}</p>}
           <p className="mt-3 text-[10px] text-slate-600">Generic CLIs are advisory unless a native permission API is advertised.</p>
         </div>
       </div>

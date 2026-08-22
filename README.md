@@ -131,12 +131,13 @@ Honest status (this machine):
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
-Latest full qualification run on this tree (Change 018 campaign): `npm run
-typecheck`, `npm run build`, and `npm run lint` exit 0; `git diff --check`
-clean; strict OpenSpec validation 18 passed / 0 failed; fast tier 48 test files
-/ 237 tests green; real tier 65 passed / 3 skipped / 0 failed, with every skip
-classified `EXPECTED_EXTERNAL_UNQUALIFIED` (WSL-distro-gated scenarios,
-OpenCode URL absent) and all internal suites non-skipped.
+Latest full qualification run on this tree (Changes 019 + 020): focused new
+tests 15/15, `npm run typecheck`, `npm run build`, and `npm run lint` exit 0;
+`git diff --check` clean; strict OpenSpec validation 20 passed / 0 failed; fast
+tier 51 test files / 248 tests green. The real tier's latest full run (Change
+018 campaign) passed 65 / 3 skipped / 0 failed, with every skip classified
+`EXPECTED_EXTERNAL_UNQUALIFIED` (WSL-distro-gated scenarios, OpenCode URL
+absent) and all internal suites non-skipped.
 
 ## Durable development workflow
 

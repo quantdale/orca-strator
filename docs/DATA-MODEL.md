@@ -439,4 +439,6 @@ enforcement labeling follows capability-probe evidence (`NATIVE_EXECUTOR` when
 the rich permission API is READY, otherwise `ADVISORY_ONLY`). Scheduler lease
 recovery at startup marks persisted `ADMITTED` rows `STALE_RECOVERABLE`, and
 startup reconciliation marks orphaned active executor runs failed; both reuse
-the existing status vocabularies.
+the existing status vocabularies. Startup reconciliation then closes leftover
+`STALE_RECOVERABLE` rows as `RELEASED` with truthful reasons (Change 019),
+still within the same status vocabulary.

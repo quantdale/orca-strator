@@ -667,13 +667,68 @@ Deliverables:
   `runAttemptId`), and the EventBus listener cap.
 
 Qualification (executed on this tree): typecheck, build, lint, `git diff
---check`, and strict OpenSpec validation (18 passed / 0 failed) all pass; the
-fast tier passes 48 test files / 237 tests including the new 37-test protocol
-schema/Zod conformance guard with four documented intentional divergences; the
-real tier passes 65 tests / 3 skips / 0 failures with every skip classified
-`EXPECTED_EXTERNAL_UNQUALIFIED`. External UNQUALIFIED items are unchanged:
-real ChatGPT-authenticated wake, Tailscale phone route, real Kimi/Codex
-inference burn, and an authorized OpenCode server.
+--check`, and strict OpenSpec validation (20 passed / 0 failed) all pass; the
+fast tier passes 51 test files / 248 tests including the 37-test protocol
+schema/Zod conformance guard with four documented intentional divergences, the
+Change 019 executor-start-serialization suite, and the Change 019/020
+stale-lease-reconciliation and permission-resolution suites. The real tier's
+latest full run passes 65 tests / 3 skips / 0 failures with every skip
+classified `EXPECTED_EXTERNAL_UNQUALIFIED`. External UNQUALIFIED items are
+unchanged: real ChatGPT-authenticated wake, Tailscale phone route, real
+Kimi/Codex inference burn, and an authorized OpenCode server.
+
+### Milestone 18 — Executor-start serialization and stale-lease reconciliation
+
+OpenSpec: `019-executor-start-serialization-and-lease-reconciliation` (folded
+into `openspec/specs/runtime-concurrency-closure/`)
+
+Status: **complete / MACHINE-QUALIFIED internally**
+
+Deliverables:
+
+- a synchronous per-repository start-intent guard in `ExecutorService.startRun`,
+  acquired before the first `await`, refusing overlapping concurrent starts
+  with a structured validation error instead of a second live runner or a
+  duplicate running-executor record, and released in a `finally` on every exit
+  path so failed preflight, exhausted launch retries, and shutdown aborts never
+  wedge later authorized starts;
+- idempotent startup reconciliation that closes every persisted
+  `STALE_RECOVERABLE` admission as `RELEASED` with truthful owning-run evidence
+  (recovery is ownership-terminal), touching no other statuses, plus one
+  observable `scheduler.lease_reconciled` event per closed lease published from
+  `app.ts` after all startup sweeps.
+
+Qualification: focused suites (`executor-start-serialization.test.ts`,
+`usage-scheduler.test.ts` Change 019 case) green; full battery green — fast
+tier 51 files / 248 tests, typecheck, build, lint, diff check, strict OpenSpec
+validation 20 passed / 0 failed.
+
+### Milestone 19 — Permission ask-resolution end-to-end flow
+
+OpenSpec: `020-permission-ask-resolution-flow` (folded into
+`openspec/specs/permission-ask-resolution/`)
+
+Status: **complete / MACHINE-QUALIFIED internally (curl/API surface; UI
+controls delivered)**
+
+Deliverables:
+
+- a `permission.resolved` event on the shared event union; the resolve route
+  emits exactly one event per successful resolution with the persisted-decision
+  payload;
+- an attention-park guard in the app wiring: resolving the last unresolved
+  actionable decision of a run parked in `ATTENTION_REQUIRED` re-drives that
+  campaign toward Sol through the existing recovery path; sibling unresolved
+  asks keep the campaign parked; resolutions landing while an actor is active
+  record evidence only; recovery failures warn truthfully without swallowing;
+- UI controls in `OperationalIntelligencePanel`: ALLOW / ALLOW_ONCE / DENY for
+  unresolved actionable decisions via
+  `apiClient.resolvePermissionDecision`, with a truthful 404/409 error banner,
+  refresh-on-success, and resolved history kept visible.
+
+Qualification: focused suites (`permission-resolution-flow.test.ts`,
+`OperationalIntelligencePanel.test.tsx`) green; same full battery as Milestone
+18.
 
 The post-V1 evolution scope is implemented and internally machine-qualified
 through the Change 017 campaign-loop composition. Genuinely external

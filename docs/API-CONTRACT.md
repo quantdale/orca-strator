@@ -485,6 +485,15 @@ VALIDATION_ERROR`; an unknown decision ID, or one belonging to a different
 repository, is `404 PERMISSION_DECISION_NOT_FOUND`; resolving an
 already-resolved decision is `409 PERMISSION_DECISION_ALREADY_RESOLVED`.
 
+Resolution is end-to-end observable (Change 020): a successful resolution
+publishes exactly one `permission.resolved` event carrying the decision id,
+repository, run id, iteration, action, outcome, enforcement, and resolution
+timestamp. When the resolved decision was the last unresolved actionable
+decision of a run parked in `ATTENTION_REQUIRED`, Orca re-drives that
+campaign toward Sol review through the existing recovery path; resolutions
+landing while an actor is active record evidence only and never contradict
+the active actor state.
+
 Enforcement labeling follows capability evidence: when the latest capability
 probe reports the rich `permissionApi` readiness as `READY`, evaluations use
 `NATIVE_EXECUTOR` enforcement; otherwise they are `ADVISORY_ONLY`. Absolute

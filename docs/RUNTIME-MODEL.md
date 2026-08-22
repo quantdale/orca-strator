@@ -479,7 +479,11 @@ The scheduler is an explicit admission foundation for future intra-repository
 fan-out. Null limits mean unlimited, so independent repositories do not wait on
 an Orca-wide cap by default. A queued decision names the configured limit and
 records when it becomes runnable. Recovery marks unconfirmed leases
-`STALE_RECOVERABLE`; it never treats a lost lease as completed work.
+`STALE_RECOVERABLE`; it never treats a lost lease as completed work. After all
+startup sweeps complete, an idempotent reconciliation closes every remaining
+`STALE_RECOVERABLE` row as `RELEASED` with truthful owning-run evidence and
+publishes one `scheduler.lease_reconciled` event per closed lease, because
+recovery is ownership-terminal and no old request ID can be re-admitted.
 
 Role/model policy is explicit configuration only. A matching named rule may
 select an exact future role executor/model; without one, the repository's
@@ -628,5 +632,13 @@ within a bounded grace, persists recovery state, settles completion callbacks,
 preserves worktrees, and only then closes the database — `fastify.close()`
 alone leaves no orphan children and no DB-closed callback errors. At startup,
 orphaned active executor runs are marked failed, orphaned DAG staging
-checkouts are swept, and persisted `ADMITTED` scheduler leases become
-`STALE_RECOVERABLE`.
+checkouts are swept, persisted `ADMITTED` scheduler leases become
+`STALE_RECOVERABLE`, and a final idempotent reconciliation closes those stale
+leases as `RELEASED` with one observable event per closed lease.
+
+Executor starts are serialized per repository (Change 019):
+`ExecutorService.startRun` acquires a per-repository start intent
+synchronously before its first `await`, refuses an overlapping concurrent
+start with a structured validation error instead of spawning a second runner,
+and releases the intent on every exit path so failures never wedge later
+authorized starts.
