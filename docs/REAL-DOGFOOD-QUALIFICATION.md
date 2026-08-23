@@ -1,8 +1,9 @@
 # Orca-Strator Real External Qualification Report
 
-Status: **IN PROGRESS — ChatGPT login boundary RESOLVED (Change 023 real
-qualification); dedicated Sol conversation URL supplied; harmless real wake
-SUCCEEDED; real Sol↔Kimi dogfood campaign RESUMED (phase 8 executing)**
+Status: **IN PROGRESS — Change 023 auth bootstrap QUALIFIED; harmless real
+wake SUCCEEDED; phase 8 two-iteration real Sol↔Kimi loop COMPLETE with
+GOAL_COMPLETE (run de6fc5d2); remaining optional gates: phase 10 Codex one
+turn, phase 11 Tailscale (manual elevation)**
 
 This report records factual evidence only. It contains no cookies, tokens, API
 keys, or browser profile secrets.
@@ -115,8 +116,8 @@ The window is intentionally left open for this action.
 | --- | --- | --- |
 | 5 Dedicated Sol conversation | DONE (2026-08-22, user-supplied URL) | — |
 | 7 Real authenticated wake smoke | DONE (initial wake SUCCEEDED 15:00:58Z) | — |
-| 8 Two-iteration Sol↔Kimi loop | RUNNING (iteration 1 executing) | — |
-| 10 Codex via Orca (one real turn) | PENDING | Phase 8 completion |
+| 8 Two-iteration Sol↔Kimi loop | **DONE — GOAL_COMPLETE (run de6fc5d2, 2026-08-23T01:34:46Z)** | — |
+| 10 Codex via Orca (one real turn) | PENDING | none (phase 8 complete) |
 | 11 Tailscale phone route | BLOCKED_MANUAL_ELEVATION | One elevated install step |
 
 ## Addendum — resume verification (2026-08-22 ~16:40–16:50 +08:00)
@@ -244,3 +245,64 @@ The last user-owned input arrived: the dedicated Sol conversation URL.
   the live run; the production watcher validated and consumed it and started
   the real Kimi executor on iteration 1 (EXECUTING with live executor.log
   activity). Phases 8–10 continue in this file as they complete.
+
+## Phase 8 — Two-iteration real Sol↔Kimi loop: COMPLETE (2026-08-23)
+
+### Attempt 1 (run `706002fd`) — BLOCKED by real Sol, two real defects found
+
+Real Kimi executed iteration 1 correctly (reconcile → `dogfood-log.md` → push
+→ isolated result manifest), but Orca's production result validator rejected
+the manifest (`INVALID_OR_INCOMPLETE_RESULT` → `RECOVERY_REQUIRED`). Root
+causes, both real-world integration defects:
+
+1. **Executor CLI correlation over-strict** (fixed in Orca `3ef43d8`):
+   `readAndValidateResult` required `executor.cli === repo.executorCli`
+   exactly; a truthful harness name like `kimi-code-cli` can never equal the
+   configured absolute path. Fix: `executorIdentityMatches()` normalized
+   correlation (exact echo / basename / descriptive-name stem containment;
+   unrelated harnesses still rejected) plus a new `ORCA_EXECUTOR_CLI` env var
+   so executors can echo the exact value.
+2. **baseSha capture ambiguity** (fixed via executor instructions): the
+   executor recorded its stale pre-reconcile local HEAD; the contract requires
+   the post-reconciliation base (dispatch baseSha or dispatch commit SHA).
+   The dogfood `AGENTS.md` now pins both rules explicitly.
+
+Recovering via `POST /runs/recover {action:"retry"}` re-woke Sol, which
+reviewed GitHub, independently diagnosed BOTH defects from durable evidence,
+corrected `.orca/SOL-PROTOCOL.md` (canonical control path is
+`.orca/sol-control/`, matching production — my seed doc had used the outdated
+`suggested` path from CROSS-AGENT-PROTOCOL §14; the doc is now fixed in Orca
+`c2b6a7a`), and published a schema-valid BLOCKED sol-control marker
+(`8789659`-style isolated commit). The watcher consumed it and the run became
+BLOCKED. This attempt is preserved as honest history.
+
+### Attempt 2 (run `de6fc5d2`) — GOAL_COMPLETE with zero manual injection
+
+Fresh run started after the fix. Full timeline, all actors real:
+
+| When (UTC) | Event |
+| --- | --- |
+| 2026-08-23T01:19:57 | Run started; initial wake submitted into the configured Sol conversation (headed installed-Chrome automation, same authenticated dedicated profile) |
+| +~2 min | Sol pushed work-contract `1271af7` then isolated dispatch `23aa112` (`2026-08-23T012100Z-i001-de6fc5d2.json`, strict-correlation instructions) |
+| 01:22–01:25 | Real Kimi reconciled to `23aa112f`, refreshed `dogfood-log.md` with post-reconciliation pre-work HEAD, pushed work `3b908ae`, published manifest `ad5e9e0` echoing verbatim ORCA_* values |
+| 01:25:13 | `executor.completed` SUCCEEDED — fixed validator accepted a real manifest for the first time |
+| 01:25:44 | COMPLETED wake submitted → SOL_REVIEWING |
+| +~2 min | Sol verified iteration 1 and dispatched iteration 2 (`b2f4430` plan, `61c36ed` marker) |
+| 01:28–01:31 | Kimi appended the VERIFIED section (work `e0b5854`) and published its manifest (`b15bddd`) |
+| 01:34:46 | After the second COMPLETED wake, Sol published GOAL_COMPLETE sol-control `8789659`; watcher applied it; run terminal status **GOAL_COMPLETE** |
+
+Verdicts:
+
+- **REAL_SOL_INTELLIGENCE**: QUALIFIED — planned, dispatched twice,
+  reviewed results, self-corrected protocol docs, and authored a truthful
+  BLOCKED decision when evidence demanded it.
+- **REAL_KIMI_INFERENCE_VIA_ORCA**: QUALIFIED — two real executor turns end to
+  end through the production loop with valid durable correlation.
+- **REAL_CHATGPT_AUTHENTICATED_PROFILE**: QUALIFIED (final) — session reuse +
+  four successful real wakes under headed installed-Chrome automation.
+- **PHASE_8_TWO_ITERATION_LOOP**: QUALIFIED — persistent campaign → Sol →
+  iteration → structured result → Git → Sol hierarchy proven with real externals.
+
+Transient environment note: intermittent github.com:443 connect failures
+occurred throughout (also at first watcher poll); every occurrence self-healed
+on later polls and never wedged the loop.

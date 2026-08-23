@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "MILESTONE_21_REAL_DOGFOOD_CAMPAIGN_RUNNING",
+  "developmentStatus": "MILESTONE_21_COMPLETE_REAL_DOGFOOD_GOAL_ACHIEVED",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
   "activeMilestone": 21,
   "activeChange": "023-external-chrome-auth-bootstrap",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "REAL_CHATGPT_AUTHENTICATED_PROFILE = QUALIFIED (2026-08-22 ~23:00 +08:00): user supplied the dedicated Sol conversation URL; smoke repository created via production API (orca-strator-dogfood, kimi.exe binding); run 706002fd initial wake sol.wake_submitted SUCCEEDED through headed installed-Chrome automation on the SAME authenticated dedicated profile with NO Google OAuth re-run; real Sol authored work-contract c28e835 + isolated schema-valid dispatch 5b4d80c within ~3 minutes; production watcher consumed it and real Kimi executed iteration 1 correctly (dogfood-log.md + result manifest pushed). REAL DEFECT found+fixed by dogfood: readAndValidateResult required manifest executor.cli === full configured CLI path (impossible for real executors; Kimi's truthful 'kimi-code-cli' manifest was rejected -> RECOVERY_REQUIRED). Fix: executorIdentityMatches() normalized correlation (exact echo / basename / descriptive-name stem containment, unrelated harnesses still rejected) + ORCA_EXECUTOR_CLI env var passed to executors + dogfood AGENTS.md correlation rules updated. Gates after fix: focused 19/19, fast tier 58 files / 309 tests, typecheck, build, lint, git diff --check all green.",
-    "updatedAt": "2026-08-22T23:45:00+08:00",
-    "lastCompletedTask": "Harmless real wake qualification (tasks 9.5/9.6) + real-dogfood executor.cli correlation defect fix.",
-    "lastVerification": "npx vitest run executor-result-validation.test.ts 19/19; npm test fast tier 58 files / 309 tests; npm run typecheck; npm run build; npm run lint; git diff --check."
+    "summary": "REAL DOGFOOD CAMPAIGN GOAL ACHIEVED (2026-08-23). Change 023 fully QUALIFIED: human Google sign-in in external ordinary Chrome; AUTHENTICATED readiness; headed installed-Chrome automation reuses the SAME dedicated profile; harmless real wake SUCCEEDED (4 real wakes total, zero OAuth re-runs). Two-iteration real Sol<->Kimi loop COMPLETE: run de6fc5d2 terminal GOAL_COMPLETE at 2026-08-23T01:34:46Z — real Sol dispatched i001+i002, real Kimi executed both with verbatim ORCA_* correlation, first-ever accepted real result manifest, Sol authored GOAL_COMPLETE sol-control via Git. Attempt 1 (run 706002fd) honestly BLOCKED by real Sol after it independently diagnosed two real defects from Git evidence; both fixed: (1) executor.cli exact-path correlation over-strict -> executorIdentityMatches() + ORCA_EXECUTOR_CLI env var (3ef43d8), (2) baseSha capture ambiguity -> clarified executor contract; plus sol-control path doc fix (.orca/sol-control canonical) in c2b6a7a. Gates at final checkpoint: focused 19/19, fast tier 58 files / 309 tests, typecheck, build, lint, git diff --check green.",
+    "updatedAt": "2026-08-23T09:45:00+08:00",
+    "lastCompletedTask": "Phase-8 campaign completion recording: ROADMAP milestone 21 closed QUALIFIED; REAL-DOGFOOD-QUALIFICATION phase 8 DONE with full timeline; tasks.md sections 11-12 evidence.",
+    "lastVerification": "Production run de6fc5d2 status=GOAL_COMPLETE via campaigns API; executor.completed SUCCEEDED x2; sol.wake_submitted SUCCEEDED x2 (attempt 2); npm test fast tier 58/309; typecheck/build/lint/diff-check exit 0."
   },
-  "nextAction": "Commit/push this checkpoint, restart the production controller on the fixed build, POST /runs/recover {action:'retry'} for run 706002fd (re-wakes Sol), then drive the campaign to completion: Sol dispatch#2 -> Kimi -> result -> Sol -> GOAL_COMPLETE control marker; record phase 8 evidence in docs/REAL-DOGFOOD-QUALIFICATION.md; then Codex one-turn qualification (phase 10) while Tailscale stays BLOCKED_MANUAL_ELEVATION and OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED.",
+  "nextAction": "Optional continuation per REAL-DOGFOOD-QUALIFICATION.md: phase 10 Codex-via-Orca one real turn is now unblocked (phase 8 complete) — rebind the dogfood repository record to the installed codex.exe for a small fresh run or record it as a separate follow-up; phase 11 Tailscale stays BLOCKED_MANUAL_ELEVATION; OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED. Fold/archive Change 023 when convenient (all tasks checked).",
   "blockers": [
     {
       "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",

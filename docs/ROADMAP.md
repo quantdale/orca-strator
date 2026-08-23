@@ -766,13 +766,13 @@ deterministic/internal qualification of the implemented runtime foundations.
 
 OpenSpec: `023-external-chrome-auth-bootstrap`
 
-Status: **implemented / MACHINE-GATED internally / real qualification 9.1–9.4
-VERIFIED (2026-08-22): human Google sign-in completed in external setup Chrome,
-Check Login returned AUTHENTICATED, automation reuses the session with no
-OAuth re-run. Real finding: Cloudflare rejects HEADLESS Chrome even with the
-genuine installed binary + warm profile, so production automation runs HEADED.
-Remaining: one harmless real wake (awaits user-supplied dedicated Sol
-conversation URL) then final REAL_CHATGPT_AUTHENTICATED_PROFILE verdict.**
+Status: **complete / QUALIFIED on real externals (2026-08-23): human Google
+sign-in in external setup Chrome, AUTHENTICATED readiness, automation reuses
+the session, harmless real wake SUCCEEDED, and the two-iteration real
+Sol↔Kimi dogfood loop finished GOAL_COMPLETE with zero manual injection.
+Real findings folded back: Cloudflare rejects headless Chrome (automation is
+HEADED), result-manifest executor correlation normalized, sol-control path
+doc corrected.**
 
 Deliverables:
 
@@ -803,12 +803,15 @@ Deliverables:
   profile location, setup OPEN/CLOSED, authentication readiness, ownership,
   and Open Setup Browser / Check Login / Close Setup Browser controls.
 
-Qualification on this tree: fast tier 58 files / 300 tests green (including
+Qualification on this tree: fast tier 58 files / 309 tests green (including
 chrome-discovery, external-setup-browser, external-setup-manager,
 playwright-launch-guard, and auth-readiness suites), typecheck, build, lint,
 strict OpenSpec validation (23 passed / 0 failed), and `git diff --check` all
 pass. EXTERNAL_CHROME_AUTH_BOOTSTRAP is QUALIFIED with real evidence
-(2026-08-22). REAL_CHATGPT_AUTHENTICATED_PROFILE is partially qualified:
-AUTHENTICATED session reuse under headed installed-Chrome automation is proven;
-its final verdict awaits one harmless real wake once the user supplies the
-dedicated Sol conversation URL.
+(2026-08-22). REAL_CHATGPT_AUTHENTICATED_PROFILE is QUALIFIED (final,
+2026-08-23): AUTHENTICATED session reuse under headed installed-Chrome
+automation plus four successful real wakes. The real dogfood campaign
+completed GOAL_COMPLETE on 2026-08-23 (run `de6fc5d2`): real Sol dispatched
+two iterations, real Kimi executed both through the production loop with
+valid durable result correlation, and Sol authored the terminal control
+decision via Git — see docs/REAL-DOGFOOD-QUALIFICATION.md phase 8.

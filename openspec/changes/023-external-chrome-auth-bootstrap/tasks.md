@@ -116,7 +116,7 @@
   REAL_CHATGPT_AUTHENTICATED_PROFILE: session-reuse half QUALIFIED; final
   verdict awaits the harmless real wake.
 
-## 11. Real qualification completion (2026-08-22 ~23:00 +08:00)
+## 11. Real qualification completion (2026-08-22 ~23:00 +08:00 through 2026-08-23)
 
 - User supplied the dedicated Sol conversation URL (chatgpt.com/c/<uuid>,
   user-owned config; recorded only in the production DB repository record).
@@ -133,3 +133,24 @@
   wake; the production watcher consumed it and the real Kimi executor began
   iteration 1. Loop continuation evidence lives in docs/REAL-DOGFOOD-QUALIFICATION.md
   phase 8 and the campaign timeline API.
+
+## 12. Campaign completion + real-defect fixes (2026-08-23)
+
+- Attempt 1 (run `706002fd`): Kimi's truthful manifest was rejected —
+  REAL DEFECT in `readAndValidateResult`: exact-path equality on
+  `executor.cli`. Fixed via `executorIdentityMatches()` normalized correlation
+  + `ORCA_EXECUTOR_CLI` env var (Orca `3ef43d8`; focused suite 19/19, fast tier
+  58/309, typecheck/build/lint/diff-check green). Recovery retry re-woke Sol,
+  which independently diagnosed both correlation defects from Git evidence,
+  corrected `.orca/SOL-PROTOCOL.md` to the canonical `.orca/sol-control/`
+  path, and published a valid BLOCKED control marker (watcher applied it).
+  CROSS-AGENT-PROTOCOL §14 path corrected in Orca `c2b6a7a`.
+- Attempt 2 (run `de6fc5d2`, clean rerun): two full real iterations —
+  Sol dispatch i001 → Kimi executes → first-ever accepted real result manifest
+  (`executor.completed SUCCEEDED`) → COMPLETED wake → Sol verifies and
+  dispatches i002 → Kimi VERIFIED append + manifest → wake → Sol publishes
+  GOAL_COMPLETE sol-control; run terminal **GOAL_COMPLETE** at
+  2026-08-23T01:34:46Z with zero manual transition injection.
+- Verdicts: EXTERNAL_CHROME_AUTH_BOOTSTRAP **QUALIFIED**;
+  REAL_CHATGPT_AUTHENTICATED_PROFILE **QUALIFIED (final)**; phase-8
+  Sol↔Kimi loop **QUALIFIED** (see docs/REAL-DOGFOOD-QUALIFICATION.md).
