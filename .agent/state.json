@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "MILESTONE_21_COMPLETE_REAL_DOGFOOD_PHASES_5_7_8_10_QUALIFIED",
+  "developmentStatus": "MILESTONE_22_PLANNED_CHANGE_024_SOL_STALLED_CLOSURE_ACTIVE",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 21,
-  "activeChange": null,
+  "activeMilestone": 22,
+  "activeChange": "024-sol-stalled-control-closure",
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
-  "planningBaseSha": null,
+  "planningBaseSha": "555ba707d5e37d7d177476294ba04654c7ff5412",
   "checkpoint": {
-    "summary": "REAL DOGFOOD CAMPAIGN CORE COMPLETE (2026-08-23). Change 023 folded+archived (9f0f5e4) with canonical spec external-chrome-auth-bootstrap. Qualified on real externals: EXTERNAL_CHROME_AUTH_BOOTSTRAP, REAL_CHATGPT_AUTHENTICATED_PROFILE (8 successful real wakes, headed installed Chrome, same dedicated profile, zero OAuth re-runs), phase-8 two-iteration real Sol<->Kimi loop (run de6fc5d2 GOAL_COMPLETE), phase-10 Codex one-turn (run a19f488f). Real-dogfood hardening folded into production: executorIdentityMatches + ORCA_EXECUTOR_CLI (3ef43d8), sol-control path doc fix (c2b6a7a), bounded postflight remote-verification retry (7eb8d3b). Known honest caveats: run a19f488f row remains SOL_STALLED because Sol's GOAL_COMPLETE control for it was rejected by design (SOL_STALLED outside active-run boundary) after a transient network timeout killed its terminal wake; control durably auditable; closure-path hardening candidate for a future focused change. Intermittent github.com/chatgpt.com connect drops all session self-healed. Gates at close: fast tier 58 files / 310 tests, typecheck, build, lint, strict OpenSpec validation 23/23, git diff --check green.",
-    "updatedAt": "2026-08-23T10:20:00+08:00",
-    "lastCompletedTask": "Phase 10 Codex qualification recorded; ROADMAP/REAL-DOGFOOD-QUALIFICATION/state finalized; Change 023 archived.",
-    "lastVerification": "Production APIs: run de6fc5d2 GOAL_COMPLETE; codex-smoke.md + manifest 546e05c on origin/main; sol-control 6a7649c published by real Sol. npm test 58/310; typecheck/build/lint exit 0; npx openspec validate --all --strict 23 passed."
+    "summary": "Change 024 planned from the real Phase-10 dogfood finding. The repair is intentionally narrow: keep SOL_STALLED excluded from RunStore.getActiveRun(), but let LoopService terminally reconcile the latest exact-matching SOL_STALLED run from a strictly correlated durable Sol-control marker only when no newer active campaign exists. Allowed stalled-run decisions are GOAL_COMPLETE/BLOCKED/NEEDS_HUMAN; PAUSED remains rejected. The change also requires focused protection against wrong run/iteration/dispatch, newer-run mutation, actor resurrection, and duplicate application. Planning artifacts are committed; implementation and execution verification remain pending.",
+    "updatedAt": "2026-08-23T20:26:00+08:00",
+    "lastCompletedTask": "Created focused OpenSpec Change 024 proposal/design/delta/tasks for Git-truthful SOL_STALLED terminal closure.",
+    "lastVerification": "No Change-024 tests were executed in this planning checkpoint. Last historical green evidence remains the Phase-10 close: fast tier 58 files / 310 tests, typecheck/build/lint green, strict OpenSpec 23/23, git diff --check green. Do not treat those historical gates as verification of Change 024."
   },
-  "nextAction": "Remaining roadmap items are genuinely external: Tailscale phone route needs one elevated install (BLOCKED_MANUAL_ELEVATION); OpenCode server qualification needs an authorized ORCA_OPENCODE_QUALIFY_URL. Candidate future OpenSpec: Git-truthful closure path for SOL_STALLED runs (control application boundary). Dogfood repo record currently bound to codex.exe/gpt-5.6-luna; rebind to kimi.exe when resuming Kimi campaigns.",
+  "nextAction": "Implement Change 024 in LoopService using a control-only target resolver (active run first; otherwise latest exact-matching SOL_STALLED run), preserve RunStore active semantics, add focused regression coverage, then run current focused + full checkpoint gates. After green evidence, update runtime/dogfood docs, reconcile stale qualification wording and completed Change 022 bookkeeping, fold/archive Change 024, and advance the waypoint.",
   "blockers": [
     {
       "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",
