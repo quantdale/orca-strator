@@ -93,7 +93,24 @@ http://127.0.0.1:47100/
 └── /api/events        controller WebSocket
 ```
 
-The UI uses relative `/api` routes. In development, Vite proxies them to controller. Later, a phone loads a private Tailscale HTTPS URL that reverse-proxies this single loopback origin, so the same client keeps working without pointing phone-local `localhost` at the laptop or requiring a second mobile networking layer.
+The UI uses relative `/api` routes. In development, Vite proxies them to controller. A phone loads a private Tailscale HTTPS URL that reverse-proxies this single loopback origin, so the same client keeps working without pointing phone-local `localhost` at the laptop or requiring a second mobile networking layer.
+
+## Windows packaging and distribution (Change 025)
+
+Orca ships as a self-contained Windows desktop product:
+
+```powershell
+npm run package:win            # unpacked artifact -> apps/desktop/release/win-unpacked/
+npm run package:win:installer  # per-user NSIS installer -> apps/desktop/release/*.exe
+npm run smoke:package          # real packaged-runtime smoke against the built exe
+```
+
+- **Launch**: `Orca-Strator.exe` probes the loopback controller first; a compatible controller is reused, otherwise the packaged Electron runtime boots the compiled controller in Node mode (`ELECTRON_RUN_AS_NODE=1`) — no system Node/npm required.
+- **Background lifetime**: closing the window quits only the shell; controller-owned campaigns keep running. Relaunch reuses the same controller without duplicate spawn.
+- **Data placement**: SQLite DB, logs (`logs/controller.log`, size-rotated), browser profile, and the singleton lock live under `%LOCALAPPDATA%\Orca-Strator` (override with `ORCA_DATA_DIR`), never inside the install directory. Upgrades/reinstalls preserve all of it; uninstall never deletes user data (`deleteAppDataOnUninstall: false`).
+- **Singleton safety**: a data-directory lock plus port guard guarantee one controller; foreign listeners are diagnosed (PORT_CONFLICT) and never killed; incompatible protocol versions surface INCOMPATIBLE_CONTROLLER instead of silently mixing builds.
+- **System readiness**: Settings → System Readiness composes writable-data-dir, database, Git, Chrome, ChatGPT auth, repository paths, conditional WSL, and optional Tailscale/OpenCode into READY / ACTION_REQUIRED / OPTIONAL / UNKNOWN checks with remediation hints (`/api/system/readiness`).
+- **Truthful artifacts**: artifacts are version+architecture named and UNSIGNED unless you configure signing yourself. Hosted CI produces PACKAGE_BUILT artifacts only; PACKAGE_RUNTIME_QUALIFIED is reserved for an executed local smoke.
 
 ## Current development status
 

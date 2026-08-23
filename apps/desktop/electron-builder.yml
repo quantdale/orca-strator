@@ -1,0 +1,28 @@
+appId: com.orcastrator.app
+productName: Orca-Strator
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: resources/controller
+    to: controller
+  - from: resources/ui
+    to: ui
+asar: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # No signing certificate is configured; artifacts are truthfully UNSIGNED.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  deleteAppDataOnUninstall: false
+electronLanguages:
+  - en-US

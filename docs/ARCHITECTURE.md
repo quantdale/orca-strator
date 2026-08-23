@@ -505,3 +505,38 @@ driven by capability-probe evidence (`NATIVE_EXECUTOR` vs `ADVISORY_ONLY`),
 truthful machine-readable 404/422 API errors across campaign/swarm/DAG/
 work-packet routes, and a fixed per-repository executor log rotator with
 persisted-log tail serving.
+
+## Packaged desktop/controller topology and singleton supervision (Change 025)
+
+Packaged Windows distribution preserves the ownership invariant: the Node
+controller remains the runtime owner; Electron is only a shell that guarantees
+a controller exists.
+
+```text
+User launches Orca-Strator.exe (packaged Electron)
+  |
+  +--> probe /api/system/identity on loopback
+  |      compatible controller -> reuse (no spawn)
+  |      foreign listener      -> PORT_CONFLICT diagnostic (never killed)
+  |      incompatible protocol -> INCOMPATIBLE_CONTROLLER diagnostic
+  |      no listener           -> spawn packaged controller, detached
+  |
+  +--> packaged controller process
+         ELECTRON_RUN_AS_NODE=1 <electron.exe> resources/controller/dist/index.js
+         ORCA_PACKAGED=1, ORCA_BUILD_VERSION=<app version>
+         data-directory lock (controller.lock) + port bind guard
+         SQLite + watchers + executors + browser automation
+         serves built SPA/REST/WebSocket from packaged resources
+
+Closing the window quits the shell only; the detached controller keeps running.
+Relaunch repeats probe/reuse against the same controller pid.
+```
+
+Singleton ownership is the data-directory lock file (atomic O_EXCL create,
+PID-liveness validation, reclaim only demonstrably stale locks) with the OS
+port bind as final guard. Writable state (SQLite, logs, browser profile,
+locks) lives under the Orca data directory — `%LOCALAPPDATA%\Orca-Strator` by
+default, `ORCA_DATA_DIR` override for tests/isolation — never inside packaged
+resources. Development mode (`ORCA_UI_DEV_URL`, `scripts/dev.js`) is explicit:
+the desktop never spawns a production controller there without the
+`ORCA_ALLOW_DEV_CONTROLLER_SPAWN=1` gate.

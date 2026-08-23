@@ -1,6 +1,6 @@
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
-import type { AuthReadinessReport, TailscaleGuidance } from "@orca/shared";
+import type { AuthReadinessReport, SystemReadinessResponse, TailscaleGuidance } from "@orca/shared";
 import type {
   BrowserStatusView,
   ProvisioningStatusView,
@@ -35,6 +35,10 @@ export const Settings: React.FC = () => {
   const [tailscale, setTailscale] = useState<TailscaleGuidance | null>(null);
   const [tailscaleLoading, setTailscaleLoading] = useState(true);
   const [tailscaleError, setTailscaleError] = useState<string | null>(null);
+
+  const [readiness, setReadiness] = useState<SystemReadinessResponse | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(true);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
 
   const [pendingAction, setPendingAction] = useState<
     "open" | "check" | "close" | null
@@ -86,11 +90,24 @@ export const Settings: React.FC = () => {
     }
   }, []);
 
+  const refreshReadiness = useCallback(async () => {
+    setReadinessLoading(true);
+    setReadinessError(null);
+    try {
+      setReadiness(await apiClient.getSystemReadiness());
+    } catch (err) {
+      setReadinessError(toErrorMessage(err, "Failed to load system readiness."));
+    } finally {
+      setReadinessLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshBrowser();
     void refreshProvisioning();
     void refreshTailscale();
-  }, [refreshBrowser, refreshProvisioning, refreshTailscale]);
+    void refreshReadiness();
+  }, [refreshBrowser, refreshProvisioning, refreshTailscale, refreshReadiness]);
 
   const handleOpenSetup = async () => {
     setActionError(null);
@@ -192,6 +209,94 @@ export const Settings: React.FC = () => {
           configuration.
         </p>
       </div>
+
+      {/* System Readiness / Doctor (Change 025 §6) */}
+      <section
+        className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 space-y-4"
+        data-testid="settings-readiness-section"
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+            System Readiness
+          </h3>
+          <button
+            onClick={() => void refreshReadiness()}
+            disabled={readinessLoading}
+            className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+            data-testid="readiness-refresh"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {readinessLoading && !readiness && (
+          <p className="text-sm text-slate-500" data-testid="readiness-loading">
+            Evaluating system readiness…
+          </p>
+        )}
+
+        {readinessError && (
+          <div className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-sm text-rose-300" data-testid="readiness-error">
+            {readinessError}
+          </div>
+        )}
+
+        {readiness && (
+          <>
+            <p
+              className={`rounded-lg border p-3.5 text-sm ${
+                readiness.ready
+                  ? "border-emerald-500/30 bg-emerald-950/40 text-emerald-300"
+                  : "border-amber-500/30 bg-amber-950/40 text-amber-300"
+              }`}
+              data-testid="readiness-verdict"
+            >
+              {readiness.ready
+                ? "Core Orca runtime is ready. Optional capabilities below do not block operation."
+                : "Core Orca runtime needs attention before autonomous campaigns can run."}
+              <span className="ml-2 text-xs text-slate-500">
+                controller v{readiness.identity.version} (protocol {readiness.identity.protocol})
+              </span>
+            </p>
+
+            <ul className="space-y-2" data-testid="readiness-checks">
+              {readiness.checks.map((checkItem) => (
+                <li
+                  key={checkItem.id}
+                  className="rounded-lg border border-slate-800 bg-slate-950/60 p-3"
+                  data-testid={`readiness-check-${checkItem.id}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-200">{checkItem.title}</span>
+                    <span
+                      className={`text-xs font-semibold uppercase tracking-wide ${
+                        checkItem.status === "READY"
+                          ? "text-emerald-400"
+                          : checkItem.status === "ACTION_REQUIRED"
+                            ? checkItem.blocking
+                              ? "text-rose-400"
+                              : "text-amber-400"
+                            : checkItem.status === "OPTIONAL"
+                              ? "text-slate-500"
+                              : "text-sky-400"
+                      }`}
+                    >
+                      {checkItem.status}
+                      {checkItem.status === "ACTION_REQUIRED" && !checkItem.blocking && " (optional)"}
+                    </span>
+                  </div>
+                  {checkItem.detail && (
+                    <p className="mt-1 break-all text-xs text-slate-400">{checkItem.detail}</p>
+                  )}
+                  {checkItem.remediation && (
+                    <p className="mt-1 text-xs text-cyan-400/80">{checkItem.remediation}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
 
       {/* ChatGPT Automation (UI-UX-SPEC §19) */}
       <section

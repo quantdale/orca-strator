@@ -792,3 +792,36 @@ Security invariants pinned by these tests: no anti-detection switches anywhere
 (launcher argv snapshot + driver options snapshot), no sandbox downgrades, no
 user-agent spoofing, cookie VALUES never read into reports/logs/persistence,
 and Google/OpenAI login is never automated.
+
+## 28. Change 025 Windows productization matrix
+
+Focused suites (fast tier):
+
+- `singleton-lock.test.ts` — atomic acquisition, live-owner refusal (busy),
+  dead-PID stale reclaim, corrupt-lock reclaim, concurrent-start race
+  resolution (exactly one owner), guarded foreign release, PID-liveness probe.
+- `runtime-paths.test.ts` — dev vs packaged mode classification, module-relative
+  UI resolution independent of `cwd`, data-dir/db/log/profile/lock placement
+  under the Orca data dir, `ORCA_DATA_DIR` + explicit-override precedence,
+  no writable path inside packaged resources.
+- `system-readiness.test.ts` — READY/ACTION_REQUIRED/OPTIONAL/UNKNOWN
+  classification; fresh machine ready with externals optional; blocking Git /
+  unwritable-data-dir / missing-repo-path / missing-Chrome-with-repos;
+  WSL optional without WSL repos and never silently optional with them.
+- `controller-supervisor.test.ts` (desktop) — reuse without spawn,
+  INCOMPATIBLE_CONTROLLER refusal, PORT_CONFLICT for foreign listeners with no
+  kill/spawn, single packaged Node-mode spawn with correct env/entry,
+  structured exit-code 11 mapping after ownership race loss, budget
+  exhaustion STARTUP_FAILED, dev-fallback gate refusal, identity parsing.
+
+Real packaged-runtime smoke (`scripts/package/package-smoke.mjs`, artifact-level):
+
+1. isolated `ORCA_DATA_DIR` + isolated port; 2. desktop boots controller with
+no prestarted services and no system Node; 3. `/api/system/identity` version +
+protocol match; 4. built UI + API served from package; 5. DB + rotated log +
+lock under the isolated dir only, none inside package resources; 6. repository
+created via packaged API persists across close/reopen; 7. root-pid-only close
+leaves the detached controller alive; 8. relaunch reuses the same controller
+pid (no duplicate); 9. teardown kills only that controller pid; 10. byte-size
+snapshot proves zero mutation inside package resources. Verdict recorded in
+`release/package-smoke-report.json` as PACKAGE_RUNTIME_QUALIFIED or FAILED.

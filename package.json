@@ -26,11 +26,16 @@
     "test:real": "npm --prefix apps/controller run test:real",
     "browser:install": "npm --prefix apps/controller run browser:install",
     "playwright:status": "npm --prefix apps/controller run playwright:status",
-    "lint": "npm run build:shared && npm run lint --workspaces --if-present"
+    "lint": "npm run build:shared && npm run lint --workspaces --if-present",
+    "prepare:controller-runtime": "node scripts/package/prepare-controller-runtime.mjs",
+    "package:win": "npm run build && npm run prepare:controller-runtime && cd apps/desktop && npx electron-builder --win --dir",
+    "package:win:installer": "npm run build && npm run prepare:controller-runtime && cd apps/desktop && npx electron-builder --win",
+    "smoke:package": "node scripts/package/package-smoke.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.3",
     "vitest": "^4.1.0",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "electron-builder": "^26.15.3"
   }
 }

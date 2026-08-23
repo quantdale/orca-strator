@@ -874,3 +874,57 @@ no-resurrection assertions, and that `getActiveRun()` still never returns
 typecheck/build/lint exit 0, real tier exit 0 (14 files passed / 1 known
 external skip), strict OpenSpec validation, `git diff --check`. The
 historical rejected control `6a7649c` remains durably auditable.
+
+### Milestone 23 — Windows productization and controller supervision
+
+OpenSpec: `025-windows-productization-and-controller-supervision` (folded into
+`openspec/specs/windows-productization/`)
+
+Status: **complete / PACKAGE_RUNTIME_QUALIFIED on this machine (2026-08-23)**
+
+Turns the qualified engine into a self-contained Windows product while keeping
+the controller as independent orchestration owner.
+
+Deliverables:
+
+- electron-builder packaging (unpacked + per-user NSIS installer) with an
+  exact-lockfile staged production runtime (`scripts/package/
+  prepare-controller-runtime.mjs`); no system Node required at launch;
+- controller build identity (version + protocol) exposed via
+  `/api/system/identity` and `/api/health`; desktop probes identity before any
+  spawn and reuses compatible controllers;
+- data-directory singleton lock with atomic acquisition, PID-liveness stale
+  reclaim, foreign-process safety (never killed), PORT_CONFLICT and
+  INCOMPATIBLE_CONTROLLER diagnostics, structured exit codes 10/11;
+- desktop startup state machine (CHECKING/STARTING/WAITING/CONNECTED/
+  PORT_CONFLICT/INCOMPATIBLE/STARTUP_FAILED) with bounded budget/backoff,
+  safe Retry bridge, and detached spawn that survives window close;
+- explicit dev-vs-packaged path contract (`runtime/paths.ts`) — UI from
+  packaged resources regardless of cwd; DB/logs/profiles/lock under the Orca
+  data dir only; `ORCA_DATA_DIR` override preserved;
+- system readiness doctor (`/api/system/readiness`, Settings section) with
+  READY/ACTION_REQUIRED/OPTIONAL/UNKNOWN classification, conditional WSL, and
+  optional Tailscale/OpenCode that never block core readiness;
+- packaged logging under `<dataDir>/logs/controller.log` with size rotation;
+- Windows CI gates workflow + tag-triggered packaging workflow (PACKAGE_BUILT
+  labeling; UNSIGNED truth).
+
+Qualification on this tree (2026-08-23):
+
+- Focused suites green: singleton-lock (8), runtime-paths (6),
+  system-readiness (7), desktop controller-supervisor (10).
+- Full fast tier: 63 test files / 351 tests green; typecheck/build/lint exit 0.
+- Real packaged-runtime smoke against the built artifact: all checks pass —
+  controller autostart without prestarted services or system Node, built UI/API
+  served, identity version/protocol match, isolated data placement (DB, log,
+  no DB inside package), repository persistence across close/reopen,
+  root-pid-only close leaves controller alive, relaunch reuses same pid
+  without duplicate spawn, teardown kills only the test controller, and a
+  byte-size snapshot proves zero writes inside package resources. Verdict:
+  **PACKAGE_RUNTIME_QUALIFIED**.
+- Artifacts recorded: win-unpacked `Orca-Strator.exe`
+  (235533824 bytes; SHA256 6234D8A6E0F8C3ED07F5396E8F0672F4B9597B23CD4627C6438FAB6EB6CF7D2E),
+  installer `Orca-Strator-0.1.0-x64-setup.exe`
+  (95923193 bytes; SHA256 72B3BEF9E1F0AB9BF9DF1858D4D2710DDDC1AF3C31CBE95A416E5C9A2D7DC63A),
+  both UNSIGNED; installer is PACKAGE_BUILT (silent-install execution was not
+  run to avoid host-machine mutation outside the repository).

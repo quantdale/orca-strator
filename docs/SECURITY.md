@@ -329,3 +329,27 @@ persistent main checkout; each writer receives a persisted worktree/internal
 branch. A node `ASK`/`DENY` result becomes a durable attention/blocker state.
 The DAG definition cannot bypass no-force-push, dirty-user-work preservation,
 or no-secret-commit invariants.
+
+## 25. Packaged application boundary (Change 025)
+
+Packaging must not widen the trust surface:
+
+- The controller remains loopback-only; no packaged path introduces a
+  non-loopback bind, and the smoke verifies behavior over `127.0.0.1` only.
+- The Electron shell keeps `contextIsolation: true`, `nodeIntegration: false`,
+  and `sandbox: true`; the preload bridge exposes only informational flags and
+  a startup-retry IPC invoke — no database access, no shell.
+- External links open through the OS default browser via a deny-all
+  `setWindowOpenHandler` allowlist of http/https.
+- Desktop supervision never terminates processes it does not own: foreign port
+  listeners are diagnosed (PORT_CONFLICT) and never signalled or killed;
+  teardown in tests targets explicit pids only (root-pid-only kills without
+  tree flags), covered by focused supervisor tests.
+- Package resources are immutable at runtime: the packaged-runtime smoke
+  byte-snapshot proves no writes inside the install tree; all writable state
+  stays under the user-owned Orca data directory.
+- Staged package content contains no secrets: the staging script copies only
+  compiled output plus exact-version production dependencies; `.env`, browser
+  profiles, logs, and databases are excluded by construction.
+- Artifacts are truthfully UNSIGNED unless a real certificate is configured;
+  CI artifacts are labeled PACKAGE_BUILT, never runtime-qualified.

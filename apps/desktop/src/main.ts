@@ -1,12 +1,14 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  ensureController,
+  type EnsureControllerResult
+} from "./controller-supervisor.js";
+import type { DesktopStartupState } from "@orca/shared";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const RETRY_INITIAL_DELAY_MS = 1000;
-const RETRY_MAX_DELAY_MS = 10000;
 
 export function getAppUrl(): string {
   if (process.env.ORCA_UI_DEV_URL) {
@@ -17,9 +19,32 @@ export function getAppUrl(): string {
   return `http://${host}:${port}`;
 }
 
-// Minimal waiting page shown while the controller is unreachable; palette mirrors the UI shell.
-function buildWaitingPageUrl(targetUrl: string): string {
-  const safeTarget = targetUrl.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+export function getControllerBaseUrl(): string {
+  const host = process.env.ORCA_HOST || "127.0.0.1";
+  const port = process.env.ORCA_PORT || "47100";
+  return `http://${host}:${port}`;
+}
+
+const STATE_TITLES: Record<DesktopStartupState, string> = {
+  CHECKING_CONTROLLER: "Looking for an Orca-Strator controller…",
+  STARTING_CONTROLLER: "Starting the Orca-Strator controller…",
+  WAITING_FOR_READY: "Waiting for the controller to become ready…",
+  CONNECTED: "Connected",
+  PORT_CONFLICT: "Port conflict",
+  INCOMPATIBLE_CONTROLLER: "Incompatible controller",
+  STARTUP_FAILED: "Startup failed"
+};
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Startup-state page shown while the controller is being probed/started, or
+// when startup reaches a terminal diagnostic state. Terminal states offer a
+// safe Retry action through the isolated preload bridge.
+function buildStartupPageUrl(state: DesktopStartupState, detail?: string): string {
+  const terminal = state === "PORT_CONFLICT" || state === "INCOMPATIBLE_CONTROLLER" || state === "STARTUP_FAILED";
+  const title = STATE_TITLES[state];
   const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -36,94 +61,66 @@ function buildWaitingPageUrl(targetUrl: string): string {
     color: #e2e8f0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
-  .panel { max-width: 460px; padding: 32px; text-align: center; }
+  .panel { max-width: 520px; padding: 32px; text-align: center; }
   h1 { margin: 0 0 8px; font-size: 18px; color: #f8fafc; }
   p { margin: 0 0 4px; font-size: 13px; line-height: 1.6; color: #94a3b8; }
-  code { font-size: 12px; color: #cbd5e1; }
+  .detail { color: #cbd5e1; font-size: 12px; white-space: pre-wrap; }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #334155; border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.9s linear infinite; margin-bottom: 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  button { margin-top: 16px; background: #0ea5e9; color: #04121f; font-weight: 600; border: none; border-radius: 6px; padding: 8px 20px; font-size: 13px; cursor: pointer; }
 </style>
 </head>
 <body>
 <div class="panel">
-  <h1>Waiting for the Orca-Strator controller&hellip;</h1>
-  <p>The window retries automatically until it comes up.</p>
-  <p><code>${safeTarget}</code></p>
+  ${terminal ? "" : '<div class="spinner"></div>'}
+  <h1>${escapeHtml(title)}</h1>
+  ${detail ? `<p class="detail">${escapeHtml(detail)}</p>` : ""}
+  ${terminal ? '<button id="retry">Retry</button>' : ""}
 </div>
+<script>
+  document.getElementById("retry")?.addEventListener("click", function () {
+    this.disabled = true; this.textContent = "Retrying…";
+    window.orcaDesktop && window.orcaDesktop.retryStartup();
+  });
+</script>
 </body>
 </html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
-// Loads the controller origin, falling back to a waiting page plus capped
-// exponential-backoff retries while the controller is starting up or down.
-function loadControllerWithRetry(win: BrowserWindow, url: string): void {
-  let attempts = 0;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let loadingController = false;
+let startupGeneration = 0;
 
-  const clearRetryTimer = (): void => {
-    if (retryTimer !== null) {
-      clearTimeout(retryTimer);
-      retryTimer = null;
-    }
+async function runStartupFlow(win: BrowserWindow): Promise<void> {
+  const generation = ++startupGeneration;
+  const showState = (state: DesktopStartupState, detail?: string): void => {
+    if (win.isDestroyed() || generation !== startupGeneration) return;
+    void win.loadURL(buildStartupPageUrl(state, detail)).catch(() => {});
   };
 
-  const showWaitingPage = (): void => {
-    void win.loadURL(buildWaitingPageUrl(url)).catch(() => {
-      // Placeholder failures during teardown are ignored; the retry loop continues.
-    });
-  };
-
-  const scheduleRetry = (reason: string): void => {
-    if (retryTimer !== null || win.isDestroyed()) {
-      return;
-    }
-    const delay = Math.min(RETRY_INITIAL_DELAY_MS * 2 ** attempts, RETRY_MAX_DELAY_MS);
-    attempts += 1;
-    console.warn(`[Desktop] ${url} unavailable (${reason}); retrying in ${delay}ms`);
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      if (!win.isDestroyed()) {
-        loadController();
-      }
-    }, delay);
-  };
-
-  // A failed load surfaces via both did-fail-load and the loadURL promise
-  // rejection; the flag makes sure only the first schedules a retry.
-  const handleLoadFailure = (description: string): void => {
-    if (!loadingController || win.isDestroyed()) {
-      return;
-    }
-    loadingController = false;
-    showWaitingPage();
-    scheduleRetry(description);
-  };
-
-  const loadController = (): void => {
-    loadingController = true;
-    void win.loadURL(url).catch((err: unknown) => {
-      handleLoadFailure(err instanceof Error ? err.message : String(err));
-    });
-  };
-
-  win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
-    if (isMainFrame) {
-      handleLoadFailure(`${errorCode} ${errorDescription}`);
-    }
+  const result: EnsureControllerResult = await ensureController({
+    baseUrl: getControllerBaseUrl(),
+    host: process.env.ORCA_HOST || undefined,
+    port: process.env.ORCA_PORT ? Number(process.env.ORCA_PORT) : undefined,
+    version: app.getVersion(),
+    electronExecPath: process.execPath,
+    resourcesPath: process.resourcesPath ?? __dirname,
+    desktopDistDir: __dirname,
+    packaged: app.isPackaged,
+    ...(process.env.ORCA_DATA_DIR ? { dataDir: process.env.ORCA_DATA_DIR } : {}),
+    onState: showState,
+    budgetMs: Number(process.env.ORCA_STARTUP_BUDGET_MS) || undefined
   });
 
-  win.webContents.on("did-finish-load", () => {
-    if (loadingController && !win.isDestroyed()) {
-      loadingController = false;
-      attempts = 0;
-      clearRetryTimer();
-      console.log(`[Desktop] Connected to controller at ${url}`);
-    }
-  });
+  if (win.isDestroyed() || generation !== startupGeneration) return;
 
-  win.on("closed", clearRetryTimer);
+  if (result.outcome === "connected") {
+    console.log(`[Desktop] Controller ready (reused=${result.reused}) at ${getAppUrl()}`);
+    await win.loadURL(getAppUrl()).catch(() => {});
+    return;
+  }
 
-  loadController();
+  // Terminal diagnostics already rendered by the final onState callback.
+  console.warn(`[Desktop] Startup ended in ${result.state}: ${result.detail}`);
 }
 
 export function createWindow(): BrowserWindow {
@@ -150,9 +147,19 @@ export function createWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
-  loadControllerWithRetry(win, getAppUrl());
+  void runStartupFlow(win);
 
   return win;
+}
+
+export function registerDesktopIpc(): void {
+  ipcMain.removeHandler("orca-desktop:retry");
+  ipcMain.handle("orca-desktop:retry", () => {
+    const [existing] = BrowserWindow.getAllWindows();
+    if (existing && !existing.isDestroyed()) {
+      void runStartupFlow(existing);
+    }
+  });
 }
 
 if (process.env.NODE_ENV !== "test") {
@@ -172,6 +179,8 @@ if (process.env.NODE_ENV !== "test") {
       }
     });
 
+    registerDesktopIpc();
+
     app.whenReady().then(() => {
       createWindow();
 
@@ -182,6 +191,9 @@ if (process.env.NODE_ENV !== "test") {
       });
     });
 
+    // Closing the window quits only the desktop shell. The supervised
+    // controller is detached and independent by design; controller-owned
+    // campaigns keep running in the background (Change 025 lifecycle).
     app.on("window-all-closed", () => {
       if (process.platform !== "darwin") {
         app.quit();

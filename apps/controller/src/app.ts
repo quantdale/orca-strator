@@ -8,6 +8,8 @@ import { RepositoryService } from "./repositories/repository-service.js";
 import { EventBus } from "./events/event-bus.js";
 import { errorHandler } from "./http/errors.js";
 import { healthRoutes } from "./http/routes/health.js";
+import { getControllerIdentity } from "./runtime/build-identity.js";
+import type { ControllerIdentity } from "@orca/shared";
 import { repositoryRoutes } from "./http/routes/repositories.js";
 import { watcherRoutes } from "./http/routes/watcher.js";
 import { executorRoutes } from "./http/routes/executor.js";
@@ -64,6 +66,7 @@ import type { SystemChromeInfo } from "./browser/chrome-discovery.js";
 import type { ExternalSetupLauncherLike } from "./browser/external-setup-browser.js";
 
 export interface AppInstance {
+  identity: ControllerIdentity;
   fastify: FastifyInstance;
   dbContext: DatabaseContext;
   eventBus: EventBus;
@@ -121,6 +124,8 @@ export async function buildApp(
   });
 
   fastify.setErrorHandler(errorHandler);
+
+  const identity = getControllerIdentity();
 
   const dbContext = initDatabase(config.dbPath);
   const store = new RepositoryStore(dbContext.db);
@@ -464,7 +469,7 @@ export async function buildApp(
 
   await fastify.register(websocket);
 
-  await fastify.register(healthRoutes(dbContext.db));
+  await fastify.register(healthRoutes(dbContext.db, identity));
   await fastify.register(
     repositoryRoutes(repositoryService, permissionStore, onPermissionResolved),
   );
@@ -519,7 +524,16 @@ export async function buildApp(
   await fastify.register(
     dagRoutes(repositoryService, runStore, dagExecutionService, coordinator),
   );
-  await fastify.register(systemRoutes(config.port, browserManager));
+  await fastify.register(
+    systemRoutes({
+      port: config.port,
+      identity,
+      dataDir: config.dataDir,
+      db: dbContext.db,
+      repositoryStore: store,
+      browserManager,
+    }),
+  );
   await fastify.register(websocketRoutes(eventBus));
 
   // FIX #9: Wire BrowserManager SOL_STALLED timeout back to LoopService
@@ -555,6 +569,7 @@ export async function buildApp(
   await registerStaticUi(fastify, config.uiDistDir);
 
   return {
+    identity,
     fastify,
     dbContext,
     eventBus,

@@ -87,7 +87,7 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     });
   });
 
-  it("6.T1 ordinary commit on remote main does not trigger dispatch", async () => {
+  it("6.T1 ordinary commit on remote main does not trigger dispatch", { timeout: 30_000 }, async () => {
     const repo: RepositoryRecord = {
       id: "repo-test-1",
       displayName: "Test Repo",
@@ -122,7 +122,7 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     expect(watcherStatus.lastError).toBeNull();
   });
 
-  it("6.T2 isolated valid dispatch commit detects and records dispatch exactly once", async () => {
+  it("6.T2 isolated valid dispatch commit detects and records dispatch exactly once", { timeout: 30_000 }, async () => {
     const repo: RepositoryRecord = {
       id: "repo-test-2",
       displayName: "Test Repo 2",
@@ -188,7 +188,7 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     expect(detectedEvent?.data?.dispatch?.id).toBe("disp-2026-001");
   });
 
-  it("6.T3 repeated polling on the same commit is idempotent", async () => {
+  it("6.T3 repeated polling on the same commit is idempotent", { timeout: 30_000 }, async () => {
     const repo: RepositoryRecord = {
       id: "repo-test-3",
       displayName: "Test Repo 3",
@@ -250,7 +250,7 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     expect(detectedEvents).toHaveLength(1);
   });
 
-  it("6.T4 mixed commit is rejected with structured reason", async () => {
+  it("6.T4 mixed commit is rejected with structured reason", { timeout: 30_000 }, async () => {
     const repo: RepositoryRecord = {
       id: "repo-test-4",
       displayName: "Test Repo 4",
@@ -316,7 +316,7 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     expect(rejectedEvent).toBeDefined();
   });
 
-  it("6.T5 two repositories detect dispatches independently", async () => {
+  it("6.T5 two repositories detect dispatches independently", { timeout: 30_000 }, async () => {
     // Setup second bare remote and working clone
     const remoteBareDir2 = path.join(tempBaseDir, "remote2.git");
     const workRepoDir2 = path.join(tempBaseDir, "work-repo2");

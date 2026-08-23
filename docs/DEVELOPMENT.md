@@ -152,3 +152,20 @@ The finish line is the committed Orca-Strator **V1 roadmap**, not `001a` or any 
 ## 13. Simplicity
 
 Continuous development does not authorize scope creep. Build the roadmap in order, keep V1 explicit, and do not implement deferred multi-session-per-repository, dynamic model routing by Sol, public exposure, or unrelated future systems merely to avoid stopping.
+
+## 14. Windows packaging and release engineering (Change 025)
+
+Packaging commands (run on Windows):
+
+- `npm run package:win` — build + stage runtime + electron-builder unpacked artifact (`apps/desktop/release/win-unpacked/`).
+- `npm run package:win:installer` — additionally builds the per-user NSIS installer.
+- `npm run smoke:package` — real packaged-runtime smoke; requires the built unpacked artifact.
+
+The smoke harness (`scripts/package/package-smoke.mjs`) launches the built exe
+with isolated `ORCA_DATA_DIR`/port, proves controller autostart + UI/API +
+identity, data placement, survival after desktop close, reuse-without-duplicate
+on relaunch, persistence, controlled teardown, and package-resource immutability,
+then writes `release/package-smoke-report.json`. CI workflows live under
+`.github/workflows/`: `windows-ci.yml` (fast tests/typecheck/build/lint/OpenSpec/
+diff-check) and `windows-package.yml` (tag/manual packaging with artifact upload;
+hosted results are labeled PACKAGE_BUILT, never runtime-qualified).

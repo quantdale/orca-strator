@@ -31,6 +31,10 @@ runtime/
 browser-profile/
 .orca-local/
 
+# Change 025 packaging output (staged runtime + release artifacts)
+apps/desktop/resources/
+apps/desktop/release/
+
 # Local environment / credentials
 .env
 .env.*

@@ -1,12 +1,13 @@
 import path from 'node:path';
-import os from 'node:os';
-import fs from 'node:fs';
+import { resolveRuntimePaths } from '../runtime/paths.js';
 
 export interface ControllerConfig {
   host: string;
   port: number;
   dataDir: string;
   dbPath: string;
+  logDir: string;
+  runtimeLockPath: string;
   logLevel: string;
   uiDistDir: string | null;
   nodeEnv: string;
@@ -27,28 +28,26 @@ export function loadConfig(overrides?: Partial<ControllerConfig>): ControllerCon
 
   const port = rawPort;
 
-  const defaultDataDir =
-    process.env.LOCALAPPDATA
-      ? path.join(process.env.LOCALAPPDATA, 'Orca-Strator')
-      : path.join(os.homedir(), '.orca-strator');
+  const paths = resolveRuntimePaths(
+    { dataDir: overrides?.dataDir, dbPath: overrides?.dbPath },
+    process.env
+  );
 
-  const dataDir = overrides?.dataDir ?? process.env.ORCA_DATA_DIR ?? defaultDataDir;
-  const dbPath = overrides?.dbPath ?? path.join(dataDir, 'orca-strator.sqlite');
+  // Test seams keep precedence; the explicit path contract supplies the rest.
+  const dataDir = overrides?.dataDir ?? paths.dataDir;
+  const dbPath = overrides?.dbPath ?? paths.dbPath;
   const logLevel = overrides?.logLevel ?? process.env.ORCA_LOG_LEVEL ?? (nodeEnv === 'test' ? 'warn' : 'info');
-
-  let uiDistDir = overrides?.uiDistDir ?? process.env.ORCA_UI_DIST_DIR ?? null;
-  if (!uiDistDir) {
-    const candidate = path.resolve(process.cwd(), 'apps/ui/dist');
-    if (fs.existsSync(candidate)) {
-      uiDistDir = candidate;
-    }
-  }
+  const uiDistDir =
+    overrides?.uiDistDir ??
+    (process.env.ORCA_UI_DIST_DIR ? path.resolve(process.env.ORCA_UI_DIST_DIR) : paths.uiDistDir);
 
   return {
     host,
     port,
     dataDir,
     dbPath,
+    logDir: paths.logDir,
+    runtimeLockPath: paths.runtimeLockPath,
     logLevel,
     uiDistDir,
     nodeEnv

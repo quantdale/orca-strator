@@ -20,10 +20,11 @@ import type {
   SchedulerPolicy,
   RoleModelPolicy,
   RoleModelResolution,
-  BrowserStatus,
-  AuthReadinessReport,
-  SolWakeRecord,
-} from "@orca/shared";
+   BrowserStatus,
+   AuthReadinessReport,
+   SolWakeRecord,
+   SystemReadinessResponse,
+ } from "@orca/shared";
 
 export class ApiError extends Error {
   constructor(
@@ -86,6 +87,11 @@ export function createApiClient(baseUrl = "") {
     async getHealth(): Promise<HealthResponse> {
       const res = await fetch(`${cleanBase}/api/health`);
       return handleResponse<HealthResponse>(res);
+    },
+
+    async getSystemReadiness(): Promise<SystemReadinessResponse> {
+      const res = await fetch(`${cleanBase}/api/system/readiness`);
+      return handleResponse<SystemReadinessResponse>(res);
     },
 
     async listRepositories(): Promise<RepositoryListResponse> {
