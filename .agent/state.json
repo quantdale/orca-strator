@@ -1,31 +1,31 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "MILESTONE_22_PLANNED_CHANGE_024_SOL_STALLED_CLOSURE_ACTIVE",
-  "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
-  "activeMilestone": 22,
-  "activeChange": "024-sol-stalled-control-closure",
-  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
-  "planningBaseSha": "555ba707d5e37d7d177476294ba04654c7ff5412",
+  "developmentStatus": "MILESTONE_23_CHANGE_025_WINDOWS_PRODUCTIZATION_ACTIVE",
+  "highLevelGoal": "Turn the real-external-qualified Orca orchestration engine into a self-contained, installable Windows product while preserving the controller as the independent orchestration owner and Git/GitHub as durable cross-agent truth.",
+  "activeMilestone": 23,
+  "activeChange": "025-windows-productization-and-controller-supervision",
+  "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+  "planningBaseSha": "89c28dbac092b7b4d6575b4abbf32cfec2c86e6d",
   "checkpoint": {
-    "summary": "Change 024 planned from the real Phase-10 dogfood finding. The repair is intentionally narrow: keep SOL_STALLED excluded from RunStore.getActiveRun(), but let LoopService terminally reconcile the latest exact-matching SOL_STALLED run from a strictly correlated durable Sol-control marker only when no newer active campaign exists. Allowed stalled-run decisions are GOAL_COMPLETE/BLOCKED/NEEDS_HUMAN; PAUSED remains rejected. The change also requires focused protection against wrong run/iteration/dispatch, newer-run mutation, actor resurrection, and duplicate application. Planning artifacts are committed; implementation and execution verification remain pending.",
-    "updatedAt": "2026-08-23T20:26:00+08:00",
-    "lastCompletedTask": "Created focused OpenSpec Change 024 proposal/design/delta/tasks for Git-truthful SOL_STALLED terminal closure.",
-    "lastVerification": "No Change-024 tests were executed in this planning checkpoint. Last historical green evidence remains the Phase-10 close: fast tier 58 files / 310 tests, typecheck/build/lint green, strict OpenSpec 23/23, git diff --check green. Do not treat those historical gates as verification of Change 024."
+    "summary": "Milestone 22 / Change 024 is complete, verified, folded, and archived on main. The stale pre-implementation waypoint has been repaired. Change 025 is now the active productization wave: Windows packaging, independent packaged-controller supervision and singleton ownership, packaged resource/data boundaries, startup UX, readiness doctor, durable packaged logging, upgrade/data preservation, Windows CI/release engineering, and a real artifact-level smoke qualification.",
+    "updatedAt": "2026-08-23T22:16:00+08:00",
+    "lastCompletedTask": "Activated focused OpenSpec Change 025 and reconciled durable state to the completed Change 024 repository truth.",
+    "lastVerification": "Latest completed-tree evidence is Change 024: focused suites 21/21; npm test fast tier 59 files green; typecheck/build/lint exit 0; real tier exit 0 with 14 files passed / 1 EXPECTED_EXTERNAL_UNQUALIFIED skip; strict OpenSpec green; git diff --check clean. These historical gates do not verify Change 025."
   },
-  "nextAction": "Implement Change 024 in LoopService using a control-only target resolver (active run first; otherwise latest exact-matching SOL_STALLED run), preserve RunStore active semantics, add focused regression coverage, then run current focused + full checkpoint gates. After green evidence, update runtime/dogfood docs, reconcile stale qualification wording and completed Change 022 bookkeeping, fold/archive Change 024, and advance the waypoint.",
+  "nextAction": "Implement Change 025 end to end. Audit packaged topology first, then build the Windows package and independent controller supervision/singleton/resource-path/readiness/logging/release-smoke stack. Use focused tests during development, run current full gates plus a real packaged-runtime smoke before qualification, then fold/archive Change 025 and advance the waypoint.",
   "blockers": [
     {
-      "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",
-      "summary": "Tailscale phone route requires an elevated install absent on this machine; it stays UNQUALIFIED rather than faked.",
-      "evidence": "winget package available but elevation requires manual approval (exit 1602 non-elevated).",
-      "nextAction": "When Tailscale becomes available, run same-origin phone smoke; otherwise leave UNQUALIFIED."
+      "code": "TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED",
+      "summary": "Tailscale phone route still requires manual/elevated installation or approval on this machine and remains honestly external-unqualified.",
+      "evidence": "Previous qualification found the package available but non-elevated install exited 1602; core Orca productization must not bypass elevation.",
+      "nextAction": "When Tailscale is installed/authorized, run the private-phone route qualification independently; do not block Change 025 core packaging work."
     },
     {
       "code": "OPENCODE_EXTERNAL_UNQUALIFIED",
-      "summary": "The optional real OpenCode server/provider qualification remains UNQUALIFIED because no authorized ORCA_OPENCODE_QUALIFY_URL was supplied.",
-      "evidence": "real-opencode.test.ts skips with an UNQUALIFIED warning when ORCA_OPENCODE_QUALIFY_URL is absent.",
-      "nextAction": "Set ORCA_OPENCODE_QUALIFY_URL when an authorized local server exists."
+      "summary": "Optional real OpenCode server/provider qualification remains external-unqualified because no authorized ORCA_OPENCODE_QUALIFY_URL is available.",
+      "evidence": "real-opencode qualification skips with EXPECTED_EXTERNAL_UNQUALIFIED when ORCA_OPENCODE_QUALIFY_URL is absent.",
+      "nextAction": "Provide an authorized OpenCode endpoint when available; keep the doctor classification optional unless OpenCode is configured."
     }
   ],
   "developmentPolicies": {
