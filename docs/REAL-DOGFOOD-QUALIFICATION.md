@@ -3,7 +3,8 @@
 Status: **IN PROGRESS — Change 023 auth bootstrap QUALIFIED; harmless real
 wake SUCCEEDED; phase 8 two-iteration real Sol↔Kimi loop COMPLETE with
 GOAL_COMPLETE (run de6fc5d2); phase 10 Codex one-turn QUALIFIED (run
-a19f488f); remaining optional gate: phase 11 Tailscale (manual elevation)**
+a19f488f); the phase-10 SOL_STALLED closure defect is FIXED by Change 024
+(2026-08-23); remaining optional gate: phase 11 Tailscale (manual elevation)**
 
 This report records factual evidence only. It contains no cookies, tokens, API
 keys, or browser profile secrets.
@@ -158,6 +159,20 @@ active-run boundary; the control stays durably auditable (status `rejected`,
 reason recorded). There is currently no Git-truthful closure path for an
 already-stalled run; changing terminal-state semantics deserves its own
 focused OpenSpec change rather than a mid-campaign patch.
+
+**FIXED by Change 024 (`024-sol-stalled-control-closure`, folded into
+`openspec/specs/autonomous-loop-engine/`, 2026-08-23).** The production
+control path now resolves its target active-run-first and, only when no
+active run exists, lets the LATEST exact-matching `SOL_STALLED` run be closed
+by a correctly correlated terminal control (GOAL_COMPLETE / BLOCKED /
+NEEDS_HUMAN; PAUSED explicitly rejected). A newer active campaign always wins
+and protects an older stalled campaign; no actor resurrection is possible (no
+wake submission, no executor/strategy start, no scheduler ownership, no
+wall-clock re-arm, no intermediate active state), and every prior strict
+correlation/idempotency rule is preserved. Regression-proven by
+`apps/controller/test/sol-stalled-control-closure.test.ts`. The historical
+rejected control `6a7649c` for run `a19f488f` remains durably auditable as-is;
+runs already closed by other means are unaffected.
 
 ## Addendum — resume verification (2026-08-22 ~16:40–16:50 +08:00)
 

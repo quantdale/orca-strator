@@ -203,6 +203,17 @@ Sol determined the run cannot currently proceed autonomously.
 
 Playwright wake was submitted/retried but no expected durable Git transition appeared within the configured policy.
 
+`SOL_STALLED` is terminal-by-visibility but not final-by-decision. It stays
+excluded from active-run ownership everywhere (`getActiveRun()` never returns
+it), so a stalled campaign owns no actor and can be replaced by a newer
+campaign at any time. The only Git-truthful closure path (Change 024): when a
+detected Sol control references the LATEST stalled run of a repository by
+exact runId — and no active run exists — a correctly correlated terminal
+decision (`GOAL_COMPLETE`, `BLOCKED`, `NEEDS_HUMAN`) closes it directly.
+`PAUSED` is rejected for a stalled campaign, and closure can never resurrect
+an actor: no wake submission, no executor/strategy start, no scheduler
+ownership, no wall-clock re-arm, no intermediate active state.
+
 ### `EXECUTOR_UNAVAILABLE`
 
 The configured executor could not be successfully launched/contacted after the retry policy.

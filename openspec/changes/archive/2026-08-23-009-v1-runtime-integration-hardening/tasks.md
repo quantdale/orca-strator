@@ -118,7 +118,7 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 
 - [x] P.1 `detectTailscaleStatus` honestly reports not_installed / not_running / not_authenticated / serve_not_configured / configured / unknown. On this machine it returns **not_installed** (CLI absent) — never falsely "configured".
 - [x] P.2 Controller stays loopback-only; no Funnel/public exposure; setup guidance provided when auto-config is out of scope.
-- [ ] P.3 Real private same-origin phone-route smoke is **UNQUALIFIED** on this machine (Tailscale not installed); left as manual verification.
+- [ ] P.3 Real private same-origin phone-route smoke is **UNQUALIFIED** on this machine (Tailscale not installed); left as manual verification. **(Still true as of 2026-08-23; durably tracked as the `EXTERNAL_DEPS_MAY_BE_ABSENT` blocker in `.agent/state.json`, Phase 11 of docs/REAL-DOGFOOD-QUALIFICATION.md, and the ROADMAP external-dependency list.)**
 
 ## Q. Real qualification tier — PARTIAL MACHINE-QUALIFIED
 
@@ -132,7 +132,7 @@ Simulation tests remain as regression coverage and are NOT proof of real autonom
 - [x] Q.8 Chromium provisioning — **MACHINE-QUALIFIED** for executable presence (`provisioning.ts` + `GET /api/system/provisioning`, `npm run browser:install` self-contained); headed setup reuse still UNQUALIFIED without ChatGPT auth.
 - [x] Q.10 **Production buildApp controller** proves remote Git dispatch → watcher → loop → real executor process → durable result → loop → Sol wake, mocking only the external ChatGPT browser driver (`Q.APP.1`); `Q.WIN.1/WSL.1` remain service-graph qualification, `Q.APP.1` is the stronger production gate.
 - [x] Q.11 Real Pause/Resume/Stop + wall-clock ceiling — **MACHINE-QUALIFIED**: pause/stop via `real-runtime-controls.test.ts` (pause preserves partial, resume SAME dispatch `ORCA_RECOVERY=true`; graceful Stop drains naturally); accelerated wall-clock ceiling **now proven by the non-skipped `real-runtime-controls.test.ts`** (slow executor active, wall-clock deadline crosses → `DRAINING`, executor NOT killed, finishes naturally → `CEILING_REACHED`, no Sol wake). Plus `run-store-db-failure.test.ts` proves DB failures surfaced.
-- [ ] Q.9 Real ChatGPT wake (if auth available) and Tailscale phone-route (if installed) — **UNQUALIFIED** on this machine (auth/Tailscale absent).
+- [ ] Q.9 Real ChatGPT wake (if auth available) and Tailscale phone-route (if installed) — originally **UNQUALIFIED** on this machine (auth/Tailscale absent). **Status reconciliation 2026-08-23: the real ChatGPT-authenticated wake half is now QUALIFIED by the later real-dogfood campaign (Change 023 + phases 5/7/8/10 of docs/REAL-DOGFOOD-QUALIFICATION.md: eight successful real wakes, two-iteration GOAL_COMPLETE loop, Codex one-turn); the Tailscale phone-route half remains UNQUALIFIED and is durably tracked in `.agent/state.json` blockers. This task stays unchecked only because of the Tailscale half; nothing was faked green.**
 
 ## R. Reconcile documentation and completion state — DONE (R.2 completed truthfully)
 

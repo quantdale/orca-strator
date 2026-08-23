@@ -17,15 +17,20 @@ Do not implement later milestones merely because their contracts are already doc
 
 ---
 
-## V1 qualification status (Change 009 — NOT YET QUALIFIED)
+## V1 qualification status (Change 009 hardened baseline; core externals REAL-QUALIFIED 2026-08-23)
 
-All nine milestones (0–8) are **implemented** in code. However, the prior
+All nine milestones (0–8) are **implemented** in code. The prior
 "Milestone 8 complete / V1_ROADMAP_COMPLETE" status was **not** proof of real
 end-to-end autonomy: the earlier tests were simulations that manually invoked
 internal transition methods and used fake executors/mock browsers.
 
-V1 was reopened as **NOT YET QUALIFIED** and is being hardened under
-`openspec/changes/009-v1-runtime-integration-hardening/`. Honest status labels:
+V1 was reopened as **NOT YET QUALIFIED**, hardened under
+`openspec/changes/009-v1-runtime-integration-hardening/` (now archived into
+`openspec/specs/runtime-integration-hardening/`), and then **qualified on real
+externals by the 2026-08-23 real-dogfood campaign**: real ChatGPT Sol, real
+GitHub remotes, and real Kimi/Codex executor CLIs through the production loop —
+see `docs/REAL-DOGFOOD-QUALIFICATION.md` and Milestone 21 below. Honest
+status labels:
 
 - **MACHINE-QUALIFIED** — proven on this machine with real Git, real child-process
   executors, and real `wsl.exe` execution.
@@ -47,13 +52,14 @@ V1 was reopened as **NOT YET QUALIFIED** and is being hardened under
 | I. Pause/Resume/Stop/Emergency-Kill | **MACHINE-QUALIFIED** (slow harness: pause→`PAUSED` + resume SAME dispatch `ORCA_RECOVERY=true`, graceful Stop drains naturally, Stop/ceiling complete at Sol-boundary dispatch; non-skipped `real-runtime-controls.test.ts` proves per-repo `emergencyKill` terminates only the targeted repo's process tree while a sibling repo stays alive and finishes naturally, dispatch not falsely consumed) — `pause` is executor-only (400) |
 | J. Browser profile ownership | **SIMULATION-TESTED** |
 | K. Playwright provisioning | **MACHINE-QUALIFIED** (`browser:install` + `GET /api/system/provisioning`, Chromium `chromium-1234` present) |
-| L. ChatGPT wake lifecycle | **IMPLEMENTED + bounded BUSY→SOL_STALLED, ATTENTION_REQUIRED distinct** (scoped banners only, no body scrape; transport mocked) |
+| L. ChatGPT wake lifecycle | **REAL-QUALIFIED (2026-08-23)** — headed installed-Chrome automation on the human-authenticated dedicated profile; eight successful real wakes across four real runs (scoped banners only, no body scrape) |
 | M/N/O. Startup rehydration / status / secret-redacted logs | **MACHINE-QUALIFIED** (includes `reconciledCount` tolerance for DB-closed surfaced errors) |
 | P. Tailscale status truthfulness | **MACHINE-QUALIFIED** (honestly `not_installed` here) |
 | B | **SIMULATION-TESTED** (poll/rev-list/idempotency) |
-| Q.9 Tailscale phone route, ChatGPT auth, real model inference burn | **UNQUALIFIED** (external deps absent; explicitly not faked) |
+| Q.9a Real ChatGPT-authenticated wake + real Kimi/Codex inference via Orca | **REAL-QUALIFIED** (phases 2/3/5/7/8/10 of docs/REAL-DOGFOOD-QUALIFICATION.md) |
+| Q.9b Tailscale phone route | **UNQUALIFIED** (`not_installed`; elevated install requires manual approval; explicitly not faked) |
 
-The production buildApp gate (`Q.APP.1`) and the service-graph gate (`Q.WIN.1/WSL.1/3`) together prove the pipeline; neither is conflated with the other. Remaining `UNQUALIFIED` items are the truly external ChatGPT/Tailscale/inference dependencies.
+The production buildApp gate (`Q.APP.1`) and the service-graph gate (`Q.WIN.1/WSL.1/3`) together prove the pipeline; neither is conflated with the other. Remaining external UNQUALIFIED items are the Tailscale phone route and an authorized OpenCode server — both durably tracked in `.agent/state.json` blockers rather than faked.
 
 ---
 
@@ -415,14 +421,16 @@ From authorized phone on private tailnet:
 
 OpenSpec: `008-end-to-end-autonomy-qualification` (folded into `openspec/specs/end-to-end-autonomy-qualification/`)
 
-Status: **implemented — qualification in progress (Change 009, NOT YET QUALIFIED)**
+Status: **implemented — QUALIFIED (Windows + WSL executor paths under Change 009; real ChatGPT wake + real Kimi/Codex inference via Orca under the 2026-08-23 real-dogfood campaign; only the Tailscale phone route remains external-UNQUALIFIED)**
 
-> The implementation contracts for end-to-end qualification are complete, but the
-> milestone is **not** yet fully machine-qualified. The earlier "complete" status
-> relied on simulation tests. Real end-to-end qualification (Windows + WSL executor
-> paths) is now proven under Change 009; real Kimi/Codex CLI, Chromium/ChatGPT
-> wake, and Tailscale phone-route remain UNQUALIFIED. See the V1 qualification
-> status banner above and `openspec/changes/009-v1-runtime-integration-hardening/`.
+> The implementation contracts for end-to-end qualification are complete and
+> machine-qualified. The earlier "complete" status relied on simulation tests
+> and was truthfully reopened; Change 009 (archived into
+> `openspec/specs/runtime-integration-hardening/`) proved the Windows + WSL
+> executor paths, and the Milestone-21 real-dogfood campaign proved the real
+> external actors end to end (docs/REAL-DOGFOOD-QUALIFICATION.md). The
+> Tailscale phone-route smoke remains honestly UNQUALIFIED pending one
+> elevated install.
 
 ### Purpose
 
@@ -820,3 +828,49 @@ Orca, one real turn) is also QUALIFIED (run `a19f488f`, 2026-08-23) including
 two more real-dogfood hardening fixes folded into production: normalized
 result-manifest executor correlation + `ORCA_EXECUTOR_CLI`, and a bounded
 postflight remote-verification retry.
+
+### Milestone 22 — Sol control closure for stalled campaigns
+
+OpenSpec: `024-sol-stalled-control-closure` (folded into
+`openspec/specs/autonomous-loop-engine/`)
+
+Status: **complete / MACHINE-QUALIFIED internally (2026-08-23)**
+
+Fixes the real production lifecycle defect exposed by Phase-10 Codex dogfood
+(run `a19f488f`): a correctly correlated Sol GOAL_COMPLETE Git control could
+not close a run after the terminal browser wake had already moved that run to
+`SOL_STALLED` (the control was rejected with `no active run for repository`
+because `SOL_STALLED` is outside the active-run boundary).
+
+Deliverables:
+
+- narrow control-target resolution in `LoopService.onControlDetected`:
+  active-run-first via unchanged `RunStore.getActiveRun()` semantics; only
+  when no active run exists may the LATEST exact-matching `SOL_STALLED` run
+  become the target (`control.runId` must reference that exact run); a newer
+  active campaign always wins and protects an older stalled campaign;
+- all prior strict validation preserved on both paths: repositoryId, exact
+  runId, iteration vs `currentIteration`, non-null `relatedDispatchId` vs
+  `activeDispatchId`, detected/consumed/rejected idempotency, strategy/
+  executor ownership guards;
+- stalled-target decision allowlist GOAL_COMPLETE / BLOCKED / NEEDS_HUMAN;
+  PAUSED explicitly rejected (`SOL_STALLED_PAUSE_UNSUPPORTED`) with no
+  executor pause/resume reachable for a stalled campaign;
+- no actor resurrection: closure never submits a Sol wake, starts/resumes an
+  executor or SWARM/DAG strategy, acquires scheduler ownership, re-arms
+  wall-clock execution, or passes through an intermediate active state;
+- adjacent boundary hygiene from audit: loop-owned wall-clock/busy timers are
+  released whenever a run enters `SOL_STALLED`
+  (`LoopService.releaseTerminalTimers`, wired at every stall entry point),
+  stale drain state is cleared on stalled closure, and the closure publishes
+  a durable `loop.control_applied` audit event.
+
+Qualification: focused suite `sol-stalled-control-closure.test.ts` (10 tests)
+proves matching GOAL_COMPLETE/BLOCKED/NEEDS_HUMAN closures + control
+consumption, PAUSED rejection, newer-active-run protection, wrong-
+iteration/relatedDispatchId rejection, duplicate-delivery idempotency,
+no-resurrection assertions, and that `getActiveRun()` still never returns
+`SOL_STALLED`. Full gates green on this tree: fast tier 59 test files,
+typecheck/build/lint exit 0, real tier exit 0 (14 files passed / 1 known
+external skip), strict OpenSpec validation, `git diff --check`. The
+historical rejected control `6a7649c` remains durably auditable.

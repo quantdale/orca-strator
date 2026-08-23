@@ -111,33 +111,48 @@ The UI uses relative `/api` routes. In development, Vite proxies them to control
 
 **Milestone 7 — Private phone access and notifications** is complete and folded (`openspec/specs/remote-phone-experience/`).
 
-**Milestone 8 — End-to-end autonomy qualification** is *implemented* and folded (`openspec/specs/end-to-end-autonomy-qualification/`). Its real end-to-end qualification is **in progress** under Change 009 (see below).
+**Milestone 8 — End-to-end autonomy qualification** is *implemented* and folded (`openspec/specs/end-to-end-autonomy-qualification/`). Its real end-to-end qualification was completed by the Change 009 hardening campaign (folded into `openspec/specs/runtime-integration-hardening/`) plus the 2026-08-23 real-dogfood campaign with real external actors (see below).
 
 All nine V1 milestones are **implemented in code** and internally
 machine-qualified by the Change 009 hardening campaign: production `buildApp`
 lifecycle, the watcher -> loop -> executor -> result -> Sol service graph,
 Windows/WSL executors and Git adapters, controls, recovery, and scheduler/
 permission foundations all pass their real-tier gates on this machine with real
-Git, real child-process executors, and real `wsl.exe` execution. V1 remains
-**NOT YET QUALIFIED only for genuinely external dependencies** — real
-ChatGPT-authenticated wake, the Tailscale phone route, and real Kimi/Codex
-inference burn — which are honestly UNQUALIFIED rather than faked.
+Git, real child-process executors, and real `wsl.exe` execution.
+
+The formerly external core dependencies are now **QUALIFIED on real externals**
+(2026-08-23 real-dogfood campaign, see
+[`docs/REAL-DOGFOOD-QUALIFICATION.md`](docs/REAL-DOGFOOD-QUALIFICATION.md)):
+real ChatGPT-authenticated wake through headed installed-Chrome automation on
+the dedicated authenticated profile (eight successful real wakes across four
+runs), and real Kimi + Codex inference executed by Orca's production loop
+(two-iteration GOAL_COMPLETE campaign run `de6fc5d2`; one-turn Codex run
+`a19f488f`). V1 remains honestly UNQUALIFIED only for genuinely external
+dependencies that are still absent on this machine: the Tailscale phone route
+(installation requires manual elevation) and an authorized OpenCode server —
+neither is faked.
 
 Honest status (this machine):
 
 - **MACHINE-QUALIFIED** — production `buildApp` lifecycle (Q.APP.1) + service-graph `Q.WIN.1`/`Q.WIN.WSL.1`/`Q.WIN.3`; Windows/WSL Git adapters (WSL remote probe via `wsl.exe`); deterministic harness (slow mode, `ORCA_SLOW_MS`, `ORCA_RECOVERY`, graceful Stop naturally, isolated emergency kill, ceiling no-kill); executor result contract with semantic validation + nonzero-exit preservation + retryable postflight; Sol-boundary drain completion (dispatch is boundary); strict dispatch correlation (stale/wrong-run rejected); drainReason persistence + wall-clock / SOL rehydration; PaUSE is executor-only; honest Tailscale detection; secret-redacted event stream; Chromium provisioning (`chromium-1234` present via `browser:install`, version-pinned `playwright@1.62.1`) + `provisioning.ts`; Kimi 0.34.0 (`-m/-p`) / Codex 0.147.0 (`codex exec -m --json`) verified. **Emergency-kill isolation and wall-clock active-actor ceiling are proven by the real, non-skipped `real-runtime-controls.test.ts` (per-repo process termination with sibling survival; ceiling crosses while executor stays alive then drains to CEILING_REACHED with no Sol wake).**
 - **SIMULATION-TESTED** — thin remaining coverage where real external wiring not yet exercised end-to-end here; Playwright busy/auth/ATTENTION spurs and artificial divergence cases.
-- **UNQUALIFIED** — real Kimi/Codex execution with auth/inference burn, real ChatGPT-authenticated wake (browser auth), and Tailscale phone-route (Tailscale `not_installed`; honestly not faked).
+- **REAL-QUALIFIED (2026-08-23)** — EXTERNAL_CHROME_AUTH_BOOTSTRAP,
+  REAL_CHATGPT_AUTHENTICATED_PROFILE, REAL_KIMI_INFERENCE_VIA_ORCA,
+  REAL_CODEX_INFERENCE_VIA_ORCA, and PHASE_8_TWO_ITERATION_LOOP, proven end to
+  end with real ChatGPT Sol, real GitHub remotes, and real executor CLIs
+  (docs/REAL-DOGFOOD-QUALIFICATION.md).
+- **UNQUALIFIED** — Tailscale phone-route (`not_installed`; elevated install
+  required, honestly not faked) and an authorized real OpenCode
+  server/provider.
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
-Latest full qualification run on this tree (Changes 019 + 020 + 021): focused
-new tests green, `npm run typecheck`, `npm run build`, and `npm run lint` exit
-0; `git diff --check` clean; strict OpenSpec validation 21 passed / 0 failed;
-fast tier 52 test files / 253 tests green. The real tier's latest full run
-(Change 018 campaign) passed 65 / 3 skipped / 0 failed, with every skip
-classified `EXPECTED_EXTERNAL_UNQUALIFIED` (WSL-distro-gated scenarios,
-OpenCode URL absent) and all internal suites non-skipped.
+Latest full qualification run on this tree (Change 024): `npm test` fast tier
+59 test files green (including `sol-stalled-control-closure.test.ts`),
+`npm run typecheck`, `npm run build`, and `npm run lint` exit 0;
+`git diff --check` clean; strict OpenSpec validation 24 passed / 0 failed;
+real tier exit 0 with 14 test files passed / 1 skipped (the known
+`EXPECTED_EXTERNAL_UNQUALIFIED` OpenCode-URL case).
 
 ## Durable development workflow
 

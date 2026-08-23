@@ -121,6 +121,22 @@ export class RunStore {
     return row ? this.mapRow(row) : null;
   }
 
+  /**
+   * Latest SOL_STALLED run for a repository (Change 024). Never returned by
+   * getActiveRun; only onControlDetected's stalled-closure fallback consults it,
+   * and only when no active run exists.
+   */
+  getLatestStalledRun(repositoryId: string): RunRecord | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM runs
+      WHERE repository_id = ? AND status = 'SOL_STALLED'
+      ORDER BY started_at DESC
+      LIMIT 1
+    `);
+    const row = stmt.get(repositoryId) as unknown as RunRow | undefined;
+    return row ? this.mapRow(row) : null;
+  }
+
   /** Most recent run for a repository, regardless of whether it is still active. */
   getLatestRun(repositoryId: string): RunRecord | null {
     const stmt = this.db.prepare(`

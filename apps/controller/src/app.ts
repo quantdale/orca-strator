@@ -533,6 +533,7 @@ export async function buildApp(
         active.status === "SOL_REVIEWING" ||
         active.status === "SOL_PENDING"
       ) {
+        loopService.releaseTerminalTimers(repositoryId);
         runStore.updateStatus(runId, "SOL_STALLED", {
           lastError: errorMessage,
           finishedAt: new Date().toISOString(),

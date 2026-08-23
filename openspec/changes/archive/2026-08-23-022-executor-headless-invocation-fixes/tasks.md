@@ -26,5 +26,11 @@
   `executor-invocation.test.ts`; fast tier 53 files / 259 tests; typecheck,
   build, lint exit 0; `openspec validate --all --strict` 22 passed / 0 failed;
   `git diff --check` clean.)
-- [ ] 4.2 Commit/push coherent checkpoint to `main`; update waypoint at the
-  next meaningful checkpoint of the qualification campaign.
+- [x] 4.2 Commit/push coherent checkpoint to `main`; update waypoint at the
+  next meaningful checkpoint of the qualification campaign. **(Corrected
+  2026-08-23 from Git evidence: checkpoint commit `deac592`
+  "Change 022: executor headless invocation fixes from real Codex
+  qualification" is committed on `main` and pushed to `origin/main`; the
+  waypoint was subsequently updated at multiple later checkpoints of the
+  qualification campaign — see `.agent/state.json` history and
+  docs/REAL-DOGFOOD-QUALIFICATION.md.)**

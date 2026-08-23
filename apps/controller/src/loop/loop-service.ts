@@ -976,12 +976,26 @@ export class LoopService {
       } catch {}
     }
 
-    // 2. Resolve the active run for this repository.
-    let activeRun: RunRecord | null;
+    // 2. Resolve the control target. Active ownership first (getActiveRun
+    //    semantics unchanged; SOL_STALLED stays excluded from active
+    //    ownership). Only when no active run exists may the LATEST
+    //    exact-matching SOL_STALLED run of this repository become the target
+    //    (Change 024): the control must reference that exact run, and a
+    //    newer active campaign always wins, protecting an older stalled
+    //    campaign from late mutation.
+    let targetRun: RunRecord | null;
     try {
-      activeRun = this.runStore.getActiveRun(repositoryId);
+      targetRun = this.runStore.getActiveRun(repositoryId);
     } catch {
       return;
+    }
+    let targetIsStalled = false;
+    if (!targetRun && control) {
+      const stalled = this.runStore.getLatestStalledRun(repositoryId);
+      if (stalled && stalled.id === control.runId) {
+        targetRun = stalled;
+        targetIsStalled = true;
+      }
     }
 
     // 3. Idempotency: an already-applied/rejected control must not be re-applied or re-consumed.
@@ -998,8 +1012,9 @@ export class LoopService {
     const rejectionReason = this.validateSolControl(
       repositoryId,
       control,
-      activeRun,
+      targetRun,
       decision,
+      targetIsStalled,
     );
     if (rejectionReason) {
       if (this.solControlStore && control) {
@@ -1056,7 +1071,47 @@ export class LoopService {
       } catch {}
     }
 
-    if (!activeRun) return;
+    if (!targetRun) return;
+
+    // Change 024: closed-over stalled campaign. No drain boundary exists for a
+    // stalled run, PAUSED can never survive validation on this path, and no
+    // actor may be resurrected: apply the terminal decision directly from
+    // SOL_STALLED with no wake submission, executor/strategy start, scheduler
+    // ownership, wall-clock re-arm, or intermediate active state.
+    if (targetIsStalled) {
+      const cur = this.runStore.get(targetRun.id);
+      if (!cur || cur.status !== "SOL_STALLED") return;
+      const stalledTargetState: LoopState =
+        decision === "GOAL_COMPLETE"
+          ? "GOAL_COMPLETE"
+          : decision === "BLOCKED"
+            ? "BLOCKED"
+            : "NEEDS_HUMAN";
+      this.releaseTerminalTimers(repositoryId);
+      this.runStore.updateStatus(cur.id, stalledTargetState, {
+        finishedAt:
+          stalledTargetState === "GOAL_COMPLETE"
+            ? new Date().toISOString()
+            : cur.finishedAt,
+        drainReason: null,
+      });
+      this.publishStateChange(repositoryId, cur.id, stalledTargetState);
+      this.publishEvent({
+        type: "loop.control_applied",
+        at: new Date().toISOString(),
+        repositoryId,
+        data: {
+          controlId,
+          runId: cur.id,
+          decision,
+          iteration: control?.iteration,
+          targetWasStalled: true,
+        },
+      } as any); // custom event type: follows the existing cast pattern
+      return;
+    }
+
+    const activeRun = targetRun;
 
     // If draining due to ceiling/stop while Sol active, honor drain at Sol boundary.
     if (
@@ -1131,8 +1186,9 @@ export class LoopService {
   private validateSolControl(
     repositoryId: string,
     control: SolControlRecord | null,
-    activeRun: RunRecord | null,
+    targetRun: RunRecord | null,
     decision: SolControlDecision,
+    targetIsStalled = false,
   ): string | null {
     // An execution strategy actor is authoritative for the iteration while it
     // runs. Sol must not act (terminal or pause) until the strategy completes
@@ -1149,19 +1205,28 @@ export class LoopService {
     if (control.repositoryId !== repositoryId) {
       return `control.repositoryId ${control.repositoryId} does not match ${repositoryId}`;
     }
-    if (!activeRun)
+    if (!targetRun)
       return "no active run for repository (control references an unknown run)";
-    if (control.runId !== activeRun.id) {
-      return `control.runId ${control.runId} does not match active run ${activeRun.id}`;
+    if (targetIsStalled) {
+      // Change 024: the fallback target must be the exact referenced stalled
+      // run, and only terminal decisions may close a stalled campaign.
+      if (decision === "PAUSED") {
+        return "PAUSED cannot be applied to a SOL_STALLED run (SOL_STALLED_PAUSE_UNSUPPORTED)";
+      }
+      if (control.runId !== targetRun.id) {
+        return `control.runId ${control.runId} does not match the referenced SOL_STALLED run ${targetRun.id}`;
+      }
+    } else if (control.runId !== targetRun.id) {
+      return `control.runId ${control.runId} does not match active run ${targetRun.id}`;
     }
-    if (control.iteration !== activeRun.currentIteration) {
-      return `control.iteration ${control.iteration} does not match expected Sol iteration ${activeRun.currentIteration}`;
+    if (control.iteration !== targetRun.currentIteration) {
+      return `control.iteration ${control.iteration} does not match expected Sol iteration ${targetRun.currentIteration}`;
     }
     if (
       control.relatedDispatchId !== null &&
-      control.relatedDispatchId !== activeRun.activeDispatchId
+      control.relatedDispatchId !== targetRun.activeDispatchId
     ) {
-      return `control.relatedDispatchId ${control.relatedDispatchId} does not match active dispatch ${activeRun.activeDispatchId}`;
+      return `control.relatedDispatchId ${control.relatedDispatchId} does not match active dispatch ${targetRun.activeDispatchId}`;
     }
     return null;
   }
@@ -1313,6 +1378,16 @@ export class LoopService {
       this.busyRetryTimers.delete(repositoryId);
     }
   }
+
+  /**
+   * Release loop-owned timers for a repository whose run reached a terminal/
+   * problem state with no live actor (Change 024 audit): busy-backpressure
+   * retries and the wall-clock ceiling timer must not outlive the stall.
+   */
+  releaseTerminalTimers(repositoryId: string): void {
+    this.clearBusyRetry(repositoryId);
+    this.cancelWallClockCeiling(repositoryId);
+  }
   private publishEvent(event: RepositoryMutationEvent): void {
     if (this.eventPublisher) {
       try {
@@ -1365,7 +1440,7 @@ export class LoopService {
           this.browserManager.getActiveOperation(repositoryId)
             ?.busyRetryCount ?? 0;
         if (count >= (policy?.sol.busyRetryMax ?? BUSY_MAX_RETRIES)) {
-          this.clearBusyRetry(repositoryId);
+          this.releaseTerminalTimers(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
             lastError:
               wake.errorMessage ||
@@ -1391,7 +1466,7 @@ export class LoopService {
         if ((handle as any).unref) (handle as any).unref();
         this.busyRetryTimers.set(repositoryId, handle);
       } else {
-        this.clearBusyRetry(repositoryId);
+        this.releaseTerminalTimers(repositoryId);
         this.runStore.updateStatus(run.id, "SOL_STALLED", {
           lastError: wake.errorMessage || "Wake submission failed",
           finishedAt: new Date().toISOString(),
@@ -1426,7 +1501,7 @@ export class LoopService {
           this.browserManager.getActiveOperation(repositoryId)
             ?.busyRetryCount ?? 0;
         if (count >= (policy?.sol.busyRetryMax ?? BUSY_MAX_RETRIES)) {
-          this.clearBusyRetry(repositoryId);
+          this.releaseTerminalTimers(repositoryId);
           this.runStore.updateStatus(run.id, "SOL_STALLED", {
             lastError: errorMessage,
             finishedAt: new Date().toISOString(),
@@ -1451,7 +1526,7 @@ export class LoopService {
         this.busyRetryTimers.set(repositoryId, handle);
         return;
       }
-      this.clearBusyRetry(repositoryId);
+      this.releaseTerminalTimers(repositoryId);
       this.runStore.updateStatus(run.id, "SOL_STALLED", {
         lastError: errorMessage,
         finishedAt: new Date().toISOString(),
