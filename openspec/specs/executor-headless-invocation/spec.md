@@ -35,4 +35,3 @@ pipe the controller never closes.
 - **WHEN** the WSL adapter spawns its command
 - **THEN** the spawn options SHALL use the same stdio configuration as the
   Windows adapter (stdin ignored; stdout/stderr piped)
-

@@ -117,4 +117,3 @@ The V1 completion claim MUST require qualification of the real production path.
 
 #### Scenario: The assembled real controller services are started against real temporary Git repositories with a real child-process executor
   - Then remote Git dispatch → watcher → loop → executor process → durable executor result → loop → Sol wake transport boundary SHALL be proven without manually invoking internal transition methods; the external ChatGPT response MAY be mocked only at the transport boundary.
-
