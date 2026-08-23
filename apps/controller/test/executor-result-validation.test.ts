@@ -41,16 +41,21 @@ function makeValidResult(overrides: Partial<ExecutorResult> = {}): ExecutorResul
   } as ExecutorResult;
 }
 
-function stubGitClient(result: ExecutorResult, opts: { headSha?: string; isAncestor?: boolean; remoteOk?: boolean; fileAtCommit?: boolean } = {}): GitClient {
+function stubGitClient(result: ExecutorResult, opts: { headSha?: string; isAncestor?: boolean; remoteOk?: boolean; fileAtCommit?: boolean; transientFetchFailures?: number } = {}): GitClient {
   const headSha = opts.headSha ?? HEAD_SHA;
   const anc = opts.isAncestor ?? true;
   const remoteOk = opts.remoteOk ?? true;
+  let fetchCalls = 0;
   return {
     readWorkingTreeFile: async () => JSON.stringify(result),
     getCurrentSha: async () => headSha,
     isAncestor: async () => anc,
     getFileContentAtCommit: async () => { if (!opts.fileAtCommit && opts.fileAtCommit !== undefined) throw new Error("missing"); return JSON.stringify(result); },
-    fetch: async () => { if (!remoteOk) throw new Error("fetch fail"); },
+    fetch: async () => {
+      fetchCalls += 1;
+      if (!remoteOk) throw new Error("fetch fail");
+      if ((opts.transientFetchFailures ?? 0) >= fetchCalls) throw new Error("transient network blip");
+    },
     getRemoteHeadSha: async () => headSha,
   } as unknown as GitClient;
 }
@@ -101,6 +106,10 @@ describe("Executor result semantic validation (negative corpus)", () => {
   it("rejects resultSha not ancestor of HEAD", async () => { expect(await validateWith(makeValidResult(), { isAncestor: false })).toBeNull(); });
   it("rejects when manifest not committed (getFileContentAtCommit fails)", async () => { expect(await validateWith(makeValidResult(), { fileAtCommit: false } as any)).toBeNull(); });
   it("rejects when fetch fails (unverified remote)", async () => { expect(await validateWith(makeValidResult(), { remoteOk: false })).toBeNull(); });
+  it("accepts valid manifest after one transient postflight fetch failure (real dogfood finding)", async () => {
+    const result = await validateWith(makeValidResult(), { transientFetchFailures: 1 });
+    expect(result).not.toBeNull();
+  });
   it("rejects mismatched baseSha", async () => { expect(await validateWith(makeValidResult({ baseSha: OTHER_SHA }))).toBeNull(); });
 
   it("nonzero exit with valid manifest is still consumed (item #7)", async () => {

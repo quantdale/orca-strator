@@ -58,6 +58,8 @@ export interface ExecutorServiceOptions {
 
 const MAX_LAUNCH_ATTEMPTS = 3;
 const LAUNCH_RETRY_BASE_MS = 1500;
+/** Delay between postflight remote-verification retry attempts (real dogfood finding). */
+const POSTFLIGHT_RETRY_BASE_MS = 1500;
 /** Tail bound for persisted log reads; matches ExecutorRunner's ring buffer size. */
 const MAX_PERSISTED_LOG_LINES = 200;
 /** Persisted run attempt IDs are always crypto.randomUUID output (see startRun). */
@@ -566,23 +568,38 @@ export class ExecutorService {
     }
     // Remote verification: if remote is reachable, require resultSha ancestry in remote main.
     // Do NOT silently accept local-only proof when remote verification is possible but failed (item #6).
-    try {
-      await this.gitClient.fetch(ctx, "origin", "main");
-      // Under WSL the remote URL must be the Linux mount path, not the Windows path (Finding C).
-      const remoteUrl = repo.environment === "wsl" ? toWslPath(repo.githubRemote) : repo.githubRemote;
-      const remoteHead = await this.gitClient.getRemoteHeadSha(remoteUrl, "main", ctx);
-      if (remoteHead) {
-        const remoteOk =
-          remoteHead === validated.resultSha ||
-          (await this.gitClient.isAncestor(validated.resultSha, remoteHead, ctx));
-        const manifestOnRemoteOk = await this.gitClient.isAncestor(head, remoteHead, ctx).catch(() => false);
-        if (!remoteOk || !manifestOnRemoteOk) return null;
+    // Transient network blips (observed in real dogfood, 2026-08-23) retry once before surfacing
+    // RECOVERY_REQUIRED; final failure semantics are unchanged — never local-only acceptance.
+    const remoteUrl = repo.environment === "wsl" ? toWslPath(repo.githubRemote) : repo.githubRemote;
+    const POSTFLIGHT_REMOTE_ATTEMPTS = 2;
+    for (let attempt = 1; attempt <= POSTFLIGHT_REMOTE_ATTEMPTS; attempt++) {
+      try {
+        await this.gitClient.fetch(ctx, "origin", "main");
+        const remoteHead = await this.gitClient.getRemoteHeadSha(remoteUrl, "main", ctx);
+        if (remoteHead) {
+          const remoteOk =
+            remoteHead === validated.resultSha ||
+            (await this.gitClient.isAncestor(validated.resultSha, remoteHead, ctx));
+          const manifestOnRemoteOk = await this.gitClient.isAncestor(head, remoteHead, ctx).catch(() => false);
+          if (!remoteOk || !manifestOnRemoteOk) return null;
+        }
+        // remoteHead === null => no remote branch yet (test repo without origin); accept local proof.
+        break;
+      } catch {
+        if (attempt < POSTFLIGHT_REMOTE_ATTEMPTS) {
+          this.publishEvent({
+            type: "executor.log",
+            at: new Date().toISOString(),
+            repositoryId,
+            data: { logMessage: `[postflight] transient remote verification failure (attempt ${attempt}/${POSTFLIGHT_REMOTE_ATTEMPTS}); retrying` }
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, POSTFLIGHT_RETRY_BASE_MS));
+          continue;
+        }
+        // Persistent remote failure while git client is present: treat as retryable postflight,
+        // not silent local success (item #6). Caller surfaces RECOVERY_REQUIRED and can retry later.
+        return null;
       }
-      // remoteHead === null => no remote branch yet (test repo without origin); accept local proof.
-    } catch {
-      // Transient fetch/remote failure while git client is present: treat as retryable postflight,
-      // not silent local success (item #6). Caller surfaces RECOVERY_REQUIRED and can retry later.
-      return null;
     }
 
     return validated;
