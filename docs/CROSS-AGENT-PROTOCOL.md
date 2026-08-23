@@ -314,10 +314,11 @@ Only validated identifiers/status values are interpolated.
 
 When Sol does not create another dispatch, it writes an immutable control marker.
 
-Suggested path:
+Canonical path (production watcher recognizes exactly this; a stray
+`.orca/control/...` marker is not protocol-valid):
 
 ```text
-.orca/control/<controlId>.json
+.orca/sol-control/<controlId>.json
 ```
 
 Baseline shape:
