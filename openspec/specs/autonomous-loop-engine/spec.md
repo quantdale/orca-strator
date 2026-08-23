@@ -59,6 +59,11 @@ run of the repository — and only when the control's `runId` references that
 exact stalled run. A newer active campaign SHALL always win: while any active
 run exists, a control referencing an older stalled run SHALL be rejected as a
 correlation mismatch without consuming the control or mutating either run.
+`SOL_STALLED` SHALL remain excluded from the normal active-run query and
+SHALL NOT participate in dispatch reception, executor ownership, strategy
+ownership, scheduler admission, wall-clock rehydration, or pause/resume
+semantics merely because terminal control reconciliation is supported; the
+stalled-closure exception is scoped to Sol-control handling only.
 
 #### Scenario: Matching GOAL_COMPLETE closes the latest stalled run
 

@@ -1,75 +1,39 @@
-# Change 024: Sol control closure for stalled campaigns
+# Proposal: SOL_STALLED Git-truthful control closure
 
 ## Why
 
-Phase 10 of the real dogfood campaign (run `a19f488f`, 2026-08-23) exposed a
-real production lifecycle defect: after a transient network outage moved the
-run to `SOL_STALLED`, real Sol independently verified the completed iteration
-from Git and published a correctly correlated GOAL_COMPLETE sol-control commit
-(`6a7649c`). The watcher detected it, but `LoopService.onControlDetected`
-resolves its control target exclusively through `RunStore.getActiveRun()`,
-which intentionally excludes `SOL_STALLED`. Validation therefore rejected the
-control with `no active run for repository`. The control stays durably
-auditable (status `rejected`), but there is no Git-truthful closure path for
-an already-stalled campaign: Sol's authoritative terminal decision cannot land
-after the stall.
+Real Phase-10 Codex qualification exposed a production lifecycle gap rather than a simulated edge case. The executor completed and published its durable result, the terminal ChatGPT wake temporarily failed and moved the campaign to `SOL_STALLED`, then a later successful manual wake caused real Sol to publish a correctly correlated `GOAL_COMPLETE` marker. Orca detected that Git control but rejected it because `RunStore.getActiveRun()` intentionally excludes `SOL_STALLED`.
 
-`SOL_STALLED` is terminal-by-visibility but not final-by-decision: the run
-stopped making progress, while the campaign's authoritative verdict (Sol's)
-may still arrive later through Git. The boundary must let that verdict close
-the stalled run without resurrecting any actor.
+The exclusion itself is correct: a stalled campaign must not regain executor/scheduler ownership merely because durable evidence arrives later. The missing behavior is a narrow **terminal closure seam** that lets Git remain authoritative after transport failure.
 
-## Scope
+## What changes
 
-- Keep `RunStore.getActiveRun()` semantics exactly unchanged; `SOL_STALLED`
-  remains excluded from normal active ownership everywhere else.
-- In `LoopService.onControlDetected`, resolve the normal active run first.
-  Only when no active run exists may the LATEST `SOL_STALLED` run of the
-  repository become the control target, and only when the control references
-  that exact run (`control.runId === stalledRun.id`). A newer active campaign
-  always wins and protects an older stalled campaign from late mutation.
-- Preserve every existing strict validation: repositoryId match, runId match,
-  iteration must equal the target run's `currentIteration`, non-null
-  `relatedDispatchId` must equal the target run's `activeDispatchId`,
-  detected/consumed/rejected idempotency, strategy/executor ownership guards.
-- Allowed decisions for a stalled target: `GOAL_COMPLETE`, `BLOCKED`,
-  `NEEDS_HUMAN`. `PAUSED` is explicitly rejected for a stalled target and no
-  executor pause/resume behavior may be invoked for a stalled campaign.
-- No actor resurrection: applying a terminal control to a stalled run must not
-  submit a Sol wake, start/resume an executor or SWARM/DAG strategy, acquire
-  scheduler ownership, re-arm wall-clock execution, or temporarily reclassify
-  the run through an active state.
-- Focused fast-tier regression suite for the stalled closure boundary plus all
-  existing normal active-run control tests unchanged.
-- Adjacent lifecycle hygiene found by audit within this same boundary:
-  loop-owned timers (wall-clock ceiling + busy backpressure) are released when
-  a run enters `SOL_STALLED`, stale drain state is cleared when a stalled run
-  is closed, and the closure publishes an explicit durable audit event.
-- Documentation reconciliation: record the Phase-10 defect as fixed with real
-  evidence in `docs/REAL-DOGFOOD-QUALIFICATION.md`; correct stale README/
-  ROADMAP qualification claims contradicted by later dogfood evidence without
-  overclaiming Tailscale/OpenCode external paths.
-- OpenSpec bookkeeping: correct Change 022's stale task 4.2 against Git
-  evidence and fold/archive it; evaluate Change 009 for honest archival.
+- Keep `SOL_STALLED` excluded from the normal active-run query and all ordinary actor ownership paths.
+- When a Sol-control marker is detected and there is no currently active run, allow `LoopService` to resolve the repository's latest run as the control target **only when**:
+  - the latest run is `SOL_STALLED`;
+  - the control `runId` matches that exact run;
+  - repository, iteration, and optional `relatedDispatchId` pass the existing strict correlation checks; and
+  - the decision is terminal (`GOAL_COMPLETE`, `BLOCKED`, or `NEEDS_HUMAN`).
+- Never apply `PAUSED` to a stalled run.
+- If a newer active campaign exists, it remains authoritative; a late control for an older stalled run is rejected and cannot alter either campaign.
+- Preserve control idempotency and durable `detected` -> `consumed` / `rejected` audit semantics.
+- Add focused regression coverage for successful stalled closure, new-run protection, stale correlation, and pause rejection.
 
-## Impact
+## Scope boundaries
 
-- Real Sol can close a stalled campaign through Git — the exact flow the
-  cross-agent protocol promises — restoring truthful terminal states instead
-  of permanently stranded `SOL_STALLED` rows.
-- No behavior change for active runs: the active path is byte-for-byte
-  identical, guarded by the existing strict correlation tests.
+This change does **not**:
 
-## Verification intent
+- make `SOL_STALLED` an active state;
+- auto-retry browser transport;
+- revive or restart an executor;
+- infer completion from browser text;
+- mutate an older stalled run after a newer run has become active;
+- weaken the one-writer / one-active-actor invariant.
 
-- New focused suite `sol-stalled-control-closure.test.ts`: matching
-  GOAL_COMPLETE closes the latest stalled run and consumes the control;
-  BLOCKED / NEEDS_HUMAN also work; PAUSED is rejected and the run stays
-  SOL_STALLED; a newer active run prevents old-stalled closure; wrong
-  iteration / relatedDispatchId rejected on the stalled path; duplicate
-  delivery idempotent; no wake submission and no executor launch during
-  closure; `getActiveRun()` still never returns `SOL_STALLED`.
-- All existing control tests (`loop-drain-correlation.test.ts` et al.) remain
-  green unchanged.
-- Full gates at checkpoint: npm test, typecheck, build, lint,
-  `openspec validate --all --strict`, `git diff --check`.
+## Exit gate
+
+1. A strictly correlated terminal Sol control can close the latest `SOL_STALLED` run from Git truth.
+2. `RunStore.getActiveRun()` still excludes `SOL_STALLED`.
+3. A newer active run prevents late control application to the older stalled run.
+4. `PAUSED`, wrong-run, wrong-iteration, and wrong-dispatch controls remain rejected and auditable.
+5. Focused tests pass, followed by the normal meaningful checkpoint gates (`npm test`, typecheck, build, lint, strict OpenSpec validation, `git diff --check`) when execution is available.
