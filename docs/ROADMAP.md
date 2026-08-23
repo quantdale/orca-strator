@@ -803,15 +803,20 @@ Deliverables:
   profile location, setup OPEN/CLOSED, authentication readiness, ownership,
   and Open Setup Browser / Check Login / Close Setup Browser controls.
 
-Qualification on this tree: fast tier 58 files / 309 tests green (including
+Qualification on this tree: fast tier 58 files / 310 tests green (including
 chrome-discovery, external-setup-browser, external-setup-manager,
 playwright-launch-guard, and auth-readiness suites), typecheck, build, lint,
 strict OpenSpec validation (23 passed / 0 failed), and `git diff --check` all
 pass. EXTERNAL_CHROME_AUTH_BOOTSTRAP is QUALIFIED with real evidence
 (2026-08-22). REAL_CHATGPT_AUTHENTICATED_PROFILE is QUALIFIED (final,
 2026-08-23): AUTHENTICATED session reuse under headed installed-Chrome
-automation plus four successful real wakes. The real dogfood campaign
-completed GOAL_COMPLETE on 2026-08-23 (run `de6fc5d2`): real Sol dispatched
-two iterations, real Kimi executed both through the production loop with
-valid durable result correlation, and Sol authored the terminal control
-decision via Git — see docs/REAL-DOGFOOD-QUALIFICATION.md phase 8.
+automation plus eight successful real wake submissions across four runs. The
+real dogfood campaign completed
+GOAL_COMPLETE on 2026-08-23 (run `de6fc5d2`): real Sol dispatched two
+iterations, real Kimi executed both through the production loop with valid
+durable result correlation, and Sol authored the terminal control decision via
+Git — see docs/REAL-DOGFOOD-QUALIFICATION.md phase 8. Phase 10 (Codex via
+Orca, one real turn) is also QUALIFIED (run `a19f488f`, 2026-08-23) including
+two more real-dogfood hardening fixes folded into production: normalized
+result-manifest executor correlation + `ORCA_EXECUTOR_CLI`, and a bounded
+postflight remote-verification retry.

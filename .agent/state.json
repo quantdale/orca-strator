@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "project": "orca-strator",
-  "developmentStatus": "MILESTONE_21_COMPLETE_REAL_DOGFOOD_GOAL_ACHIEVED",
+  "developmentStatus": "MILESTONE_21_COMPLETE_REAL_DOGFOOD_PHASES_5_7_8_10_QUALIFIED",
   "highLevelGoal": "Evolve Orca-Strator beyond the hardened V1 through the approved OpenFlow-inspired foundations and optional execution strategies while preserving the persistent campaign -> Sol -> iteration -> structured result -> Git -> Sol hierarchy and all Change 009 correctness invariants.",
   "activeMilestone": 21,
-  "activeChange": "023-external-chrome-auth-bootstrap",
+  "activeChange": null,
   "completedMilestones": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
   "planningBaseSha": null,
   "checkpoint": {
-    "summary": "REAL DOGFOOD CAMPAIGN GOAL ACHIEVED (2026-08-23). Change 023 fully QUALIFIED: human Google sign-in in external ordinary Chrome; AUTHENTICATED readiness; headed installed-Chrome automation reuses the SAME dedicated profile; harmless real wake SUCCEEDED (4 real wakes total, zero OAuth re-runs). Two-iteration real Sol<->Kimi loop COMPLETE: run de6fc5d2 terminal GOAL_COMPLETE at 2026-08-23T01:34:46Z — real Sol dispatched i001+i002, real Kimi executed both with verbatim ORCA_* correlation, first-ever accepted real result manifest, Sol authored GOAL_COMPLETE sol-control via Git. Attempt 1 (run 706002fd) honestly BLOCKED by real Sol after it independently diagnosed two real defects from Git evidence; both fixed: (1) executor.cli exact-path correlation over-strict -> executorIdentityMatches() + ORCA_EXECUTOR_CLI env var (3ef43d8), (2) baseSha capture ambiguity -> clarified executor contract; plus sol-control path doc fix (.orca/sol-control canonical) in c2b6a7a. Gates at final checkpoint: focused 19/19, fast tier 58 files / 309 tests, typecheck, build, lint, git diff --check green.",
-    "updatedAt": "2026-08-23T09:45:00+08:00",
-    "lastCompletedTask": "Phase-8 campaign completion recording: ROADMAP milestone 21 closed QUALIFIED; REAL-DOGFOOD-QUALIFICATION phase 8 DONE with full timeline; tasks.md sections 11-12 evidence.",
-    "lastVerification": "Production run de6fc5d2 status=GOAL_COMPLETE via campaigns API; executor.completed SUCCEEDED x2; sol.wake_submitted SUCCEEDED x2 (attempt 2); npm test fast tier 58/309; typecheck/build/lint/diff-check exit 0."
+    "summary": "REAL DOGFOOD CAMPAIGN CORE COMPLETE (2026-08-23). Change 023 folded+archived (9f0f5e4) with canonical spec external-chrome-auth-bootstrap. Qualified on real externals: EXTERNAL_CHROME_AUTH_BOOTSTRAP, REAL_CHATGPT_AUTHENTICATED_PROFILE (8 successful real wakes, headed installed Chrome, same dedicated profile, zero OAuth re-runs), phase-8 two-iteration real Sol<->Kimi loop (run de6fc5d2 GOAL_COMPLETE), phase-10 Codex one-turn (run a19f488f). Real-dogfood hardening folded into production: executorIdentityMatches + ORCA_EXECUTOR_CLI (3ef43d8), sol-control path doc fix (c2b6a7a), bounded postflight remote-verification retry (7eb8d3b). Known honest caveats: run a19f488f row remains SOL_STALLED because Sol's GOAL_COMPLETE control for it was rejected by design (SOL_STALLED outside active-run boundary) after a transient network timeout killed its terminal wake; control durably auditable; closure-path hardening candidate for a future focused change. Intermittent github.com/chatgpt.com connect drops all session self-healed. Gates at close: fast tier 58 files / 310 tests, typecheck, build, lint, strict OpenSpec validation 23/23, git diff --check green.",
+    "updatedAt": "2026-08-23T10:20:00+08:00",
+    "lastCompletedTask": "Phase 10 Codex qualification recorded; ROADMAP/REAL-DOGFOOD-QUALIFICATION/state finalized; Change 023 archived.",
+    "lastVerification": "Production APIs: run de6fc5d2 GOAL_COMPLETE; codex-smoke.md + manifest 546e05c on origin/main; sol-control 6a7649c published by real Sol. npm test 58/310; typecheck/build/lint exit 0; npx openspec validate --all --strict 23 passed."
   },
-  "nextAction": "Optional continuation per REAL-DOGFOOD-QUALIFICATION.md: phase 10 Codex-via-Orca one real turn is now unblocked (phase 8 complete) — rebind the dogfood repository record to the installed codex.exe for a small fresh run or record it as a separate follow-up; phase 11 Tailscale stays BLOCKED_MANUAL_ELEVATION; OpenCode stays OPTIONAL_EXTERNAL_UNQUALIFIED. Fold/archive Change 023 when convenient (all tasks checked).",
+  "nextAction": "Remaining roadmap items are genuinely external: Tailscale phone route needs one elevated install (BLOCKED_MANUAL_ELEVATION); OpenCode server qualification needs an authorized ORCA_OPENCODE_QUALIFY_URL. Candidate future OpenSpec: Git-truthful closure path for SOL_STALLED runs (control application boundary). Dogfood repo record currently bound to codex.exe/gpt-5.6-luna; rebind to kimi.exe when resuming Kimi campaigns.",
   "blockers": [
     {
       "code": "EXTERNAL_DEPS_MAY_BE_ABSENT",

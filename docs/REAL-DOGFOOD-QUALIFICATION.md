@@ -2,8 +2,8 @@
 
 Status: **IN PROGRESS — Change 023 auth bootstrap QUALIFIED; harmless real
 wake SUCCEEDED; phase 8 two-iteration real Sol↔Kimi loop COMPLETE with
-GOAL_COMPLETE (run de6fc5d2); remaining optional gates: phase 10 Codex one
-turn, phase 11 Tailscale (manual elevation)**
+GOAL_COMPLETE (run de6fc5d2); phase 10 Codex one-turn QUALIFIED (run
+a19f488f); remaining optional gate: phase 11 Tailscale (manual elevation)**
 
 This report records factual evidence only. It contains no cookies, tokens, API
 keys, or browser profile secrets.
@@ -117,8 +117,47 @@ The window is intentionally left open for this action.
 | 5 Dedicated Sol conversation | DONE (2026-08-22, user-supplied URL) | — |
 | 7 Real authenticated wake smoke | DONE (initial wake SUCCEEDED 15:00:58Z) | — |
 | 8 Two-iteration Sol↔Kimi loop | **DONE — GOAL_COMPLETE (run de6fc5d2, 2026-08-23T01:34:46Z)** | — |
-| 10 Codex via Orca (one real turn) | PENDING | none (phase 8 complete) |
+| 10 Codex via Orca (one real turn) | **DONE — QUALIFIED (run a19f488f, 2026-08-23)** | — |
 | 11 Tailscale phone route | BLOCKED_MANUAL_ELEVATION | One elevated install step |
+
+## Phase 10 — Codex via Orca, one real turn: QUALIFIED (2026-08-23)
+
+Setup: the production repository record was rebound (user-owned config action)
+to `codex.exe` 0.148.0 / model `gpt-5.6-luna`; README gained an explicit
+active "Phase 10 qualification goal". A first fresh run (`f7ea132c`) produced
+a notable real-Sol behavior: Sol inspected main at run start, found the
+previous campaign durably GOAL_COMPLETE, and truthfully terminated at
+iteration 0 with a control marker instead of fabricating redundant work —
+exactly the anti-fabrication behavior the protocol wants. After the operator
+pushed the new goal as ordinary content, run `a19f488f` executed:
+
+- Real Sol planned (`1271af7`-style ordinary commit + isolated dispatch
+  `3ef73db`, runId-matched).
+- Orca spawned real Codex via the production invocation
+  (`codex exec -s danger-full-access -m gpt-5.6-luna --json`); Codex
+  reconciled to the dispatch commit, echoed verbatim `ORCA_EXECUTOR_CLI`,
+  created `codex-smoke.md` with the exact post-reconciliation pre-work SHA,
+  pushed work `7d81b31`, and published an isolated COMPLETED result manifest
+  `546e05c`.
+- The terminal COMPLETED wake hit the session's intermittent network outage
+  (`page.goto ERR_CONNECTION_TIMED_OUT`) and the run honestly entered
+  SOL_STALLED. Recovery used the canonical manual wake control
+  (`POST /api/repositories/:id/wake`) once connectivity returned — submitted
+  successfully at 02:07:08Z.
+- Real Sol independently verified every correlation detail from Git and
+  published GOAL_COMPLETE sol-control `6a7649c`
+  (`2026-08-23T020700Z-i001-codex-goal-complete`).
+
+Verdict: **REAL_CODEX_INFERENCE_VIA_ORCA = QUALIFIED** — one real Codex turn
+end-to-end through the production loop with valid durable correlation.
+
+Recorded finding (candidate future hardening, intentionally not changed here):
+Sol's GOAL_COMPLETE control for the stalled run was rejected BY DESIGN with
+`no active run for repository` because SOL_STALLED is excluded from the
+active-run boundary; the control stays durably auditable (status `rejected`,
+reason recorded). There is currently no Git-truthful closure path for an
+already-stalled run; changing terminal-state semantics deserves its own
+focused OpenSpec change rather than a mid-campaign patch.
 
 ## Addendum — resume verification (2026-08-22 ~16:40–16:50 +08:00)
 
