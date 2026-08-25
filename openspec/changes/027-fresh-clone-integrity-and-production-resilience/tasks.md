@@ -6,9 +6,11 @@
 - [x] 1.2 Recover suppressed runtime sources into Git: `build-identity.ts`, `paths.ts`, `singleton-lock.ts`, `readiness-service.ts`, leaf dependency `db/schema-compat.ts`, additive `packages/shared/src/product.ts` identity fields.
 - [x] 1.3 Anchor `.gitignore` local-data rules (`logs/`, `runtime/`, `browser-profile/`, `.orca-local/`) to repository root; keep build-output patterns unchanged.
 - [x] 1.4 Add `scripts/ci/check-source-integrity.mjs` regression guard (fails on missing / ignored / untracked import targets from tracked TS source).
-- [ ] 1.5 Wire the integrity guard into ordinary gates (pretest) and Windows CI.
-- [ ] 1.6 Audit remaining broad ignore patterns (`dist/`, `build/`, `out/`, etc.) for unintended suppression anywhere in the monorepo (guard provides systematic protection; record verdict).
-- [ ] 1.7 P0 gate: prove from an origin-only clean worktree (no ignored rescues) that affected workspaces resolve modules and pass focused Change-025 suites + typecheck/build.
+- [x] 1.5 Wire the integrity guard into ordinary gates (pretest) and Windows CI.
+- [x] 1.6 Audit remaining broad ignore patterns (`dist/`, `build/`, `out/`, etc.) for unintended suppression anywhere in the monorepo (guard provides systematic protection; record verdict).
+  Verdict: repo-wide ignored-file expansion found only legitimate build/package output (`*/dist`, `node_modules`, `apps/desktop/{release,resources,build}`) plus one machine-local zip. `apps/desktop/build/` is electron-builder buildResources (packaging INPUT), re-scoped to per-file tracking (installer.nsh + controller-safety.ps1); the second ignored-input trap — controller-safety.ps1 existing ONLY in ignored resources/ with no tracked provenance and no staging copy — was closed by giving it a tracked source in apps/desktop/build/ plus a required-copy step in prepare-controller-runtime.mjs and an extraResources shipping entry. `dist/`/`build/`/`out/` stay unanchored because every workspace legitimately emits them; systematic protection is provided by the resolution-based guard rather than pattern review.
+- [x] 1.7 P0 gate: prove from an origin-only clean worktree (no ignored rescues) that affected workspaces resolve modules and pass focused Change-025 suites + typecheck/build.
+  Evidence: detached clean worktree at origin/main 3684ea0, fresh `npm ci` (578 packages), source-integrity OK (196 files / 646 imports), FULL fast tier via repo scripts: 68 files / 394 tests green, typecheck all workspaces exit 0. Two environment-dependency defects found by this gate were fixed on main before the passing run (runtime-paths stale-UI-dist dependency; lifecycle boot budgets).
 
 ## 2. Runtime log bound
 

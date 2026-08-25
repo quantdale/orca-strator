@@ -1,10 +1,9 @@
-import fs from "node:fs";
-import path from "node:path";
 import { loadConfig } from "./config/load-config.js";
 import { getControllerIdentity } from "./runtime/build-identity.js";
 import { ControllerRuntimeLock } from "./runtime/singleton-lock.js";
 import { buildApp } from "./app.js";
 import { DatabaseTooNewError, preflightSchemaCompatibility, MAX_KNOWN_SCHEMA_VERSION } from "./db/schema-compat.js";
+import { installBoundedPackagedLogging } from "./runtime/log-bounded.js";
 import { DatabaseSync } from "node:sqlite";
 
 type AppRuntime = Awaited<ReturnType<typeof buildApp>>;
@@ -17,33 +16,13 @@ const EXIT_INIT_FAILED = 1;
 const EXIT_DATABASE_TOO_NEW = 12;
 
 /**
- * Packaged-runtime logging (Change 025): when there is no terminal, controller
- * stdout/stderr must still land in the writable data dir. Bounded by size with
- * a single rotated predecessor file.
+ * Packaged-runtime logging (Change 025 + 027): when there is no terminal,
+ * controller stdout/stderr must still land in the writable data dir. The size
+ * bound is enforced DURING the running process (runtime-bounded sink), not
+ * only at startup, so one long-running controller cannot exceed the policy.
  */
 function installPackagedLogging(logDir: string): void {
-  fs.mkdirSync(logDir, { recursive: true });
-  const logFile = path.join(logDir, "controller.log");
-  try {
-    if (fs.existsSync(logFile) && fs.statSync(logFile).size > 5 * 1024 * 1024) {
-      const previous = path.join(logDir, "controller.prev.log");
-      fs.rmSync(previous, { force: true });
-      fs.renameSync(logFile, previous);
-    }
-    const stream = fs.createWriteStream(logFile, { flags: "a" });
-    const line = (...parts: unknown[]) =>
-      `${new Date().toISOString()} ${parts.map((p) => String(p)).join(" ")}\n`;
-    const write = (...parts: unknown[]) => stream.write(line(...parts));
-    console.log = (...parts: unknown[]) => write("[log]", ...parts);
-    console.info = (...parts: unknown[]) => write("[info]", ...parts);
-    console.warn = (...parts: unknown[]) => write("[warn]", ...parts);
-    console.error = (...parts: unknown[]) => write("[error]", ...parts);
-    stream.on("error", () => {
-      /* keep running even if logging breaks */
-    });
-  } catch {
-    // A broken log sink never blocks startup; stdout may still exist in dev.
-  }
+  installBoundedPackagedLogging(logDir);
 }
 
 async function main() {
