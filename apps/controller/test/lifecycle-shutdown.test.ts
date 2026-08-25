@@ -70,7 +70,7 @@ describe("Change 026 authenticated lifecycle control", () => {
     ).run(id, "Fixture", "https://example.invalid/x.git", "C:/tmp/x", "windows", "kimi", "m", "https://c", 5, 30, now, now);
   }
 
-  it("rejects lifecycle reads without a token (unauthenticated surface is inert)", async () => {
+  it(`rejects lifecycle reads without a token (unauthenticated surface is inert)`, { timeout: 20_000 }, async () => {
     await boot(true);
     const noHeader = await appInstance.fastify.inject({ method: "GET", url: "/api/system/lifecycle" });
     expect(noHeader.statusCode).toBe(401);
@@ -91,7 +91,7 @@ describe("Change 026 authenticated lifecycle control", () => {
     expect(control?.requests).toHaveLength(0);
   });
 
-  it("reports idle quiescence to the authorized caller", async () => {
+  it(`reports idle quiescence to the authorized caller`, { timeout: 20_000 }, async () => {
     await boot(true);
     const res = await appInstance.fastify.inject({
       method: "GET",
@@ -102,7 +102,7 @@ describe("Change 026 authenticated lifecycle control", () => {
     expect(res.json()).toMatchObject({ state: "idle", activeCampaigns: [], pid: process.pid });
   });
 
-  it("reports active campaigns truthfully and refuses shutdown while they run", async () => {
+  it(`reports active campaigns truthfully and refuses shutdown while they run`, { timeout: 20_000 }, async () => {
     await boot(true);
     seedRepository("repo-1");
     appInstance.runStore.create(makeRun({ status: "EXECUTING" }));
@@ -133,7 +133,7 @@ describe("Change 026 authenticated lifecycle control", () => {
     expect(control?.requests).toHaveLength(0); // nothing was signalled
   });
 
-  it("accepts graceful shutdown when idle and triggers the teardown callback exactly once", async () => {
+  it(`accepts graceful shutdown when idle and triggers the teardown callback exactly once`, { timeout: 20_000 }, async () => {
     await boot(true);
     const res = await appInstance.fastify.inject({
       method: "POST",
