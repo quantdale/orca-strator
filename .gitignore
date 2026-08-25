@@ -19,17 +19,22 @@ blob-report/
 .playwright-mcp/
 playwright/.auth/
 
-# Local Orca runtime data (never commit browser/session/database state)
+# Local Orca runtime data (never commit browser/session/database state).
+# These are ANCHORED to the repository root on purpose: generic directory names
+# such as runtime/ or logs/ must never silently swallow nested production
+# source directories anywhere in the monorepo. The regression guard at
+# scripts/ci/check-source-integrity.mjs fails when any tracked relative import
+# resolves to a missing, ignored, or untracked module.
 *.sqlite
 *.sqlite3
 *.db
 *.db-shm
 *.db-wal
 *.db-journal
-logs/
-runtime/
-browser-profile/
-.orca-local/
+/logs/
+/runtime/
+/browser-profile/
+/.orca-local/
 
 # Change 025 packaging output (staged runtime + release artifacts)
 apps/desktop/resources/
