@@ -30,7 +30,11 @@ describe("System & Tailscale API (Task 1)", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("1.T1 GET /api/system/tailscale returns loopback port and CLI instructions", async () => {
+  // The route shells out to the tailscale CLI with its own 8s-per-probe bound;
+  // on a loaded machine (full parallel suite, process-spawn contention) a
+  // not_installed ENOENT probe can legitimately exceed vitest's 5s default.
+  // Keep the production bound and give the test room for two worst-case probes.
+  it("1.T1 GET /api/system/tailscale returns loopback port and CLI instructions", { timeout: 20_000 }, async () => {
     const res = await appInstance.fastify.inject({
       method: "GET",
       url: "/api/system/tailscale"

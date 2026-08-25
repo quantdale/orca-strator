@@ -122,6 +122,20 @@ export class RunStore {
   }
 
   /**
+   * All currently active runs across every repository (Change 026 lifecycle
+   * quiescence reporting). Same terminal-state boundary as getActiveRun.
+   */
+  listActiveRuns(): RunRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM runs
+      WHERE status NOT IN ('GOAL_COMPLETE', 'BLOCKED', 'NEEDS_HUMAN', 'STOPPED', 'SOL_STALLED', 'EXECUTOR_UNAVAILABLE', 'ATTENTION_REQUIRED', 'RECOVERY_REQUIRED', 'CEILING_REACHED')
+      ORDER BY started_at ASC
+    `);
+    const rows = stmt.all() as unknown as RunRow[];
+    return rows.map((r) => this.mapRow(r));
+  }
+
+  /**
    * Latest SOL_STALLED run for a repository (Change 024). Never returned by
    * getActiveRun; only onControlDetected's stalled-closure fallback consults it,
    * and only when no active run exists.

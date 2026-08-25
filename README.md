@@ -95,22 +95,30 @@ http://127.0.0.1:47100/
 
 The UI uses relative `/api` routes. In development, Vite proxies them to controller. A phone loads a private Tailscale HTTPS URL that reverse-proxies this single loopback origin, so the same client keeps working without pointing phone-local `localhost` at the laptop or requiring a second mobile networking layer.
 
-## Windows packaging and distribution (Change 025)
+## Windows packaging, releases, and installed lifecycle (Change 025 + 026)
 
 Orca ships as a self-contained Windows desktop product:
 
 ```powershell
+npm run version:check          # canonical release-version coherence gate
 npm run package:win            # unpacked artifact -> apps/desktop/release/win-unpacked/
-npm run package:win:installer  # per-user NSIS installer -> apps/desktop/release/*.exe
+npm run package:win:installer  # per-user NSIS installer -> apps/desktop/release/*.exe (stamps build-info)
 npm run smoke:package          # real packaged-runtime smoke against the built exe
+npm run test:crash-recovery    # packaged crash/stale-lock/recovery harness
+npm run test:endurance:short   # CI-safe endurance cycles; --cycles 30 = long soak (test:endurance)
+npm run test:stress:repos      # multi-repository packaged stress isolation
+npm run smoke:installer        # NSIS installer lifecycle acceptance (isolated env only)
+npm run backup / restore       # durable-state bundle CLI seams (+ test:backup-restore gate)
 ```
 
-- **Launch**: `Orca-Strator.exe` probes the loopback controller first; a compatible controller is reused, otherwise the packaged Electron runtime boots the compiled controller in Node mode (`ELECTRON_RUN_AS_NODE=1`) — no system Node/npm required.
-- **Background lifetime**: closing the window quits only the shell; controller-owned campaigns keep running. Relaunch reuses the same controller without duplicate spawn.
-- **Data placement**: SQLite DB, logs (`logs/controller.log`, size-rotated), browser profile, and the singleton lock live under `%LOCALAPPDATA%\Orca-Strator` (override with `ORCA_DATA_DIR`), never inside the install directory. Upgrades/reinstalls preserve all of it; uninstall never deletes user data (`deleteAppDataOnUninstall: false`).
-- **Singleton safety**: a data-directory lock plus port guard guarantee one controller; foreign listeners are diagnosed (PORT_CONFLICT) and never killed; incompatible protocol versions surface INCOMPATIBLE_CONTROLLER instead of silently mixing builds.
+- **Launch**: `Orca-Strator.exe` probes the loopback controller first. A PACKAGED desktop reuses only an **exact build** (same semantic version AND same Git build identity); any other Orca-but-different build is replaced through an authenticated graceful-shutdown contract, or surfaces a truthful `RESTART_PENDING` state when campaigns are active. Development mode keeps looser protocol-only reuse.
+- **Safe replacement**: the controller publishes a per-start random control token in its runtime-lock metadata; `POST /api/system/shutdown` requires it (constant-time compare), reports truthful quiescence (`/api/system/lifecycle`: idle vs active-campaigns), and refuses to terminate running work. Renderer JavaScript and web pages have no process-control authority; foreign listeners are never sent lifecycle requests and never killed.
+- **Database compatibility**: a binary refuses (typed `DATABASE_TOO_NEW`, exit code 12) to start on a database whose schema is NEWER than it knows — no migrations, watchers, browsers, or executors run and nothing is mutated. Before applying migrations to existing data, a verified consistent snapshot (SQLite `VACUUM INTO` + SHA-256 metadata, bounded retention) is written under `<dataDir>\backups\pre-migration\`; backup failure blocks the migration.
+- **Backup / recovery**: Settings → Create Backup (and `npm run backup`) produces a manifest+checksummed SQLite bundle that structurally excludes cookies/profiles, credentials, repositories, worktrees, locks, and logs. Restore validates checksums/schema/quiescence, preserves prior state as a recovery copy, and rejects tampered archives.
+- **Background lifetime**: closing the window quits only the shell; controller-owned campaigns keep running. Relaunch reuses the same controller without duplicate spawn. A full Orca shutdown exists ONLY through the authenticated contract above — there is deliberately no unauthenticated shutdown endpoint.
+- **Data placement**: SQLite DB, logs (`logs/controller.log`, size-rotated), browser profile, backups, and the singleton lock live under `%LOCALAPPDATA%\Orca-Strator` (override with `ORCA_DATA_DIR`), never inside the install directory. Upgrades/reinstalls preserve all of it; uninstall never deletes user data (`deleteAppDataOnUninstall: false`). The installer/uninstaller aborts when safe controller quiescence cannot be proven (active-campaign guidance included); it never task-kills by name or PID wildcard.
 - **System readiness**: Settings → System Readiness composes writable-data-dir, database, Git, Chrome, ChatGPT auth, repository paths, conditional WSL, and optional Tailscale/OpenCode into READY / ACTION_REQUIRED / OPTIONAL / UNKNOWN checks with remediation hints (`/api/system/readiness`).
-- **Truthful artifacts**: artifacts are version+architecture named and UNSIGNED unless you configure signing yourself. Hosted CI produces PACKAGE_BUILT artifacts only; PACKAGE_RUNTIME_QUALIFIED is reserved for an executed local smoke.
+- **Releases**: one canonical product version lives in the root `package.json` (`npm run release:prepare -- <semver>` updates everything atomically). Tag-triggered CI verifies tag==version, builds from the recorded commit SHA, derives signing truth from actual Authenticode verification, and publishes provenance (`release-manifest.json`), `SHA256SUMS.txt`, and a CycloneDX SBOM with the GitHub Release. Artifacts remain UNSIGNED unless you configure real signing; automatic updates stay deferred while releases are unsigned.
 
 ## Current development status
 
@@ -164,12 +172,10 @@ Honest status (this machine):
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
-Latest full qualification run on this tree (Change 024): `npm test` fast tier
-59 test files green (including `sol-stalled-control-closure.test.ts`),
-`npm run typecheck`, `npm run build`, and `npm run lint` exit 0;
-`git diff --check` clean; strict OpenSpec validation 24 passed / 0 failed;
-real tier exit 0 with 14 test files passed / 1 skipped (the known
-`EXPECTED_EXTERNAL_UNQUALIFIED` OpenCode-URL case).
+Latest full qualification run on this tree (Change 026): `npm test` fast tier
+68 test files / 393 tests green (including the new controller-compatibility,
+lifecycle-shutdown, schema-downgrade-guard, migration-backup, state-backup,
+and release-tooling suites), `npm run typecheck`, and `npm run lint` exit 0.
 
 ## Durable development workflow
 

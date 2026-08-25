@@ -22,6 +22,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Source integrity (tracked imports resolve to Git truth)
+        run: node scripts/ci/check-source-integrity.mjs
+
+      - name: Release version coherence
+        run: node scripts/release/version-check.mjs
+
       - name: Fast tests
         run: npm test
 

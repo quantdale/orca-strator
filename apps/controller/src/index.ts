@@ -4,6 +4,8 @@ import { loadConfig } from "./config/load-config.js";
 import { getControllerIdentity } from "./runtime/build-identity.js";
 import { ControllerRuntimeLock } from "./runtime/singleton-lock.js";
 import { buildApp } from "./app.js";
+import { DatabaseTooNewError, preflightSchemaCompatibility, MAX_KNOWN_SCHEMA_VERSION } from "./db/schema-compat.js";
+import { DatabaseSync } from "node:sqlite";
 
 type AppRuntime = Awaited<ReturnType<typeof buildApp>>;
 
@@ -11,6 +13,8 @@ type AppRuntime = Awaited<ReturnType<typeof buildApp>>;
 const EXIT_SINGLETON_BUSY = 10;
 const EXIT_PORT_CONFLICT = 11;
 const EXIT_INIT_FAILED = 1;
+/** Change 026: database is newer than this binary supports; fail closed. */
+const EXIT_DATABASE_TOO_NEW = 12;
 
 /**
  * Packaged-runtime logging (Change 025): when there is no terminal, controller
@@ -45,6 +49,35 @@ function installPackagedLogging(logDir: string): void {
 async function main() {
   const identity = getControllerIdentity();
   const config = loadConfig();
+
+  // Change 026: schema downgrade refusal runs before ANY other startup work —
+  // before logging setup mutates nothing, before lock acquisition, before
+  // services. A read-only preflight against the persistent DB decides.
+  if (config.dbPath !== ":memory:") {
+    try {
+      const probe = new DatabaseSync(config.dbPath, { readOnly: true });
+      try {
+        preflightSchemaCompatibility(probe, MAX_KNOWN_SCHEMA_VERSION);
+      } finally {
+        probe.close();
+      }
+    } catch (err) {
+      if (err instanceof DatabaseTooNewError) {
+        console.error(
+          `[controller] ${err.message} ` +
+            `(currentSchema=${err.currentSchema}, maxKnownSchema=${err.maxKnownSchema})`
+        );
+        process.exit(EXIT_DATABASE_TOO_NEW);
+      }
+      // ENOENT etc. means no database exists yet — normal first-start path.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== "ENOENT") {
+        // Unreadable/corrupt DB: let initDatabase surface the real error.
+        console.warn(`[controller] Schema preflight probe skipped (${code ?? String(err)}).`);
+      }
+    }
+  }
+
   if (config.nodeEnv === "production" || process.env.ORCA_PACKAGED === "1") {
     // In packaged mode there is no visible terminal; keep durable diagnostics.
     if (process.env.ORCA_PACKAGED === "1") {
@@ -107,8 +140,21 @@ async function main() {
 
   let app: AppRuntime;
   try {
-    app = await buildApp(config);
+    app = await buildApp(config, {
+      lifecycle: {
+        controlToken: lock.currentControlToken,
+        requestShutdown: () => void shutdown("CONTROL_SHUTDOWN")
+      }
+    });
   } catch (err) {
+    if (err instanceof DatabaseTooNewError) {
+      console.error(
+        `[controller] ${err.message} ` +
+          `(currentSchema=${err.currentSchema}, maxKnownSchema=${err.maxKnownSchema})`
+      );
+      lock.release();
+      process.exit(EXIT_DATABASE_TOO_NEW);
+    }
     console.warn("[controller] Initialization failed:", err);
     lock.release();
     process.exit(EXIT_INIT_FAILED);

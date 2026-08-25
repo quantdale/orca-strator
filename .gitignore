@@ -2,6 +2,12 @@
 node_modules/
 dist/
 build/
+!apps/desktop/build/
+# electron-builder buildResources is packaging INPUT (tracked file-by-file);
+# its output goes to release/ and dist/, never into build/.
+apps/desktop/build/*
+!apps/desktop/build/installer.nsh
+!apps/desktop/build/controller-safety.ps1
 out/
 coverage/
 .vite/

@@ -40,6 +40,7 @@ import { CapabilityProbeService } from "./executor/capability-probe-service.js";
 import { PermissionStore } from "./permissions/permission-store.js";
 import { PermissionPolicyService } from "./permissions/permission-policy-service.js";
 import { campaignRoutes } from "./http/routes/campaigns.js";
+import { lifecycleRoutes, type LifecycleControl } from "./http/routes/lifecycle.js";
 import { operationalIntelligenceRoutes } from "./http/routes/operational-intelligence.js";
 import { usageSchedulerRoutes } from "./http/routes/usage-scheduler.js";
 import { UsageTelemetryStore } from "./usage/usage-telemetry-store.js";
@@ -115,6 +116,8 @@ export async function buildApp(
     discoverSystemChrome?: () => Promise<SystemChromeInfo>;
     setupLauncher?: ExternalSetupLauncherLike;
     requireInstalledChromeForAutomation?: boolean;
+    /** Change 026: authenticated graceful-shutdown control for the desktop. */
+    lifecycle?: LifecycleControl;
   } = {},
 ): Promise<AppInstance> {
   const fastify = Fastify({
@@ -532,6 +535,13 @@ export async function buildApp(
       db: dbContext.db,
       repositoryStore: store,
       browserManager,
+    }),
+  );
+  await fastify.register(
+    lifecycleRoutes({
+      runStore,
+      identityPid: identity.pid,
+      control: overrides.lifecycle ?? null,
     }),
   );
   await fastify.register(websocketRoutes(eventBus));

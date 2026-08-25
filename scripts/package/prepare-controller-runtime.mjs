@@ -149,4 +149,14 @@ const uiStage = path.join(staging, "ui");
 rmrf(uiStage);
 copyDir(path.join(repoRoot, "apps", "ui", "dist"), uiStage);
 
+// Installer safety helper (Change 026): tracked buildResources source is the
+// single provenance point; the staged copy ships via extraResources so the
+// NSIS include can always find $INSTDIR\resources\controller-safety.ps1.
+const safetySrc = path.join(desktopDir, "build", "controller-safety.ps1");
+if (!fs.existsSync(safetySrc)) {
+  console.error("[prepare] Missing apps/desktop/build/controller-safety.ps1 (tracked source required).");
+  process.exit(1);
+}
+fs.copyFileSync(safetySrc, path.join(staging, "controller-safety.ps1"));
+
 console.log(`[prepare] Controller runtime staged at ${staging}`);

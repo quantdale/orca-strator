@@ -11,6 +11,10 @@ extraResources:
     to: controller
   - from: resources/ui
     to: ui
+  - from: resources/build-info.json
+    to: build-info.json
+  - from: resources/controller-safety.ps1
+    to: controller-safety.ps1
 asar: true
 win:
   target:
@@ -24,5 +28,6 @@ nsis:
   allowToChangeInstallationDirectory: true
   artifactName: ${productName}-${version}-${arch}-setup.${ext}
   deleteAppDataOnUninstall: false
+  include: build/installer.nsh
 electronLanguages:
   - en-US

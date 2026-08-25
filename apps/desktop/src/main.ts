@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   ensureController,
@@ -32,8 +33,36 @@ const STATE_TITLES: Record<DesktopStartupState, string> = {
   CONNECTED: "Connected",
   PORT_CONFLICT: "Port conflict",
   INCOMPATIBLE_CONTROLLER: "Incompatible controller",
+  DATABASE_TOO_NEW: "Database is newer than this release",
+  RESTART_PENDING: "Update pending — background work still running",
   STARTUP_FAILED: "Startup failed"
 };
+
+export interface DesktopBuildInfo {
+  version: string;
+  commitSha?: string;
+  maxDbSchemaVersion?: number;
+}
+
+/**
+ * Build identity stamped at packaging time (Change 026). Read from install
+ * resources so `/api/system/identity` can be correlated 1:1 with the release
+ * manifest; absent in development where looser reuse rules apply anyway.
+ */
+export function readBuildInfo(resourcesPath: string): DesktopBuildInfo {
+  try {
+    const raw = fs.readFileSync(path.join(resourcesPath, "build-info.json"), "utf8");
+    const parsed = JSON.parse(raw) as Partial<DesktopBuildInfo>;
+    return {
+      version: typeof parsed.version === "string" ? parsed.version : "",
+      commitSha: typeof parsed.commitSha === "string" ? parsed.commitSha : undefined,
+      maxDbSchemaVersion:
+        typeof parsed.maxDbSchemaVersion === "number" ? parsed.maxDbSchemaVersion : undefined
+    };
+  } catch {
+    return { version: "" };
+  }
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -43,7 +72,12 @@ function escapeHtml(value: string): string {
 // when startup reaches a terminal diagnostic state. Terminal states offer a
 // safe Retry action through the isolated preload bridge.
 function buildStartupPageUrl(state: DesktopStartupState, detail?: string): string {
-  const terminal = state === "PORT_CONFLICT" || state === "INCOMPATIBLE_CONTROLLER" || state === "STARTUP_FAILED";
+  const terminal =
+    state === "PORT_CONFLICT" ||
+    state === "INCOMPATIBLE_CONTROLLER" ||
+    state === "DATABASE_TOO_NEW" ||
+    state === "RESTART_PENDING" ||
+    state === "STARTUP_FAILED";
   const title = STATE_TITLES[state];
   const html = `<!DOCTYPE html>
 <html>
@@ -97,6 +131,7 @@ async function runStartupFlow(win: BrowserWindow): Promise<void> {
     void win.loadURL(buildStartupPageUrl(state, detail)).catch(() => {});
   };
 
+  const buildInfo = readBuildInfo(process.resourcesPath ?? __dirname);
   const result: EnsureControllerResult = await ensureController({
     baseUrl: getControllerBaseUrl(),
     host: process.env.ORCA_HOST || undefined,
@@ -106,6 +141,8 @@ async function runStartupFlow(win: BrowserWindow): Promise<void> {
     resourcesPath: process.resourcesPath ?? __dirname,
     desktopDistDir: __dirname,
     packaged: app.isPackaged,
+    buildId: buildInfo.commitSha,
+    maxSchemaVersion: buildInfo.maxDbSchemaVersion,
     ...(process.env.ORCA_DATA_DIR ? { dataDir: process.env.ORCA_DATA_DIR } : {}),
     onState: showState,
     budgetMs: Number(process.env.ORCA_STARTUP_BUDGET_MS) || undefined
@@ -119,8 +156,10 @@ async function runStartupFlow(win: BrowserWindow): Promise<void> {
     return;
   }
 
-  // Terminal diagnostics already rendered by the final onState callback.
-  console.warn(`[Desktop] Startup ended in ${result.state}: ${result.detail}`);
+  // Terminal/pending diagnostics already rendered by the final onState callback.
+  console.warn(
+    `[Desktop] Startup ended in ${result.outcome === "restart-pending" ? "RESTART_PENDING" : result.state}: ${result.detail}`
+  );
 }
 
 export function createWindow(): BrowserWindow {

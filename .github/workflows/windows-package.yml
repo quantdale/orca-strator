@@ -1,4 +1,7 @@
-name: Windows package build
+name: Windows package and release
+
+# Tag-triggered RELEASE pipeline (Change 026) plus manual dispatch for
+# rehearsal. Ordinary push/PR CI (windows-ci.yml) can never publish Releases.
 
 on:
   workflow_dispatch:
@@ -6,11 +9,16 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
-  windows-package:
+  windows-release-build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -18,33 +26,54 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Verify tag/version/source integrity (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          node scripts/release/verify-tag.mjs "${GITHUB_REF_NAME}"
+          node scripts/release/version-check.mjs
+
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Build unpacked package
-        run: npm run package:win
+      - name: Release gates (fast tests)
+        run: npm test
 
-      - name: Build installer
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build installer + unpacked distribution
         run: npm run package:win:installer
 
-      # Hosted CI cannot execute a full interactive desktop smoke; the artifact
-      # is therefore labeled PACKAGE_BUILT, never PACKAGE_RUNTIME_QUALIFIED.
-      - name: Upload unpacked artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: orca-strator-win-unpacked-x64
-          path: apps/desktop/release/win-unpacked/
-          retention-days: 14
+      - name: Generate provenance manifest + checksums
+        shell: pwsh
+        run: |
+          node scripts/release/generate-release-manifest.mjs `
+            --artifact "apps/desktop/release/Orca-Strator-$((Get-Content package.json | ConvertFrom-Json).version)-x64-setup.exe" `
+            --artifact "apps/desktop/release/win-unpacked/Orca-Strator.exe" `
+            --qualification-tier PACKAGE_BUILT `
+            --out apps/desktop/release
 
-      - name: Upload installer artifact (UNSIGNED)
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx --omit dev --sbom-output-file apps/desktop/release/orca-strator-sbom.cdx.json
+
+      - name: Upload distribution bundle
         uses: actions/upload-artifact@v4
         with:
-          name: orca-strator-win-installer-x64-unsigned
-          path: apps/desktop/release/*.exe
+          name: orca-strator-distribution
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/release-manifest.json
+            apps/desktop/release/SHA256SUMS.txt
+            apps/desktop/release/orca-strator-sbom.cdx.json
+            apps/desktop/release/package-smoke-report.json
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload logs on failure
+      - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -54,3 +83,95 @@ jobs:
             apps/controller/logs
           if-no-files-found: ignore
           retention-days: 7
+
+  installer-acceptance:
+    needs: windows-release-build
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        phase-set:
+          - id: lifecycle
+            phases: "install,close-reopen,uninstall,reinstall"
+          - id: upgrade
+            phases: "install,close-reopen,upgrade,uninstall,reinstall"
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Download distribution bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: orca-strator-distribution
+          path: dist-download
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build synthetic candidate installer (upgrade matrix only)
+        if: matrix.phase-set.id == 'upgrade'
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'candidate-worktree'
+          git worktree add --detach $work $env:GITHUB_SHA
+          Push-Location $work
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          node scripts/release/set-version.mjs "$($v -replace '\.\d+$', '.999')" 
+          npm install --no-audit --no-fund
+          npm run package:win:installer
+          Pop-Location
+          Copy-Item "$work/apps/desktop/release/*x64-setup.exe" dist-download/candidate-setup.exe
+
+      - name: Run installer lifecycle acceptance
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist-download -Filter '*x64-setup.exe' | Where-Object Name -ne 'candidate-setup.exe' | Select-Object -First 1
+          $args = @('scripts/package/installer-acceptance.mjs', '--phases', '${{ matrix.phase-set.phases }}', '--setup', $setup.FullName, '--port', '47271')
+          if ('${{ matrix.phase-set.id }}' -eq 'upgrade') { $args += @('--upgrade-setup', 'dist-download/candidate-setup.exe') }
+          node @args
+
+      - name: Upload acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-acceptance-${{ matrix.phase-set.id }}
+          path: |
+            apps/desktop/release/installer-acceptance-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  github-release:
+    needs: [windows-release-build, installer-acceptance]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # Least privilege: ONLY this publish job may write repository contents.
+      contents: write
+    steps:
+      - name: Download distribution bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: orca-strator-distribution
+          path: dist-download
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "Orca-Strator ${TAG#v}" \
+            --generate-notes \
+            --verify-tag || gh release upload "$TAG" --clobber \
+              dist-download/*.exe \
+              dist-download/SHA256SUMS.txt \
+              dist-download/release-manifest.json \
+              dist-download/orca-strator-sbom.cdx.json \
+              dist-download/installer-acceptance-report.json

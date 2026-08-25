@@ -12,6 +12,7 @@
     "apps/*"
   ],
   "scripts": {
+    "pretest": "node scripts/ci/check-source-integrity.mjs && node scripts/release/version-check.mjs",
     "dev": "node scripts/dev.js",
     "dev:controller": "npm run dev --workspace=@orca/controller",
     "dev:ui": "npm run dev --workspace=@orca/ui",
@@ -27,10 +28,24 @@
     "browser:install": "npm --prefix apps/controller run browser:install",
     "playwright:status": "npm --prefix apps/controller run playwright:status",
     "lint": "npm run build:shared && npm run lint --workspaces --if-present",
+    "version:check": "node scripts/release/version-check.mjs",
+    "release:prepare": "node scripts/release/set-version.mjs",
+    "write:build-info": "node scripts/release/write-build-info.mjs",
+    "release:manifest": "node scripts/release/generate-release-manifest.mjs",
+    "verify-tag": "node scripts/release/verify-tag.mjs",
+    "backup": "npm run build:controller && node scripts/backup/state-backup.mjs",
+    "restore": "npm run build:controller && node scripts/backup/state-restore.mjs",
+    "test:backup-restore": "npm run build:controller && node scripts/backup/roundtrip-check.mjs",
     "prepare:controller-runtime": "node scripts/package/prepare-controller-runtime.mjs",
-    "package:win": "npm run build && npm run prepare:controller-runtime && cd apps/desktop && npx electron-builder --win --dir",
-    "package:win:installer": "npm run build && npm run prepare:controller-runtime && cd apps/desktop && npx electron-builder --win",
-    "smoke:package": "node scripts/package/package-smoke.mjs"
+    "package:win": "npm run build && npm run write:build-info && npm run prepare:controller-runtime && cd apps/desktop && npx electron-builder --win --dir",
+    "package:win:installer": "npm run build && npm run write:build-info && npm run prepare:controller-runtime && cd apps/desktop && npx electron-builder --win",
+    "smoke:package": "node scripts/package/package-smoke.mjs",
+    "smoke:installer": "node scripts/package/installer-acceptance.mjs",
+    "test:crash-recovery": "node scripts/package/crash-recovery.mjs",
+    "test:endurance": "node scripts/package/endurance.mjs --label long --cycles 30",
+    "test:endurance:short": "node scripts/package/endurance.mjs --label short",
+    "test:stress:repos": "node scripts/package/multi-repo-stress.mjs",
+    "test:upgrade": "node scripts/package/installer-acceptance.mjs --phases upgrade"
   },
   "devDependencies": {
     "typescript": "^5.7.3",
