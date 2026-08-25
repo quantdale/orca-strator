@@ -70,7 +70,7 @@ describe("Change 026 authenticated lifecycle control", () => {
     ).run(id, "Fixture", "https://example.invalid/x.git", "C:/tmp/x", "windows", "kimi", "m", "https://c", 5, 30, now, now);
   }
 
-  it(`rejects lifecycle reads without a token (unauthenticated surface is inert)`, { timeout: 20_000 }, async () => {
+  it("rejects lifecycle reads without a token (unauthenticated surface is inert)", { timeout: 20_000 }, async () => {
     await boot(true);
     const noHeader = await appInstance.fastify.inject({ method: "GET", url: "/api/system/lifecycle" });
     expect(noHeader.statusCode).toBe(401);
