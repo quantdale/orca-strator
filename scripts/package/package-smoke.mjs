@@ -27,7 +27,11 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const unpackedDir = path.join(repoRoot, "apps", "desktop", "release", "win-unpacked");
 const exePath = path.join(unpackedDir, "Orca-Strator.exe");
-const PORT = Number(process.env.ORCA_SMOKE_PORT || 47191);
+// Ephemeral by default: a fixed port let a crashed prior run's leftover
+// controller poison later runs (found during Change 027 requalification).
+const PORT = Number(
+  process.env.ORCA_SMOKE_PORT || 47200 + Math.floor(Math.random() * 700)
+);
 const BASE = `http://127.0.0.1:${PORT}`;
 const READY_TIMEOUT_MS = 90_000;
 
@@ -261,13 +265,18 @@ const listOk =
   })();
 record("10.9b persisted state survives close/reopen", listOk, `status=${listRes.status}`);
 
-// Teardown: kill ONLY the test controller by its real pid (10.10).
+// Teardown order matters (Change 027): the second desktop is still open and
+// its supervisor legitimately RECOVERS a killed controller. Quiesce the
+// desktops first, then the controller, then assert nothing responds.
+killPidOnly(secondDesktopPid);
+await new Promise((r) => setTimeout(r, 1500));
 killPidOnly(controllerPid);
 await new Promise((r) => setTimeout(r, 2000));
 const afterTeardown = await identityOnce().catch(() => null);
 record("10.10a teardown stopped only the test controller", !afterTeardown, "");
 
-killPidOnly(secondDesktopPid);
+// Second desktop already quiesced before the controller kill (ordered
+// teardown above); a redundant kill here would race its exit and crash.
 const resourcesAfter = snapshotTree(unpackedDir);
 let mutated = false;
 for (const [rel, size] of resourcesAfter) {
@@ -284,7 +293,13 @@ for (const rel of resourcesBefore.keys()) {
 }
 record("10.10b no writes inside package resources during the whole run", !mutated, mutated ? "see log" : "byte-size snapshot identical");
 
-fs.rmSync(dataDir, { recursive: true, force: true });
+try {
+  fs.rmSync(dataDir, { recursive: true, force: true });
+} catch (err) {
+  // A lingering handle (AV/indexer) must not mask an otherwise green verdict;
+  // the workspace stays behind for inspection.
+  console.warn(`[smoke] workspace cleanup skipped (${err?.code ?? err}): ${dataDir}`);
+}
 
 // Artifact metadata (10.11).
 const stat = fs.statSync(exePath);

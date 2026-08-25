@@ -28,7 +28,8 @@
 
 ## 4. Package/upgrade truth
 
-- [ ] 4.1 Clean-origin-only `package:win` build from committed sources; re-run real packaged-runtime smoke on the final tree (PACKAGE_RUNTIME_QUALIFIED must be re-established, not inherited).
+- [x] 4.1 Clean-origin-only `package:win` build from committed sources; re-run real packaged-runtime smoke on the final tree (PACKAGE_RUNTIME_QUALIFIED must be re-established, not inherited).
+  Evidence: package:win from committed sources stamps build-info (version=0.1.0 commit=b18c8f80380d maxSchema=23); smoke verdict PACKAGE_RUNTIME_QUALIFIED re-run on the final tree after the token-preservation fix (all checks incl. teardown-only-test-controller). Two harness-truth defects fixed en route: teardown ordering must quiesce the still-open relaunch desktop BEFORE killing the controller (its supervisor legitimately resurrects it), cleanup is failure-tolerant, and the smoke port is ephemeral by default so a crashed run can no longer poison later ones.
 - [x] 4.2 Isolated synthetic-version upgrade/data-preservation exercise proving migration + data survival across versions; installer execution remains external-gated if unauthorized.
   Evidence: scripts/package/upgrade-preservation.mjs (`npm run test:upgrade:unpacked`) verdict UNPACKED_UPGRADE_PRESERVATION_QUALIFIED — 10/10 checks: generation A (real artifact) seeds durable state via packaged API; generation B (production ORCA_BUILD_VERSION/ORCA_BUILD_COMMIT stamping seams emulating a newer release) starts on the SAME data dir without DATABASE_TOO_NEW refusal, reports skewed identity, preserves repository rows, keeps integrity/FK clean (23 migrations), carries controlToken in lock metadata, and shuts down gracefully via the authenticated contract. NSIS installer lifecycle stays with the ephemeral-CI release job (INSTALLER_EXECUTION_SANCTIONED_ENV_ONLY blocker unchanged).
 - [ ] 4.3 Keep PACKAGE_BUILT vs PACKAGE_RUNTIME_QUALIFIED labeling truthful in workflows/docs.

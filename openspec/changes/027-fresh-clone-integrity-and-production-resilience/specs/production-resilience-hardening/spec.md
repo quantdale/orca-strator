@@ -34,3 +34,8 @@ explicitly out of scope and honestly unlabeled.
 Every reproducible Critical/High defect surfaced by the whole-system
 blast-radius/failure-injection audit MUST be fixed with a regression test or
 explicitly recorded as external-blocked; none may be silently dropped.
+
+#### Scenario: Token-stripping lock rewrite regression
+
+- **WHEN** an owning controller refreshes its runtime-lock metadata after binding (e.g. to record the listen endpoint)
+- **THEN** the persisted metadata still contains the same per-start control token the owner presents, and authenticated graceful shutdown remains possible for replacement flows

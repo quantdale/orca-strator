@@ -172,10 +172,16 @@ Honest status (this machine):
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
-Latest full qualification run on this tree (Change 026): `npm test` fast tier
-68 test files / 393 tests green (including the new controller-compatibility,
-lifecycle-shutdown, schema-downgrade-guard, migration-backup, state-backup,
-and release-tooling suites), `npm run typecheck`, and `npm run lint` exit 0.
+Latest full qualification run on this tree (Changes 026+027): `npm test` fast
+tier 69 test files / 400 tests green — including the repository source-integrity
+pretest guard (all tracked relative imports resolve to Git-tracked modules),
+controller-compatibility, lifecycle-shutdown, schema-downgrade-guard,
+migration-backup, state-backup, runtime-log-bound, and release-tooling suites —
+with `npm run typecheck` and `npm run lint` exit 0. The P0 fresh-clone defect
+(ignored `runtime/` production sources) is repaired and re-proven from an
+origin-only clean worktree; `UNPACKED_UPGRADE_PRESERVATION_QUALIFIED` (10/10)
+and a re-run `PACKAGE_RUNTIME_QUALIFIED` packaged smoke back the upgrade and
+packaging truth on committed sources.
 
 ## Durable development workflow
 

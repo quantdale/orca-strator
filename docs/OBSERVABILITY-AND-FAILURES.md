@@ -263,6 +263,13 @@ The UI should expose the marker/commit SHA when available.
 
 Executor stdout/stderr should be streamed to the UI where practical and retained only according to a bounded logging policy later.
 
+The packaged controller's own log is runtime-bounded (Change 027): the active
+`<dataDir>/logs/controller.log` rotates to `controller.prev.log` when the size
+bound is crossed DURING the running process — not only at startup — so one
+long-running leave-and-forget controller cannot exceed ~2x the bound. Rotation
+uses synchronous fd lifecycle to stay race-free on Windows; a broken log sink
+never blocks or crashes the controller.
+
 The controller should capture:
 
 - process launch command metadata without secrets;

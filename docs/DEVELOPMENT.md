@@ -69,6 +69,17 @@ Verification is evidence, not a mandatory startup ceremony.
 - if one verification path fails and does not block independent work, record it and continue elsewhere;
 - do not loop indefinitely solely to make every historical/baseline failure green before progressing.
 
+Repository source truth is a standing gate (Change 027):
+`node scripts/ci/check-source-integrity.mjs` runs in `pretest` and Windows CI,
+and fails whenever a tracked TypeScript relative import resolves to a module
+that is missing from disk, ignored by `.gitignore`, or untracked — the exact
+defect class that once made every local check green while a fresh clone could
+not build. Generic local-data ignore rules (`/logs/`, `/runtime/`,
+`/browser-profile/`, `/.orca-local/`) are anchored to the repository root on
+purpose; do not reintroduce unanchored directory-name rules that can swallow
+nested production source. Qualification claims that require a buildable tree
+must be re-provable from an origin-only clean worktree.
+
 ## 6. OpenSpec lifecycle
 
 Significant work uses:

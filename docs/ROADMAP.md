@@ -928,3 +928,48 @@ Qualification on this tree (2026-08-23):
   (95923193 bytes; SHA256 72B3BEF9E1F0AB9BF9DF1858D4D2710DDDC1AF3C31CBE95A416E5C9A2D7DC63A),
   both UNSIGNED; installer is PACKAGE_BUILT (silent-install execution was not
   run to avoid host-machine mutation outside the repository).
+
+> **Fresh-clone caveat (corrected by Milestone 24).** The qualification above
+> ran on a local tree whose `apps/controller/src/runtime/**` production
+> sources were silently suppressed from Git by an unanchored `.gitignore`
+> rule (`runtime/`). Pushed `main` at this milestone could not build from a
+> fresh clone; every green result here is local-tree evidence, not
+> fresh-clone proof. Milestone 24 (Change 027) repaired Git truth, re-proved
+> the tree from an origin-only clean worktree, and re-established
+> PACKAGE_RUNTIME_QUALIFIED on committed sources.
+
+### Milestone 24 — Installed release lifecycle, fresh-clone integrity, and endurance hardening
+
+OpenSpec: `026-installed-release-lifecycle-and-endurance` (implementation) and
+`027-fresh-clone-integrity-and-production-resilience` (P0 repair + hardening)
+
+Status: **in progress — P0 repaired / PACKAGE_RUNTIME_QUALIFIED re-established on committed sources (2026-08-25); installer lifecycle + endurance tiers remain CI-gated or pending**
+
+Change 026 delivers installed-release safety: build identity verdicts
+(`evaluateControllerCompatibility`; packaged desktops reuse only exact builds),
+authenticated graceful controller replacement (per-start control token in
+runtime-lock metadata; loopback-only `/api/system/lifecycle` +
+`/api/system/shutdown`), typed `DATABASE_TOO_NEW` downgrade refusal (exit 12)
+with verified pre-migration snapshots, user state backup/restore bundles,
+single-source versioning, provenance manifests/SBOM/tag integrity, NSIS
+install/uninstall fail-closed safety helper with tracked provenance, and
+crash/endurance/stress harnesses.
+
+Change 027 repairs the repository itself: anchored ignore semantics,
+recovered runtime sources, the `scripts/ci/check-source-integrity.mjs`
+tracked-import guard (pretest + Windows CI), origin-only clean-worktree P0
+gate (68 files / 394 tests + typecheck green at 3684ea0), runtime-bounded
+packaged logging, and two Critical/High blast-radius fixes found en route:
+(1) CRITICAL — lock metadata refresh stripped the lifecycle controlToken,
+permanently breaking desktop replacement flows in production (caught only by
+the end-to-end upgrade harness; regression test added);
+(2) HIGH — smoke teardown ordering let a live desktop's supervisor resurrect
+the killed controller, plus fixed-port reuse let crashed runs poison later
+ones (teardown reordered; ephemeral port default).
+
+Qualification so far (2026-08-25): fast tier 69 files / 400 tests green;
+typecheck/lint exit 0; `UNPACKED_UPGRADE_PRESERVATION_QUALIFIED` 10/10 via
+`npm run test:upgrade:unpacked`; `PACKAGE_RUNTIME_QUALIFIED` smoke re-run on
+final sources. Remaining honest gaps: NSIS installer-lifecycle acceptance and
+long-soak endurance evidence are ephemeral-CI/local-sanctioned-env gated;
+real-tier run recorded in the session report.
