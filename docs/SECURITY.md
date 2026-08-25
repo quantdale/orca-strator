@@ -353,3 +353,51 @@ Packaging must not widen the trust surface:
   profiles, logs, and databases are excluded by construction.
 - Artifacts are truthfully UNSIGNED unless a real certificate is configured;
   CI artifacts are labeled PACKAGE_BUILT, never runtime-qualified.
+
+
+## Installed release lifecycle security review (Change 026/027)
+
+Audit of the new process-control and release surfaces:
+
+- **Authenticated shutdown is the only process-control path.** The controller
+  generates a 32-byte random control token per start, persists it ONLY in the
+  user-owned runtime lock file (`<dataDir>/controller.lock`, same-user OS
+  semantics), and accepts `POST /api/system/shutdown` plus
+  `GET /api/system/lifecycle` solely with a constant-time-compared
+  `x-orca-control-token` header. The token never appears in any HTTP response,
+  log line, or event payload. There is deliberately no unauthenticated
+  shutdown endpoint; renderers and web pages receive no bridge authority.
+- **Loopback + header CSRF posture.** The controller binds loopback only.
+  Cross-site pages cannot attach custom headers without a CORS preflight the
+  controller never grants, so browser-driven CSRF cannot reach the lifecycle
+  routes even from a malicious page open on the same machine.
+- **PID-reuse safety.** The desktop (and the NSIS helper) never act on PID
+  metadata alone: replacement requires reading THIS user's lock file for the
+  token, probing THAT listener's lifecycle, receiving acceptance, and observing
+  real process exit plus lock release. A recycled PID that is not our
+  controller cannot answer correctly and is left untouched.
+- **Foreign processes are never killed.** Installer upgrade/uninstall aborts
+  fail-closed when quiescence cannot be proven (exit-code taxonomy in
+  `controller-safety.ps1`); there are no product-name wildcard task kills.
+- **Backup bundles exclude secrets structurally.** The writer can emit only a
+  checksummed SQLite image plus manifest — cookies/profiles, executor
+  credentials, repository/worktree directories, locks/PIDs, and logs are not
+  representable in the format. Restore validates entry allowlist (rejecting
+  absolute paths/`..`/backslash traversal), checksums, schema ceiling, and
+  controller quiescence before replacing state, preserving the prior DB as a
+  recovery copy.
+- **Downgrade refusal fails closed without mutation.** `DATABASE_TOO_NEW`
+  preflights read-only BEFORE pragmas/migrations/services; refused startups
+  leave database bytes untouched. Pre-migration snapshots live under the data
+  directory only and fail the migration closed if they cannot be created or
+  verified.
+- **Release provenance integrity.** Tag/version mismatch fails releases;
+  signing status is derived post-build from actual Authenticode verification
+  rather than configuration claims; publish jobs hold least-privilege
+  `contents: write` while ordinary push/PR CI stays read-only. The tracked-
+  import integrity guard (`scripts/ci/check-source-integrity.mjs`) additionally
+  prevents ignored/untracked local source from silently substituting for Git
+  truth during qualification.
+- **Rollback honesty.** Rollback to an older binary on a newer schema refuses
+  via the same typed guard; operators restore a verified pre-upgrade snapshot
+  instead. No down-migrations exist.
