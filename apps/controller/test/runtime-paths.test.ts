@@ -20,15 +20,33 @@ describe("Change 025 runtime path contract (9.5/4.x)", () => {
   it("development mode keeps repo-relative UI resolution independent of cwd", () => {
     process.chdir(os.tmpdir());
     const runtimeModuleDir = path.resolve(__dirname, "..", "src", "runtime");
+    // The development contract is "ui/dist when built, null otherwise". The
+    // resolution-under-test here is cwd independence, so establish the
+    // conventional location explicitly: a fresh clone / CI runner has not run
+    // `npm run build:ui` yet, and inheriting a stale dev-machine artifact
+    // would make this suite environment-dependent (found by the Change 027
+    // clean-worktree gate).
+    const uiDist = path.resolve(runtimeModuleDir, "../../../ui/dist");
+    fs.mkdirSync(uiDist, { recursive: true });
     const paths = resolveRuntimePaths({}, process.env);
     expect(paths.mode).toBe("development");
     // Resolved relative to the paths module location, never process.cwd().
-    expect(paths.uiDistDir).toBe(path.resolve(runtimeModuleDir, "../../../ui/dist"));
+    expect(paths.uiDistDir).toBe(uiDist);
     // db and generated state live under the data dir, never under cwd
     expect(path.dirname(paths.dbPath)).toBe(paths.dataDir);
     expect(paths.logDir.startsWith(paths.dataDir)).toBe(true);
     expect(paths.browserProfileDir.startsWith(paths.dataDir)).toBe(true);
     expect(paths.runtimeLockPath.startsWith(paths.dataDir)).toBe(true);
+  });
+
+  it("development reports null UI dist until the UI is actually built", () => {
+    const runtimeModuleDir = path.resolve(__dirname, "..", "src", "runtime");
+    const probe = path.resolve(runtimeModuleDir, "../../../ui/dist");
+    const preexisting = fs.existsSync(probe);
+    if (!preexisting) {
+      const paths = resolveRuntimePaths({}, process.env);
+      expect(paths.uiDistDir).toBeNull();
+    }
   });
 
   it("packaged mode resolves UI from install resources regardless of cwd", () => {
