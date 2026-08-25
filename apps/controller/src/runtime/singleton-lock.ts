@@ -92,7 +92,14 @@ function readMetadata(lockPath: string): { metadata: RuntimeLockMetadata | null;
           startedAt: parsed.startedAt,
           version: typeof parsed.version === "string" ? parsed.version : "unknown",
           protocol: typeof parsed.protocol === "number" ? parsed.protocol : 0,
-          endpoint: typeof parsed.endpoint === "string" ? parsed.endpoint : undefined
+          endpoint: typeof parsed.endpoint === "string" ? parsed.endpoint : undefined,
+          // Preserve the authenticated-lifecycle token across metadata
+          // rewrites: refresh({endpoint}) after bind re-serializes this
+          // object, and dropping the token here silently disabled every
+          // desktop replacement/upgrade flow (found by the Change 027
+          // upgrade-preservation harness).
+          controlToken:
+            typeof parsed.controlToken === "string" ? parsed.controlToken : undefined
         }
       };
     }

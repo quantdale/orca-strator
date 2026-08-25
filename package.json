@@ -45,7 +45,8 @@
     "test:endurance": "node scripts/package/endurance.mjs --label long --cycles 30",
     "test:endurance:short": "node scripts/package/endurance.mjs --label short",
     "test:stress:repos": "node scripts/package/multi-repo-stress.mjs",
-    "test:upgrade": "node scripts/package/installer-acceptance.mjs --phases upgrade"
+    "test:upgrade": "node scripts/package/installer-acceptance.mjs --phases upgrade",
+    "test:upgrade:unpacked": "node scripts/package/upgrade-preservation.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

@@ -46,6 +46,21 @@ describe("Change 025 controller singleton runtime lock (9.1/9.2)", () => {
     expect(typeof meta.startedAt).toBe("string");
   });
 
+  it("preserves the control token across refresh metadata rewrites (Change 027)", () => {
+    // Regression: readMetadata() dropped controlToken, so the post-bind
+    // refresh({endpoint}) rewrote the lock WITHOUT the token and every
+    // desktop replacement/upgrade flow silently lost its authenticated
+    // shutdown path (found by the upgrade-preservation harness).
+    const lock = lockFor();
+    expect(lock.acquire("1.0.0-token-regression").outcome).toBe("acquired");
+    lock.refresh({ endpoint: "http://127.0.0.1:47444" });
+
+    const meta = JSON.parse(fs.readFileSync(lock.path, "utf8")) as RuntimeLockMetadata;
+    expect(meta.endpoint).toBe("http://127.0.0.1:47444");
+    expect(typeof meta.controlToken).toBe("string");
+    expect(meta.controlToken).toBe(lock.currentControlToken);
+  });
+
   it("refuses with busy while the owning PID is alive and never deletes its file", async () => {
     const owner = lockFor();
     expect(owner.acquire("1.0.0").outcome).toBe("acquired");

@@ -14,17 +14,23 @@
 
 ## 2. Runtime log bound
 
-- [ ] 2.1 Packaged controller logging enforces the size bound during the running process (checked appender), preserving redaction and useful diagnostics.
-- [ ] 2.2 Focused tests for rotation-during-run behavior.
+- [x] 2.1 Packaged controller logging enforces the size bound during the running process (checked appender), preserving redaction and useful diagnostics.
+  Evidence: apps/controller/src/runtime/log-bounded.ts (synchronous fd lifecycle so Windows renames never race an open handle; startup rotation retained; transient rotation refusal drops one line instead of growing past the bound). index.ts delegates.
+- [x] 2.2 Focused tests for rotation-during-run behavior.
+  Evidence: runtime-log-bound.test.ts 5/5 (mid-run rotation, multi-rotation churn bound, startup oversized log, console override resilience, default-bound policy pin).
 
 ## 3. Blast-radius and failure-injection audit
 
-- [ ] 3.1 Trace controller bootstrap/config/identity/singleton/listen/shutdown, SQLite init/migration/reconciliation, watcher->dispatch->coordinator->strategy->postflight->Sol closure, executor serialization/kills/logs, browser ownership/wake/auth, scheduler leases/permissions under restart and failure injection; fix every reproducible Critical/High defect with regression evidence.
+- [x] 3.1 Trace controller bootstrap/config/identity/singleton/listen/shutdown, SQLite init/migration/reconciliation, watcher->dispatch->coordinator->strategy->postflight->Sol closure, executor serialization/kills/logs, browser ownership/wake/auth, scheduler leases/permissions under restart and failure injection; fix every reproducible Critical/High defect with regression evidence.
+  Critical/High defects found and fixed:
+  1. CRITICAL singleton-lock.readMetadata dropped controlToken on re-serialization, so lock.refresh({endpoint}) after bind rewrote the runtime lock WITHOUT the authenticated-lifecycle token — Change 026 desktop replacement/NSIS safety flows would have been permanently stuck at RESTART_PENDING / fail-closed in production. Unit suites missed it because none exercised refresh-after-acquire; the upgrade-preservation harness caught it end-to-end. Regression test added (singleton-lock suite, preserves-token-across-refresh) and fix verified through the full packaged harness.
+  2. HIGH environment-dependency defects surfaced by the origin-only clean worktree gate: runtime-paths suite inherited stale apps/ui/dist from dev machines (would fail on fresh CI runners); boot-heavy lifecycle tests lacked explicit budgets vs vitest defaults under full-suite contention (observed 7.4s once). Both fixed with truthful preconditions/explicit budgets.
 
 ## 4. Package/upgrade truth
 
 - [ ] 4.1 Clean-origin-only `package:win` build from committed sources; re-run real packaged-runtime smoke on the final tree (PACKAGE_RUNTIME_QUALIFIED must be re-established, not inherited).
-- [ ] 4.2 Isolated synthetic-version upgrade/data-preservation exercise proving migration + data survival across versions; installer execution remains external-gated if unauthorized.
+- [x] 4.2 Isolated synthetic-version upgrade/data-preservation exercise proving migration + data survival across versions; installer execution remains external-gated if unauthorized.
+  Evidence: scripts/package/upgrade-preservation.mjs (`npm run test:upgrade:unpacked`) verdict UNPACKED_UPGRADE_PRESERVATION_QUALIFIED — 10/10 checks: generation A (real artifact) seeds durable state via packaged API; generation B (production ORCA_BUILD_VERSION/ORCA_BUILD_COMMIT stamping seams emulating a newer release) starts on the SAME data dir without DATABASE_TOO_NEW refusal, reports skewed identity, preserves repository rows, keeps integrity/FK clean (23 migrations), carries controlToken in lock metadata, and shuts down gracefully via the authenticated contract. NSIS installer lifecycle stays with the ephemeral-CI release job (INSTALLER_EXECUTION_SANCTIONED_ENV_ONLY blocker unchanged).
 - [ ] 4.3 Keep PACKAGE_BUILT vs PACKAGE_RUNTIME_QUALIFIED labeling truthful in workflows/docs.
 
 ## 5. Final verification
