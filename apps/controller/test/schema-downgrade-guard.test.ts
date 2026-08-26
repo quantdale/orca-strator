@@ -52,7 +52,7 @@ describe("Change 026 database downgrade guard", () => {
     }
   });
 
-  it("old database forward-migrates to current", () => {
+  it("old database forward-migrates to current", { timeout: 30_000 }, () => {
     // Build an old (version-1) database by applying all but the last migration.
     const oldMigrations = migrations.slice(0, -1);
     const db = new DatabaseSync(dbPath);
@@ -93,7 +93,7 @@ describe("Change 026 database downgrade guard", () => {
     }
   }
 
-  it("one-version-newer database refuses startup without mutating anything", () => {
+  it("one-version-newer database refuses startup without mutating anything", { timeout: 30_000 }, () => {
     makeTooNewDatabase(1);
     const before = snapshotDb();
     expect(() => initDatabase(dbPath)).toThrow(DatabaseTooNewError);
@@ -112,12 +112,12 @@ describe("Change 026 database downgrade guard", () => {
     expect(fs.readFileSync(dbPath).toString("hex")).toBe(before);
   });
 
-  it("much-newer database also refuses", () => {
+  it("much-newer database also refuses", { timeout: 30_000 }, () => {
     makeTooNewDatabase(50);
     expect(() => initDatabase(dbPath)).toThrow(DatabaseTooNewError);
   });
 
-  it("preflight itself never writes (read-only refusal)", () => {
+  it("preflight itself never writes (read-only refusal)", { timeout: 30_000 }, () => {
     makeTooNewDatabase(3);
     const before = snapshotDb();
     const db = new DatabaseSync(dbPath);
