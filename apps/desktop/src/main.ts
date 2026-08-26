@@ -4,6 +4,8 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   ensureController,
+  startControllerWatch,
+  type ControllerWatchHandle,
   type EnsureControllerResult
 } from "./controller-supervisor.js";
 import type { DesktopStartupState } from "@orca/shared";
@@ -123,6 +125,7 @@ function buildStartupPageUrl(state: DesktopStartupState, detail?: string): strin
 }
 
 let startupGeneration = 0;
+let controllerWatch: ControllerWatchHandle | null = null;
 
 async function runStartupFlow(win: BrowserWindow): Promise<void> {
   const generation = ++startupGeneration;
@@ -132,7 +135,7 @@ async function runStartupFlow(win: BrowserWindow): Promise<void> {
   };
 
   const buildInfo = readBuildInfo(process.resourcesPath ?? __dirname);
-  const result: EnsureControllerResult = await ensureController({
+  const ensureDeps = {
     baseUrl: getControllerBaseUrl(),
     host: process.env.ORCA_HOST || undefined,
     port: process.env.ORCA_PORT ? Number(process.env.ORCA_PORT) : undefined,
@@ -146,13 +149,36 @@ async function runStartupFlow(win: BrowserWindow): Promise<void> {
     ...(process.env.ORCA_DATA_DIR ? { dataDir: process.env.ORCA_DATA_DIR } : {}),
     onState: showState,
     budgetMs: Number(process.env.ORCA_STARTUP_BUDGET_MS) || undefined
-  });
+  };
+  const result: EnsureControllerResult = await ensureController(ensureDeps);
 
   if (win.isDestroyed() || generation !== startupGeneration) return;
 
   if (result.outcome === "connected") {
     console.log(`[Desktop] Controller ready (reused=${result.reused}) at ${getAppUrl()}`);
     await win.loadURL(getAppUrl()).catch(() => {});
+
+    // Leave-and-forget recovery (Change 027): the running supervisor owns
+    // controller resurrection after startup. A second app instance can never
+    // do this (Electron single-instance hands it focus and quits).
+    controllerWatch?.stop();
+    controllerWatch = startControllerWatch({
+      baseUrl: ensureDeps.baseUrl,
+      initialPid: result.identity?.pid ?? null,
+      recover: () => ensureController({ ...ensureDeps, budgetMs: undefined }),
+      onState: (state, detail) => {
+        if (state === "CONNECTED") {
+          console.log(`[Desktop] ${detail ?? "controller recovered"}`);
+          if (!win.isDestroyed() && generation === startupGeneration) {
+            void win.loadURL(getAppUrl()).catch(() => {});
+          }
+          return;
+        }
+        // Non-terminal recovery chatter stays in the log; the UI only flips
+        // to a diagnostics page when a terminal state is reached.
+        console.warn(`[Desktop] watch: ${state}${detail ? ` — ${detail}` : ""}`);
+      }
+    });
     return;
   }
 
@@ -234,6 +260,7 @@ if (process.env.NODE_ENV !== "test") {
     // controller is detached and independent by design; controller-owned
     // campaigns keep running in the background (Change 025 lifecycle).
     app.on("window-all-closed", () => {
+      controllerWatch?.stop();
       if (process.platform !== "darwin") {
         app.quit();
       }

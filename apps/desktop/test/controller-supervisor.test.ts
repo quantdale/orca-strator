@@ -254,7 +254,9 @@ import {
   readControllerLockInfo,
   fetchLifecycleStatus,
   requestGracefulShutdown,
+  startControllerWatch,
   type ControllerLockInfo,
+  type ControllerWatchDeps,
   type ReplacementDeps,
   type ReplacementOutcome
 } from "../src/controller-supervisor.js";
@@ -557,6 +559,133 @@ describe("Change 026 authenticated graceful replacement", () => {
       expect(info).toMatchObject({ pid: 7, controlToken: "t" });
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Change 027 controller resurrection watch", () => {
+  const realYield = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(ms, 1)));
+
+  function makeDeps(overrides: Partial<ControllerWatchDeps> = {}): ControllerWatchDeps {
+    return {
+      baseUrl: "http://127.0.0.1:47499",
+      recover: async () => ({ outcome: "terminal", state: "STARTUP_FAILED", detail: "not expected" }),
+      intervalMs: 1,
+      missedProbes: 2,
+      sleepFn: realYield,
+      ...overrides
+    };
+  }
+
+  it("recovers when the recorded pid is dead and the surface stops answering", async () => {
+    let alive = true;
+    let pid = 1000;
+    let probes = 0;
+    let recoveries = 0;
+    const states: string[] = [];
+    const handle = startControllerWatch(
+      makeDeps({
+        identityFn: async () => {
+          probes += 1;
+          return alive ? { service: "orca-controller" as const, version: "1", protocol: 1, pid } : null;
+        },
+        livenessFn: () => alive,
+        initialPid: 1000,
+        recover: async () => {
+          recoveries += 1;
+          alive = true;
+          pid = 2000;
+          return { outcome: "connected" as const, reused: false, identity: { service: "orca-controller" as const, version: "1", protocol: 1, pid } };
+        },
+        onState: (s) => states.push(s)
+      })
+    );
+    try {
+      alive = false; // controller dies after a healthy startup
+      await vi.waitFor(() => expect(recoveries).toBe(1), { timeout: 5000 });
+    } finally {
+      handle.stop();
+      await handle.stopped();
+    }
+    expect(states).toContain("STARTING_CONTROLLER");
+    expect(states.filter((s) => s === "CONNECTED").length).toBe(1);
+    expect(probes).toBeGreaterThan(2);
+  });
+
+  it("never disturbs an alive-but-unresponsive controller", async () => {
+    let recoveries = 0;
+    let probes = 0;
+    const handle = startControllerWatch(
+      makeDeps({
+        identityFn: async () => {
+          probes += 1;
+          return null;
+        },
+        livenessFn: () => true,
+        initialPid: 4242,
+        recover: async () => {
+          recoveries += 1;
+          return { outcome: "terminal", state: "STARTUP_FAILED", detail: "" };
+        }
+      })
+    );
+    try {
+      await realYield(60);
+      expect(recoveries).toBe(0);
+      expect(probes).toBeGreaterThanOrEqual(3);
+    } finally {
+      handle.stop();
+      await handle.stopped();
+    }
+  });
+
+  it("re-arms after a successful recovery and recovers again on a second death", async () => {
+    let alive = true;
+    let pid = 100;
+    let recoveries = 0;
+    const handle = startControllerWatch(
+      makeDeps({
+        identityFn: async () => (alive ? { service: "orca-controller" as const, version: "1", protocol: 1, pid } : null),
+        livenessFn: () => alive,
+        initialPid: 100,
+        recover: async () => {
+          recoveries += 1;
+          alive = true;
+          pid += 1;
+          return { outcome: "connected" as const, reused: false, identity: { service: "orca-controller" as const, version: "1", protocol: 1, pid } };
+        }
+      })
+    );
+    try {
+      alive = false; // first death
+      await vi.waitFor(() => expect(recoveries).toBe(1), { timeout: 5000 });
+      alive = false; // second death
+      await vi.waitFor(() => expect(recoveries).toBe(2), { timeout: 5000 });
+    } finally {
+      handle.stop();
+      await handle.stopped();
+    }
+  });
+
+  it("surfaces terminal results truthfully without throwing", async () => {
+    let failures = 0;
+    const states: Array<[string, string | undefined]> = [];
+    const handle = startControllerWatch(
+      makeDeps({
+        identityFn: async () => null,
+        livenessFn: () => false,
+        recover: async () => ({ outcome: "terminal" as const, state: "STARTUP_FAILED" as const, detail: "no luck" }),
+        onState: (s, d) => {
+          states.push([s, d]);
+          failures += 1;
+        }
+      })
+    );
+    try {
+      await vi.waitFor(() => expect(states.some(([s]) => s === "STARTUP_FAILED")).toBe(true), { timeout: 5000 });
+    } finally {
+      handle.stop();
+      await handle.stopped();
     }
   });
 });

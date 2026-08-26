@@ -124,7 +124,7 @@ for (let cycle = 1; cycle <= CYCLES; cycle++) {
     method: "POST",
     payload: {
       displayName: `Endurance Repo Cycle ${cycle}`,
-      githubRemote: `https://github.com/example/endurance-${cycle}.git`,
+      githubRemote: fixtures[(cycle - 1) % fixtures.length].remotePath,
       localPath: fixtureWork,
       environment: "windows",
       wslDistribution: null,
@@ -133,10 +133,11 @@ for (let cycle = 1; cycle <= CYCLES; cycle++) {
       solConversationUrl: "https://chatgpt.com/c/harness"
     }
   });
-  if (!(repoRes.status === 200 || repoRes.status === 201)) failures++;
+  if (!(repoRes.status === 200 || repoRes.status === 201)) { failures++; console.error(`[endurance] WARN cycle ${cycle} POST /api/repositories status=${repoRes.status}`); }
   const createdId = (() => {
     try {
-      return JSON.parse(repoRes.body).id;
+      const parsed = JSON.parse(repoRes.body);
+      return parsed.id ?? parsed.repository?.id;
     } catch {
       return null;
     }
@@ -149,14 +150,14 @@ for (let cycle = 1; cycle <= CYCLES; cycle++) {
   if (createdId) {
     await sleep(6000); // one watcher poll interval window
     const watcher = await get(`${BASE}/api/repositories/${createdId}/watcher`);
-    if (watcher.status !== 200) failures++;
+    if (watcher.status !== 200) { failures++; console.error(`[endurance] WARN cycle ${cycle} GET watcher status=${watcher.status}`); }
   }
 
   // Readiness probe + list churn.
-  const readiness = await get(`${BASE}/api/system/readiness`, 10_000);
-  if (readiness.status !== 200) failures++;
+  const readiness = await get(`${BASE}/api/system/readiness`, 30_000); // readiness composes bounded multi-second probes (tailscale CLI alone bounds 8s)
+  if (readiness.status !== 200) { failures++; console.error(`[endurance] WARN cycle ${cycle} GET readiness status=${readiness.status} body=${String(readiness.body).slice(0,150)}`); }
   const list = await get(`${BASE}/api/repositories`);
-  if (list.status !== 200) failures++;
+  if (list.status !== 200) { failures++; console.error(`[endurance] WARN cycle ${cycle} GET repositories status=${list.status}`); }
 
   // Metrics sample.
   const metrics = sampleProcessMetrics(currentControllerPid);

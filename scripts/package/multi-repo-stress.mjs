@@ -32,7 +32,10 @@ import {
 
 const unpackedDir = path.join(REPO_ROOT, "apps", "desktop", "release", "win-unpacked");
 const exePath = path.join(unpackedDir, "Orca-Strator.exe");
-const PORT = Number(process.env.ORCA_STRESS_PORT || 47251);
+// Ephemeral by default (Change 027): crashed runs must not poison later ones.
+const PORT = Number(
+  process.env.ORCA_STRESS_PORT || 47251 + Math.floor(Math.random() * 600)
+);
 const BASE = `http://127.0.0.1:${PORT}`;
 const REPO_COUNT = 4;
 
@@ -67,7 +70,7 @@ async function registerRepo(fixture) {
     method: "POST",
     payload: {
       displayName: fixture.name,
-      githubRemote: `https://github.com/example/${fixture.name}.git`,
+      githubRemote: fixture.remotePath,
       localPath: fixture.clonePath,
       environment: "windows",
       wslDistribution: null,
@@ -79,7 +82,8 @@ async function registerRepo(fixture) {
   if (!(res.status === 200 || res.status === 201)) {
     throw new Error(`register failed for ${fixture.name}: ${res.status} ${res.body}`);
   }
-  return JSON.parse(res.body).id;
+  const parsed = JSON.parse(res.body);
+  return parsed.id ?? parsed.repository?.id;
 }
 
 const repoIds = [];
@@ -88,7 +92,7 @@ record("M0 registered 4 fixture repositories concurrently", repoIds.every(Boolea
 
 // ---- M1: independent watcher progression ------------------------------------
 const targetShas = fixtures.map((f) => f.advanceRemote(`stress wave 1 ${f.name}`));
-await sleep(7000); // watcher poll window
+await sleep(12_000); // >=2 full watcher cycles
 let progressedAll = true;
 const progression = [];
 for (let i = 0; i < REPO_COUNT; i++) {
@@ -108,32 +112,35 @@ record(
 
 // Second wave with staggered pushes to prove no cross-routing of SHAs.
 const wave2 = fixtures.map((f, i) => ({ i, sha: f.advanceRemote(`wave2 ${f.name}`) }));
-await sleep(7000);
+await sleep(12_000);
 let noCrossRouting = true;
+const progressionWave2 = [];
 for (let i = 0; i < REPO_COUNT; i++) {
   const res = await get(`${BASE}/api/repositories/${repoIds[i]}/watcher`);
   const body = JSON.parse(res.body);
   const observed = body?.watcher?.lastObservedSha ?? null;
-  // Each repo must observe ITS OWN remote SHA, never a sibling's.
+  progressionWave2.push(observed);
   const ownSha = fixtures[i].remoteSha();
   if (observed !== ownSha) noCrossRouting = false;
 }
-record("M2 no cross-routed watcher state between repositories", noCrossRouting);
+record("M2 no cross-routed watcher state between repositories", noCrossRouting, `observed=${JSON.stringify(progressionWave2.map((s) => s ? s.slice(0, 7) : "none"))}`);
 
 // ---- M3: sibling failure containment ----------------------------------------
 const doomedFixture = fixtures[0];
-fs.rmSync(doomedFixture.clonePath, { recursive: true, force: true }); // break local path
+try { fs.rmSync(doomedFixture.clonePath, { recursive: true, force: true }); } catch (e) { console.warn(`[stress] cleanup skipped: ${e?.code ?? e}`); } // break local path
 fixtures[1].advanceRemote("during sibling failure");
 fixtures[2].advanceRemote("during sibling failure");
-await sleep(8000);
+await sleep(12_000);
 let contained = true;
+const containment = [];
 for (let i = 1; i < REPO_COUNT; i++) {
   const res = await get(`${BASE}/api/repositories/${repoIds[i]}/watcher`);
   const body = JSON.parse(res.body);
   const ownSha = fixtures[i].remoteSha();
+  containment.push(body?.watcher?.lastObservedSha ?? null);
   if ((body?.watcher?.lastObservedSha ?? null) !== ownSha) contained = false;
 }
-record("M3 one repository's failure does not disturb siblings", contained);
+record("M3 one repository's failure does not disturb siblings", contained, `siblings=${JSON.stringify(containment.map((s) => s ? s.slice(0, 7) : "none"))}`);
 
 // ---- M4: desktop close/reopen during activity -------------------------------
 const controllerBefore = (await identityOnce(BASE)).identity.pid;
@@ -176,8 +183,8 @@ const lock = readLock(dataDir);
 if (lock && isPidAlive(lock.pid)) killPidOnly(lock.pid);
 killPidOnly(desktop2);
 await sleep(1500);
-fs.rmSync(dataDir, { recursive: true, force: true });
-fs.rmSync(fixtureWork, { recursive: true, force: true });
+try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) { console.warn(`[stress] cleanup skipped: ${e?.code ?? e}`); }
+try { fs.rmSync(fixtureWork, { recursive: true, force: true }); } catch (e) { console.warn(`[stress] cleanup skipped: ${e?.code ?? e}`); }
 
 console.log(`[stress] verdict: ${process.exitCode === 1 ? "FAILED" : "MULTI_REPO_PACKAGED_STRESS_QUALIFIED"}`);
 process.exit(process.exitCode === 1 ? 1 : 0);

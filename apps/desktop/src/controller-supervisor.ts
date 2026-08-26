@@ -480,12 +480,26 @@ interface LaunchedChild {
 }
 
 function launch(plan: SpawnPlan, spawnFn: typeof spawn): LaunchedChild {
+  // ORCA_SPAWN_DEBUG=<file> captures spawned-controller stdio + exit codes;
+  // a diagnostic seam for packaged launch failures that are invisible under
+  // the default stdio:"ignore" (added by Change 027 crash-recovery work).
+  const debugLog = process.env.ORCA_SPAWN_DEBUG;
   const child: ChildProcess = spawnFn(plan.command, plan.args, {
     env: plan.env,
     detached: true,
-    stdio: "ignore",
+    stdio: debugLog ? ["ignore", "pipe", "pipe"] : "ignore",
     windowsHide: true
   });
+  if (debugLog) {
+    const append = (chunk: Buffer | string): void => {
+      try {
+        fs.appendFileSync(debugLog, `[pid=${child.pid}] ${String(chunk)}`);
+      } catch { /* diagnostics only */ }
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    child.once("exit", (code, signal) => append(`\n[exit code=${code} sig=${signal}]\n`));
+  }
   const tracked: LaunchedChild = { pid: child.pid, exitCode: null, exitSignal: null, exited: false };
   child.once("exit", (code, signal) => {
     tracked.exited = true;
@@ -760,4 +774,119 @@ export async function ensureController(deps: EnsureControllerDeps): Promise<Ensu
   const detail = `Controller did not become ready within ${Math.round(budgetMs / 1000)}s. Check logs under the Orca data directory.`;
   report("STARTUP_FAILED", detail);
   return { outcome: "terminal", state: "STARTUP_FAILED", detail };
+}
+
+export interface ControllerWatchDeps {
+  /** Re-runs the full ensure sequence (same deps as the original startup). */
+  recover: () => Promise<EnsureControllerResult>;
+  onState?: (state: DesktopStartupState, detail?: string) => void;
+  /** Identity probe; null/absent means the loopback surface is not answering. */
+  identityFn?: (baseUrl: string) => Promise<ControllerIdentity | null>;
+  baseUrl: string;
+  /** Pid recorded at startup (from the ensure result); updated on every probe. */
+  initialPid?: number | null;
+  intervalMs?: number;
+  /** Consecutive failed probes before recovery is attempted. Default 3. */
+  missedProbes?: number;
+  /** Liveness override for tests; defaults to real OS liveness probing. */
+  livenessFn?: (pid: number) => boolean;
+  sleepFn?: (ms: number) => Promise<void>
+}
+
+export interface ControllerWatchHandle {
+  stop(): void;
+  /** Exposed for tests: resolves when the watch loop fully exits. */
+  stopped(): Promise<void>;
+}
+
+/**
+ * Post-startup controller resurrection watch (Change 027).
+ *
+ * The desktop owns process supervision for leave-and-forget operation, so a
+ * controller that dies AFTER a successful startup must be recovered
+ * automatically by the STILL-RUNNING supervisor — a second app instance can
+ * never do it (Electron single-instance hands it focus and quits). The watch
+ * distinguishes "surface not answering but recorded pid still alive"
+ * (starting/busy: never disturbed) from "pid provably dead" (recovery), then
+ * re-runs the full authenticated ensure sequence including stale-lock reclaim.
+ */
+export function startControllerWatch(deps: ControllerWatchDeps): ControllerWatchHandle {
+  const intervalMs = deps.intervalMs ?? 4_000;
+  const threshold = deps.missedProbes ?? 3;
+  const sleep = deps.sleepFn ?? defaultSleep;
+  const identityFn =
+    deps.identityFn ??
+    (async (baseUrl: string) => {
+      const probed = await probeController(baseUrl).catch(() => ({ kind: "absent" }) as Probed);
+      return probed.kind === "identity" ? probed.identity : null;
+    });
+
+  let stopped = false;
+  let failCount = 0;
+  let lastKnownPid: number | null = deps.initialPid ?? null;
+  let releaseStopped: (() => void) | null = null;
+  const stoppedPromise = new Promise<void>((resolve) => {
+    releaseStopped = resolve;
+  });
+
+  async function loop(): Promise<void> {
+    while (!stopped) {
+      await sleep(intervalMs);
+      if (stopped) break;
+      let identity: ControllerIdentity | null = null;
+      try {
+        identity = await identityFn(deps.baseUrl);
+      } catch {
+        identity = null;
+      }
+      if (identity && typeof identity.pid === "number" && identity.pid > 0) {
+        if (failCount > 0 || identity.pid !== lastKnownPid) {
+          failCount = 0;
+        }
+        lastKnownPid = identity.pid;
+        continue;
+      }
+      failCount += 1;
+      if (failCount < threshold) continue;
+
+      // Surface not answering. Recover ONLY when the previously known owner is
+      // provably dead; an alive-but-busy controller is never disturbed.
+      const liveness = deps.livenessFn ?? isPidAlive;
+      const pidAlive = lastKnownPid !== null ? liveness(lastKnownPid) : false;
+      if (pidAlive) {
+        // Still alive: keep waiting without failing the UI further.
+        continue;
+      }
+      try {
+        deps.onState?.("STARTING_CONTROLLER", "controller connection lost — recovering");
+        const result = await deps.recover();
+        if (result.outcome === "connected") {
+          lastKnownPid = result.identity?.pid ?? null;
+          failCount = 0;
+          deps.onState?.("CONNECTED", `controller recovered pid=${lastKnownPid}`);
+        } else if (result.outcome === "restart-pending") {
+          deps.onState?.("RESTART_PENDING", result.detail);
+          // A replacement became possible/pending: reset the failure counter
+          // so the next cycle re-probes instead of hammering recovery.
+          failCount = 0;
+        } else {
+          deps.onState?.(result.state, result.detail);
+        }
+      } catch {
+        deps.onState?.("STARTUP_FAILED", "controller recovery attempt threw");
+      }
+      // After any recovery attempt, require a fresh streak of missed probes.
+      failCount = 0;
+    }
+    releaseStopped?.();
+  }
+
+  void loop();
+
+  return {
+    stop() {
+      stopped = true;
+    },
+    stopped: () => stoppedPromise
+  };
 }
