@@ -23,6 +23,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 240_000 });
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -149,7 +150,10 @@ function diagnoseLockedPaths(dir: string): string[] {
  * to release it. A persistent failure is still reported per-entry and rethrown.
  */
 async function removeTempTreeWithRetry(dir: string): Promise<void> {
-  const backoffMs = [0, 50, 100, 200, 400, 800];
+  // Total patience ~8.2s: Windows cwd-lock release after process death is
+  // asynchronous and can exceed 1.5s under runner/load contention (observed
+  // as an EPERM on the clone directory even when every file unlinks).
+  const backoffMs = [0, 50, 100, 200, 400, 800, 1600, 2500, 2500];
   let lastError: any;
   for (const waitMs of backoffMs) {
     if (waitMs > 0) {

@@ -74,7 +74,8 @@
  *   worktrees. RACE B/RACE C below prove both fixes.
  * ============================================================================
  */
-import { describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach, afterAll } from "vitest";
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 240_000 });
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

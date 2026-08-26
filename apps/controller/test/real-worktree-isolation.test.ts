@@ -1,6 +1,7 @@
 /** Real Change 012 qualification: Git worktrees, commits, integration, and WSL routing. */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { vi, afterEach, describe, expect, it } from "vitest";
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 240_000 });
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

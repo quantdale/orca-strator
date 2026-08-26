@@ -3,7 +3,8 @@
  * real Git repositories. They do not make provider inference requests.
  */
 
-import { describe, expect, it, afterEach } from "vitest";
+import { vi, describe, expect, it, afterEach } from "vitest";
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 240_000 });
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

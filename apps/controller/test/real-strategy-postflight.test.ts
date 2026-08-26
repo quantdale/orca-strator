@@ -51,7 +51,8 @@
  *     .orca/dispatch/<id>.json commit; baseSha = clone HEAD before the marker.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 240_000 });
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";

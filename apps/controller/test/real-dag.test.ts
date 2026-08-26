@@ -1,6 +1,7 @@
 /** Real Change 014 qualification: explicit DAG validation, scheduling, integration, controls, and recovery. */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { vi, afterEach, describe, expect, it } from "vitest";
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 240_000 });
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

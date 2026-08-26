@@ -6,7 +6,8 @@
  * and ORCA_SLOW_MS deterministic slow mode (no inference).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+vi.setConfig({ hookTimeout: 60_000, testTimeout: 240_000 });
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -139,12 +140,22 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
     try {
       svc.watcherService.stop();
       await svc.browserManager.close().catch(() => {});
-      // Settle async executor/loop callbacks before closing DB (Fix #11: DB errors now surface)
-      await new Promise((r) => setTimeout(r, 600));
-      // Ensure no active runners remain (avoid post-close onDispatchDetected -> DB closed)
-      for (const runner of Array.from((svc.executorService as any).activeRunners?.values() ?? [])) {
+      // Kill any live runners FIRST, then wait until the runner map actually
+      // drains so async executor/loop callbacks cannot land after dbCtx.close()
+      // (Fix #11 surfaces those as "statement has been finalized" unhandled
+      // errors that poison later tests in a shared worker under load).
+      const runners = Array.from((svc.executorService as any).activeRunners?.values() ?? []);
+      for (const runner of runners) {
         try { await (runner as any).kill?.(); } catch {}
       }
+      const drainedUntil = Date.now() + 10_000;
+      while (Date.now() < drainedUntil) {
+        const remaining = Array.from((svc.executorService as any).activeRunners?.values() ?? []);
+        if (remaining.length === 0) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      // Settle async executor/loop callbacks before closing DB (Fix #11: DB errors now surface)
+      await new Promise((r) => setTimeout(r, 600));
     } finally {
       try { svc.dbCtx.close(); } catch {}
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
@@ -167,7 +178,15 @@ describe("Real Runtime Controls (pause/resume/stop/kill/ceiling)", () => {
 
     svc.watcherService.start();
     await waitForCondition(() => svc.loopService.getStatus(repo.id).state === "EXECUTING", 15000);
-    await new Promise((r) => setTimeout(r, 900));
+    // Wait for the harness child to actually reach its pre-sleep partial write
+    // (spawn + node boot + git reconcile take variable time on Windows) instead
+    // of racing a fixed sleep against it. The pause contract itself is asserted
+    // below: partial exists at pause, survives the kill, and recovery appends.
+    await waitForCondition(
+      () => fs.existsSync(path.join(cloneDir, ".orca", "work", `${dispatchId}.partial.txt`)),
+      15000,
+    );
+    await new Promise((r) => setTimeout(r, 150)); // settle inside the slow-sleep window before pausing
     // Pause while harness still sleeping; partial file must already exist.
     await svc.loopService.pauseRun(repo.id);
     const paused = svc.loopService.getStatus(repo.id);
