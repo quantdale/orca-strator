@@ -41,7 +41,9 @@ jobs:
         run: npm run lint
 
       - name: Strict OpenSpec validation
-        run: npx openspec validate --all --strict
+        # Repository-pinned CLI (devDependency) so a clean npm ci machine can
+        # always run this gate; never an implicit global/npx resolution.
+        run: npm run openspec:validate
 
       - name: Diff check
         run: git diff --check

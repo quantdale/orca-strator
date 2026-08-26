@@ -45,6 +45,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Strict OpenSpec validation (repository-pinned CLI)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm run openspec:validate
+
       - name: Build installer + unpacked distribution
         run: npm run package:win:installer
 
