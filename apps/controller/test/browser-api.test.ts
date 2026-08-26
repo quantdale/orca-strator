@@ -106,6 +106,24 @@ describe("Browser REST Endpoints (Task 5)", () => {
 
     mockRepo.id = created.id;
     mockDispatch.repositoryId = created.id;
+    // Wake attribution requires a durable campaign (production loop always
+    // creates the run before a wake references it); seed the real row instead
+    // of an FK-dangling sentinel dispatch.
+    appInstance.runStore.create({
+      id: mockDispatch.runId,
+      repositoryId: created.id,
+      goal: "API browser wake campaign",
+      status: "SOL_PENDING",
+      currentIteration: 0,
+      maxIterations: mockRepo.maxIterations,
+      activeDispatchId: null,
+      lastError: null,
+      startedAt: "2026-08-19T12:00:00.000Z",
+      finishedAt: null,
+      createdAt: "2026-08-19T12:00:00.000Z",
+      updatedAt: "2026-08-19T12:00:00.000Z",
+      drainReason: null,
+    });
     appInstance.dispatchStore.create(mockDispatch);
   });
 

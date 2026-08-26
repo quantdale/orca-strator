@@ -483,7 +483,7 @@ export async function buildApp(
     executorRoutes(executorService, repositoryService, coordinator),
   );
   await fastify.register(
-    browserRoutes(browserManager, repositoryService, dispatchStore),
+    browserRoutes(browserManager, repositoryService, dispatchStore, runStore),
   );
   await fastify.register(runRoutes(loopService, repositoryService));
   await fastify.register(

@@ -7,12 +7,14 @@ import type {
 import type { BrowserManager } from "../../browser/browser-manager.js";
 import type { RepositoryService } from "../../repositories/repository-service.js";
 import type { DispatchStore } from "../../watcher/dispatch-store.js";
+import type { RunStore } from "../../loop/run-store.js";
 import { ValidationError } from "@orca/shared";
 
 export const browserRoutes = (
   browserManager: BrowserManager,
   repositoryService: RepositoryService,
   dispatchStore: DispatchStore,
+  runStore: RunStore,
 ): FastifyPluginAsync => {
   return async (fastify) => {
     fastify.get<{ Reply: { browser: BrowserStatus } }>(
@@ -68,6 +70,15 @@ export const browserRoutes = (
       const dispatch = dispatchStore.get(dispatchId);
       if (!dispatch) {
         throw new ValidationError(`Dispatch ${dispatchId} not found`);
+      }
+      // Wake attribution is contractual: the wake event attaches to a durable
+      // campaign timeline. Detected-but-unconsumed or rejected dispatches have
+      // no durable run (sentinel/pre-run IDs would violate campaign-trace FK
+      // integrity), so they are refused instead of silently mis-attributed.
+      if (!runStore.get(dispatch.runId)) {
+        throw new ValidationError(
+          `Dispatch ${dispatchId} references run "${dispatch.runId}" which has no durable campaign`,
+        );
       }
 
       const wake = await browserManager.submitSolWake(repo.id, {

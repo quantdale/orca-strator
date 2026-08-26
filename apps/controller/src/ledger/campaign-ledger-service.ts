@@ -21,6 +21,13 @@ import { preparedStatement } from "../db/statement-cache.js";
 interface DispatchLike { id?: string; runId?: string; iteration?: number; }
 interface ControlLike { id?: string; controlId?: string; runId?: string; iteration?: number; relatedDispatchId?: string | null; }
 
+/**
+ * Sentinel persisted into dispatches/sol_controls rows for rejected records
+ * that never had a campaign (watcher-service schema-invalid rejections). It is
+ * not a durable run ID and must never satisfy the runs FK attribution.
+ */
+const UNKNOWN_RUN_SENTINEL = "unknown";
+
 export class CampaignLedgerService {
   constructor(
     private readonly db: DatabaseSync,
@@ -36,6 +43,13 @@ export class CampaignLedgerService {
   /** EventBus already redacts secrets before this listener receives the event. */
   recordEvent(event: RepositoryMutationEvent): CampaignTraceEvent | null {
     try {
+      // Scope boundary (documented data model): deleting a repository hard-deletes
+      // its row and cascades away its campaign history. The terminal deletion
+      // event therefore has no persistable parent in this read-model; it remains
+      // fully delivered to WebSocket/UI/log listeners. Recording it here would
+      // deterministically violate the repositories FK on every deletion.
+      if (event.type === "repository.deleted") return null;
+
       const data = event.data ?? {};
       const dispatch = this.asObject(data.dispatch) as DispatchLike | null;
       const control = this.asObject(data.control) as ControlLike | null;
@@ -47,21 +61,49 @@ export class CampaignLedgerService {
       const solControlId = event.type === "watcher.control_detected" || event.type === "watcher.control_rejected"
         ? this.stringValue(data.controlId) ?? control?.controlId ?? null
         : null;
+      // Attribution joins runs so only DURABLE campaigns are attributed; a
+      // dispatch row alone can hold sentinel/pre-run IDs that would violate
+      // the campaign_trace_events.run_id foreign key.
       const dispatchRow = eventDispatchId
-        ? preparedStatement(this.db, "SELECT run_id, iteration FROM dispatches WHERE id = ?").get(eventDispatchId) as { run_id?: string; iteration?: number } | undefined
+        ? preparedStatement(this.db, `
+            SELECT CASE WHEN r.id IS NULL THEN NULL ELSE d.run_id END AS run_id,
+                   d.iteration AS iteration
+            FROM dispatches d LEFT JOIN runs r ON r.id = d.run_id
+            WHERE d.id = ?
+          `).get(eventDispatchId) as { run_id?: string | null; iteration?: number } | undefined
         : undefined;
+      // An explicitly carried but non-durable run reference must NOT be
+      // silently re-attributed to an unrelated latest run: record truthfully
+      // unattributed instead of fabricating correlation.
+      const rawExplicitRunRef = this.stringValue(data.runId) ??
+        this.stringValue(dispatch?.runId) ??
+        this.stringValue(control?.runId) ??
+        null;
+      const explicitRunRef = rawExplicitRunRef && rawExplicitRunRef !== UNKNOWN_RUN_SENTINEL
+        ? rawExplicitRunRef
+        : null;
+      let runId: string | null = null;
+      let explicitReferenceUnresolved = false;
+      if (explicitRunRef) {
+        runId = this.runStore.get(explicitRunRef) ? explicitRunRef : null;
+        explicitReferenceUnresolved = runId === null;
+      }
+      if (!runId && !explicitReferenceUnresolved) {
+        runId = dispatchRow?.run_id ?? null;
+      }
+      // A dispatch-resolved event whose row has no durable run (sentinel/pre-run
+      // rejection records) is likewise attributed to nothing rather than
+      // re-attributed to an unrelated campaign.
+      const attributionResolved =
+        explicitReferenceUnresolved ||
+        (runId === null && dispatchRow !== undefined);
       // Lazy fallback: getLatestRun costs a sorted SELECT, and nearly every
       // production event already carries an explicit runId/dispatch/control
       // reference (executor log lines carry dispatchId; loop/strategy events
       // carry runId), so only pay for the lookup when nothing earlier resolved.
-      const runId =
-        this.stringValue(data.runId) ??
-        dispatch?.runId ??
-        control?.runId ??
-        dispatchRow?.run_id ??
-        (event.type.startsWith("repository.")
-          ? null
-          : this.runStore.getLatestRun(event.repositoryId)?.id ?? null);
+      if (!attributionResolved && !runId && !event.type.startsWith("repository.")) {
+        runId = this.runStore.getLatestRun(event.repositoryId)?.id ?? null;
+      }
       const iteration = this.numberValue(data.iteration) ?? dispatch?.iteration ?? control?.iteration ?? dispatchRow?.iteration ?? null;
       const phase = this.mapPhase(event, data);
       const status = this.mapStatus(event, data);
