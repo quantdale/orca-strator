@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { CampaignTraceEvent, TracePhase, TraceStatus } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface TraceRow {
   id: string;
@@ -55,7 +56,7 @@ export class CampaignLedgerStore {
       failureReason: input.failureReason ?? null,
       data: input.data ?? {}
     };
-    this.db.prepare(`
+    preparedStatement(this.db, `
       INSERT INTO campaign_trace_events (
         id, repository_id, run_id, iteration, phase, event_type,
         dispatch_id, result_id, control_id, at, duration_ms, status,
@@ -81,7 +82,7 @@ export class CampaignLedgerStore {
   }
 
   listByRepository(repositoryId: string, limit = 500): CampaignTraceEvent[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM campaign_trace_events
       WHERE repository_id = ?
       ORDER BY at DESC
@@ -91,7 +92,7 @@ export class CampaignLedgerStore {
   }
 
   listByRun(runId: string, limit = 2000): CampaignTraceEvent[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM campaign_trace_events
       WHERE run_id = ?
       ORDER BY at ASC
@@ -101,7 +102,7 @@ export class CampaignLedgerStore {
   }
 
   listByIteration(runId: string, iteration: number): CampaignTraceEvent[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM campaign_trace_events
       WHERE run_id = ? AND iteration = ?
       ORDER BY at ASC
@@ -110,16 +111,12 @@ export class CampaignLedgerStore {
   }
 
   countByRun(runId: string): number {
-    const row = this.db.prepare(
-      "SELECT COUNT(*) AS count FROM campaign_trace_events WHERE run_id = ?"
-    ).get(runId) as unknown as { count: number };
+    const row = preparedStatement(this.db, "SELECT COUNT(*) AS count FROM campaign_trace_events WHERE run_id = ?").get(runId) as unknown as { count: number };
     return Number(row?.count ?? 0);
   }
 
   countIterations(runId: string): number {
-    const row = this.db.prepare(
-      "SELECT COUNT(DISTINCT iteration) AS count FROM campaign_trace_events WHERE run_id = ? AND iteration IS NOT NULL"
-    ).get(runId) as unknown as { count: number };
+    const row = preparedStatement(this.db, "SELECT COUNT(DISTINCT iteration) AS count FROM campaign_trace_events WHERE run_id = ? AND iteration IS NOT NULL").get(runId) as unknown as { count: number };
     return Number(row?.count ?? 0);
   }
 

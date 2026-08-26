@@ -8,6 +8,7 @@ import type {
   StrategyRunStatus,
   StrategyExecutionReport,
 } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface StrategyRunRow {
   strategy_run_id: string;
@@ -45,15 +46,14 @@ export class StrategyRunStore {
   constructor(private readonly db: DatabaseSync) {}
 
   create(record: StrategyRunRecord): StrategyRunRecord {
-    this.db
-      .prepare(`
-      INSERT INTO execution_strategy_runs (
-        strategy_run_id, repository_id, campaign_id, run_id, iteration,
-        strategy, status, max_concurrency, packet_ids_json, control_state,
-        dispatch_id, strategy_base_sha,
-        started_at, finished_at, last_error, report_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
+    preparedStatement(this.db, `
+    INSERT INTO execution_strategy_runs (
+      strategy_run_id, repository_id, campaign_id, run_id, iteration,
+      strategy, status, max_concurrency, packet_ids_json, control_state,
+      dispatch_id, strategy_base_sha,
+      started_at, finished_at, last_error, report_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
       .run(
         record.strategyRunId,
         record.repositoryId,
@@ -78,44 +78,38 @@ export class StrategyRunStore {
   }
 
   get(strategyRunId: string): StrategyRunRecord | null {
-    const row = this.db
-      .prepare(
-        "SELECT * FROM execution_strategy_runs WHERE strategy_run_id = ?",
-      )
+    const row = preparedStatement(this.db, "SELECT * FROM execution_strategy_runs WHERE strategy_run_id = ?")
       .get(strategyRunId) as unknown as StrategyRunRow | undefined;
     return row ? this.mapRun(row) : null;
   }
 
   getActiveForRun(runId: string): StrategyRunRecord | null {
-    const row = this.db
-      .prepare(`
-      SELECT * FROM execution_strategy_runs
-      WHERE run_id = ? AND status IN ('QUEUED', 'RUNNING', 'PAUSED', 'STOPPING', 'RECOVERY_REQUIRED')
-      ORDER BY created_at DESC
-      LIMIT 1
-    `)
+    const row = preparedStatement(this.db, `
+    SELECT * FROM execution_strategy_runs
+    WHERE run_id = ? AND status IN ('QUEUED', 'RUNNING', 'PAUSED', 'STOPPING', 'RECOVERY_REQUIRED')
+    ORDER BY created_at DESC
+    LIMIT 1
+        `)
       .get(runId) as unknown as StrategyRunRow | undefined;
     return row ? this.mapRun(row) : null;
   }
 
   listByRun(runId: string): StrategyRunRecord[] {
-    const rows = this.db
-      .prepare(`
-      SELECT * FROM execution_strategy_runs
-      WHERE run_id = ?
-      ORDER BY iteration ASC, created_at ASC
-    `)
+    const rows = preparedStatement(this.db, `
+    SELECT * FROM execution_strategy_runs
+    WHERE run_id = ?
+    ORDER BY iteration ASC, created_at ASC
+        `)
       .all(runId) as unknown as StrategyRunRow[];
     return rows.map((row) => this.mapRun(row));
   }
 
   listRecoverable(): StrategyRunRecord[] {
-    const rows = this.db
-      .prepare(`
-      SELECT * FROM execution_strategy_runs
-      WHERE status IN ('QUEUED', 'RUNNING', 'STOPPING')
-      ORDER BY created_at ASC
-    `)
+    const rows = preparedStatement(this.db, `
+    SELECT * FROM execution_strategy_runs
+    WHERE status IN ('QUEUED', 'RUNNING', 'STOPPING')
+    ORDER BY created_at ASC
+        `)
       .all() as unknown as StrategyRunRow[];
     return rows.map((row) => this.mapRun(row));
   }
@@ -143,14 +137,13 @@ export class StrategyRunStore {
       ...patch,
       updatedAt: new Date().toISOString(),
     };
-    this.db
-      .prepare(`
-      UPDATE execution_strategy_runs
-      SET status = ?, control_state = ?, started_at = ?, finished_at = ?,
-          last_error = ?, report_json = ?, dispatch_id = ?, strategy_base_sha = ?,
-          updated_at = ?
-      WHERE strategy_run_id = ?
-    `)
+    preparedStatement(this.db, `
+    UPDATE execution_strategy_runs
+    SET status = ?, control_state = ?, started_at = ?, finished_at = ?,
+        last_error = ?, report_json = ?, dispatch_id = ?, strategy_base_sha = ?,
+        updated_at = ?
+    WHERE strategy_run_id = ?
+        `)
       .run(
         next.status,
         next.controlState,
@@ -173,13 +166,12 @@ export class StrategyRunStore {
       ...input,
       controlId: input.controlId ?? crypto.randomUUID(),
     };
-    this.db
-      .prepare(`
-      INSERT INTO execution_strategy_controls (
-        control_id, strategy_run_id, repository_id, run_id, iteration,
-        decision, reason, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `)
+    preparedStatement(this.db, `
+    INSERT INTO execution_strategy_controls (
+      control_id, strategy_run_id, repository_id, run_id, iteration,
+      decision, reason, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
       .run(
         record.controlId,
         record.strategyRunId,
@@ -194,12 +186,11 @@ export class StrategyRunStore {
   }
 
   listControls(strategyRunId: string): StrategyControlRecord[] {
-    const rows = this.db
-      .prepare(`
-      SELECT * FROM execution_strategy_controls
-      WHERE strategy_run_id = ?
-      ORDER BY created_at ASC
-    `)
+    const rows = preparedStatement(this.db, `
+    SELECT * FROM execution_strategy_controls
+    WHERE strategy_run_id = ?
+    ORDER BY created_at ASC
+        `)
       .all(strategyRunId) as unknown as StrategyControlRow[];
     return rows.map((row) => ({
       controlId: row.control_id,

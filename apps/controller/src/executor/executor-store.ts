@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ExecutorRunRecord, ExecutorRunStatus } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface ExecutorRunRow {
   id: string;
@@ -39,7 +40,7 @@ export class ExecutorStore {
   }
 
   create(run: ExecutorRunRecord): void {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       INSERT INTO executor_runs (
         id, repository_id, dispatch_id, run_id, iteration,
         status, exit_code, log_path, error_message,
@@ -66,7 +67,7 @@ export class ExecutorStore {
 
   get(id: string): ExecutorRunRecord | null {
     try {
-      const stmt = this.db.prepare("SELECT * FROM executor_runs WHERE id = ?");
+      const stmt = preparedStatement(this.db, "SELECT * FROM executor_runs WHERE id = ?");
       const row = stmt.get(id) as unknown as ExecutorRunRow | undefined;
       return row ? this.mapRow(row) : null;
     } catch {
@@ -75,25 +76,19 @@ export class ExecutorStore {
   }
 
   getByRepository(repositoryId: string): ExecutorRunRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM executor_runs WHERE repository_id = ? ORDER BY started_at DESC"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM executor_runs WHERE repository_id = ? ORDER BY started_at DESC");
     const rows = stmt.all(repositoryId) as unknown as ExecutorRunRow[];
     return rows.map((r) => this.mapRow(r));
   }
 
   getByDispatch(dispatchId: string): ExecutorRunRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM executor_runs WHERE dispatch_id = ? ORDER BY started_at DESC"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM executor_runs WHERE dispatch_id = ? ORDER BY started_at DESC");
     const rows = stmt.all(dispatchId) as unknown as ExecutorRunRow[];
     return rows.map((r) => this.mapRow(r));
   }
 
   getActiveRun(repositoryId: string): ExecutorRunRecord | null {
-    const stmt = this.db.prepare(
-      "SELECT * FROM executor_runs WHERE repository_id = ? AND status IN ('pending', 'running') ORDER BY started_at DESC LIMIT 1"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM executor_runs WHERE repository_id = ? AND status IN ('pending', 'running') ORDER BY started_at DESC LIMIT 1");
     const row = stmt.get(repositoryId) as unknown as ExecutorRunRow | undefined;
     return row ? this.mapRow(row) : null;
   }
@@ -118,7 +113,7 @@ export class ExecutorStore {
       const finishedAt = updates.finishedAt !== undefined ? updates.finishedAt : existing.finishedAt;
       const logPath = updates.logPath !== undefined ? updates.logPath : existing.logPath;
 
-      const stmt = this.db.prepare(`
+      const stmt = preparedStatement(this.db, `
         UPDATE executor_runs
         SET status = ?, exit_code = ?, error_message = ?, finished_at = ?, log_path = ?, updated_at = ?
         WHERE id = ?

@@ -47,9 +47,16 @@ export function initDatabase(dbPath: string, options?: { backupDir?: string }): 
     throw err;
   }
 
-  // Enable WAL and foreign keys
+  // Enable WAL and foreign keys. synchronous=NORMAL is the SQLite-recommended
+  // pairing with WAL: commits no longer fsync the WAL per transaction (only at
+  // checkpoints). The watcher writes liveness state every 5s per repository and
+  // the ledger records executor log lines individually, so FULL's per-commit
+  // fsync dominated steady-state disk I/O. Tradeoff (accepted, documented): an
+  // OS crash/power loss may roll back the most recent commits — the database
+  // stays consistent, and Git/GitHub remains the durable cross-agent truth.
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
+  db.exec('PRAGMA synchronous = NORMAL;');
 
   // Change 026: protect an existing persistent database with a verified
   // recovery snapshot before applying schema-changing migrations. A brand-new

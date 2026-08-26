@@ -101,6 +101,27 @@ Important:
 - if implementation discovers a concrete blocker, swapping the storage driver is allowed because DB access is isolated behind storage interfaces;
 - do not add Prisma/Drizzle/TypeORM unless later schema complexity clearly justifies it.
 
+Runtime performance contract (do not regress without evidence):
+
+- **WAL + `synchronous = NORMAL`.** The watcher persists liveness every 5s per
+  watched repository and the campaign ledger records executor log lines
+  individually; with the default `synchronous = FULL` every such commit fsynced
+  the WAL. NORMAL is the SQLite-recommended WAL pairing: commits stay
+  consistent, only checkpoint-time fsyncs remain. Accepted tradeoff: an OS
+  crash/power loss may roll back the most recent commits — Git/GitHub remains
+  the durable cross-agent truth.
+- **Prepared statements are cached per connection**
+  (`apps/controller/src/db/statement-cache.ts`). `node:sqlite` compiles SQL on
+  every `prepare()` and keeps no internal cache; stores must go through
+  `preparedStatement(db, sql)` instead of raw `db.prepare()` for repeated
+  statements (measured 4–11× per-call overhead; benchmark:
+  `scripts/profiling/sqlite-prepare-bench.mjs`).
+- **No-op watcher polls are silent.** An unchanged remote-HEAD poll updates
+  `watcher_state.last_polled_at` but publishes no event and writes no
+  `campaign_trace_events` row (a heartbeat here previously added ~17k permanent
+  rows/day/watched repository). Polls that observe movement or errors still
+  publish and are recorded.
+
 ## 7. Frontend
 
 ### React

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { DagNodeRecord, DagNodeStatus, WorkPacket } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface DagNodeRow {
   strategy_run_id: string;
@@ -24,14 +25,13 @@ export class DagNodeStore {
   constructor(private readonly db: DatabaseSync) {}
 
   create(record: DagNodeRecord): DagNodeRecord {
-    this.db
-      .prepare(`
-      INSERT INTO execution_dag_nodes (
-        strategy_run_id, node_id, packet_id, depends_on_json, status,
-        budget_json, dependency_input_shas_json, node_base_sha, attempt, max_retries,
-        waiting_reason, started_at, finished_at, result_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
+    preparedStatement(this.db, `
+    INSERT INTO execution_dag_nodes (
+      strategy_run_id, node_id, packet_id, depends_on_json, status,
+      budget_json, dependency_input_shas_json, node_base_sha, attempt, max_retries,
+      waiting_reason, started_at, finished_at, result_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
       .run(
         record.strategyRunId,
         record.nodeId,
@@ -54,32 +54,29 @@ export class DagNodeStore {
   }
 
   get(strategyRunId: string, nodeId: string): DagNodeRecord | null {
-    const row = this.db
-      .prepare(`
-      SELECT * FROM execution_dag_nodes
-      WHERE strategy_run_id = ? AND node_id = ?
-    `)
+    const row = preparedStatement(this.db, `
+    SELECT * FROM execution_dag_nodes
+    WHERE strategy_run_id = ? AND node_id = ?
+        `)
       .get(strategyRunId, nodeId) as unknown as DagNodeRow | undefined;
     return row ? this.map(row) : null;
   }
 
   getByPacket(strategyRunId: string, packetId: string): DagNodeRecord | null {
-    const row = this.db
-      .prepare(`
-      SELECT * FROM execution_dag_nodes
-      WHERE strategy_run_id = ? AND packet_id = ?
-    `)
+    const row = preparedStatement(this.db, `
+    SELECT * FROM execution_dag_nodes
+    WHERE strategy_run_id = ? AND packet_id = ?
+        `)
       .get(strategyRunId, packetId) as unknown as DagNodeRow | undefined;
     return row ? this.map(row) : null;
   }
 
   list(strategyRunId: string): DagNodeRecord[] {
-    const rows = this.db
-      .prepare(`
-      SELECT * FROM execution_dag_nodes
-      WHERE strategy_run_id = ?
-      ORDER BY created_at ASC, node_id ASC
-    `)
+    const rows = preparedStatement(this.db, `
+    SELECT * FROM execution_dag_nodes
+    WHERE strategy_run_id = ?
+    ORDER BY created_at ASC, node_id ASC
+        `)
       .all(strategyRunId) as unknown as DagNodeRow[];
     return rows.map((row) => this.map(row));
   }
@@ -89,12 +86,11 @@ export class DagNodeStore {
     statuses: DagNodeStatus[],
   ): DagNodeRecord[] {
     const values = statuses.map(() => "?").join(", ");
-    const rows = this.db
-      .prepare(`
-      SELECT * FROM execution_dag_nodes
-      WHERE strategy_run_id = ? AND status IN (${values})
-      ORDER BY created_at ASC, node_id ASC
-    `)
+    const rows = preparedStatement(this.db, `
+    SELECT * FROM execution_dag_nodes
+    WHERE strategy_run_id = ? AND status IN (${values})
+    ORDER BY created_at ASC, node_id ASC
+        `)
       .all(strategyRunId, ...statuses) as unknown as DagNodeRow[];
     return rows.map((row) => this.map(row));
   }
@@ -124,14 +120,13 @@ export class DagNodeStore {
       ...patch,
       updatedAt: new Date().toISOString(),
     };
-    this.db
-      .prepare(`
-      UPDATE execution_dag_nodes
-      SET status = ?, attempt = ?, max_retries = ?, waiting_reason = ?,
-          started_at = ?, finished_at = ?, result_id = ?, dependency_input_shas_json = ?,
-          node_base_sha = ?, updated_at = ?
-      WHERE strategy_run_id = ? AND node_id = ?
-    `)
+    preparedStatement(this.db, `
+    UPDATE execution_dag_nodes
+    SET status = ?, attempt = ?, max_retries = ?, waiting_reason = ?,
+        started_at = ?, finished_at = ?, result_id = ?, dependency_input_shas_json = ?,
+        node_base_sha = ?, updated_at = ?
+    WHERE strategy_run_id = ? AND node_id = ?
+        `)
       .run(
         next.status,
         next.attempt,

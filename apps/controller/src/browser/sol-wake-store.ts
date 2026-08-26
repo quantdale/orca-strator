@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { SolWakeRecord, SolWakeStatus } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface SolWakeRow {
   id: string;
@@ -35,7 +36,7 @@ export class SolWakeStore {
   }
 
   create(record: SolWakeRecord): void {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       INSERT INTO sol_wakes (
         id, repository_id, run_id, dispatch_id,
         conversation_url, message, status, error_message,
@@ -59,23 +60,19 @@ export class SolWakeStore {
   }
 
   get(id: string): SolWakeRecord | null {
-    const stmt = this.db.prepare("SELECT * FROM sol_wakes WHERE id = ?");
+    const stmt = preparedStatement(this.db, "SELECT * FROM sol_wakes WHERE id = ?");
     const row = stmt.get(id) as unknown as SolWakeRow | undefined;
     return row ? this.mapRow(row) : null;
   }
 
   getByRepository(repositoryId: string): SolWakeRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM sol_wakes WHERE repository_id = ? ORDER BY created_at DESC"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM sol_wakes WHERE repository_id = ? ORDER BY created_at DESC");
     const rows = stmt.all(repositoryId) as unknown as SolWakeRow[];
     return rows.map((r) => this.mapRow(r));
   }
 
   getByDispatch(dispatchId: string): SolWakeRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM sol_wakes WHERE dispatch_id = ? ORDER BY created_at DESC"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM sol_wakes WHERE dispatch_id = ? ORDER BY created_at DESC");
     const rows = stmt.all(dispatchId) as unknown as SolWakeRow[];
     return rows.map((r) => this.mapRow(r));
   }
@@ -97,7 +94,7 @@ export class SolWakeStore {
     const submittedAt =
       updates.submittedAt !== undefined ? updates.submittedAt : existing.submittedAt;
 
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       UPDATE sol_wakes
       SET status = ?, error_message = ?, submitted_at = ?, updated_at = ?
       WHERE id = ?

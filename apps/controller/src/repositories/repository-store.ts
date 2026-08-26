@@ -1,28 +1,25 @@
 import { DatabaseSync } from "node:sqlite";
 import type { RepositoryRecord } from "@orca/shared";
 import { toRepositoryRecord, type RepositoryRow } from "./repository-mapper.js";
+import { preparedStatement } from "../db/statement-cache.js";
 
 export class RepositoryStore {
   constructor(private readonly db: DatabaseSync) {}
 
   list(): RepositoryRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM repositories ORDER BY created_at DESC"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM repositories ORDER BY created_at DESC");
     const rows = stmt.all() as unknown as RepositoryRow[];
     return rows.map(toRepositoryRecord);
   }
 
   get(id: string): RepositoryRecord | null {
-    const stmt = this.db.prepare(
-      "SELECT * FROM repositories WHERE id = ?"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM repositories WHERE id = ?");
     const row = stmt.get(id) as unknown as RepositoryRow | undefined;
     return row ? toRepositoryRecord(row) : null;
   }
 
   create(record: RepositoryRecord): RepositoryRecord {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       INSERT INTO repositories (
         id,
         display_name,
@@ -62,7 +59,7 @@ export class RepositoryStore {
   }
 
   update(record: RepositoryRecord): RepositoryRecord {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       UPDATE repositories SET
         display_name = ?,
         github_remote = ?,
@@ -99,9 +96,7 @@ export class RepositoryStore {
   }
 
   delete(id: string): boolean {
-    const stmt = this.db.prepare(
-      "DELETE FROM repositories WHERE id = ?"
-    );
+    const stmt = preparedStatement(this.db, "DELETE FROM repositories WHERE id = ?");
     const result = stmt.run(id);
     return Number(result.changes) > 0;
   }

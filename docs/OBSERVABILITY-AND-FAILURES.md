@@ -280,6 +280,12 @@ The controller should capture:
 
 Do not let unbounded terminal output grow SQLite indefinitely.
 
+This also applies to polling heartbeats: a periodic "nothing happened" poll
+must not be persisted as trace evidence. Unchanged watcher polls update only
+`watcher_state` liveness; `campaign_trace_events` receives polls that observed
+movement or errors. The event stream likewise stays quiet on unchanged polls,
+so websocket clients are not woken every 5 seconds per repository.
+
 ## 12. Health versus readiness
 
 Controller `/api/health` in Change 001 means the service/database are operational.

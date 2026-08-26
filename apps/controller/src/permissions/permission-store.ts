@@ -7,6 +7,7 @@ import type {
   PermissionAction,
   PermissionPreset
 } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface PolicyRow { repository_id: string; preset: PermissionPreset; policy_json: string; updated_at: string; }
 interface DecisionRow {
@@ -43,7 +44,7 @@ export class PermissionStore {
   constructor(private readonly db: DatabaseSync) {}
 
   savePolicy(policy: AutonomyPermissionPolicy): void {
-    this.db.prepare(`
+    preparedStatement(this.db, `
       INSERT INTO permission_policies (repository_id, preset, policy_json, updated_at)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(repository_id) DO UPDATE SET
@@ -52,15 +53,13 @@ export class PermissionStore {
   }
 
   getPolicy(repositoryId: string): AutonomyPermissionPolicy | null {
-    const row = this.db.prepare(
-      "SELECT * FROM permission_policies WHERE repository_id = ?"
-    ).get(repositoryId) as unknown as PolicyRow | undefined;
+    const row = preparedStatement(this.db, "SELECT * FROM permission_policies WHERE repository_id = ?").get(repositoryId) as unknown as PolicyRow | undefined;
     if (!row) return null;
     try { return JSON.parse(row.policy_json) as AutonomyPermissionPolicy; } catch { return null; }
   }
 
   saveDecision(decision: PermissionDecision): void {
-    this.db.prepare(`
+    preparedStatement(this.db, `
       INSERT INTO permission_decisions (
         id, repository_id, run_id, iteration, action, outcome, enforcement,
         rationale, actionable, created_at, resolved_at
@@ -73,7 +72,7 @@ export class PermissionStore {
   }
 
   listDecisions(repositoryId: string, limit = 100): PermissionDecision[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM permission_decisions
       WHERE repository_id = ?
       ORDER BY created_at DESC
@@ -83,9 +82,7 @@ export class PermissionStore {
   }
 
   getDecision(id: string): PermissionDecision | null {
-    const row = this.db.prepare(
-      "SELECT * FROM permission_decisions WHERE id = ?"
-    ).get(id) as unknown as DecisionRow | undefined;
+    const row = preparedStatement(this.db, "SELECT * FROM permission_decisions WHERE id = ?").get(id) as unknown as DecisionRow | undefined;
     return row ? mapDecision(row) : null;
   }
 
@@ -99,9 +96,7 @@ export class PermissionStore {
     outcome: Exclude<PermissionOutcome, "ASK">,
     resolvedAt = new Date().toISOString()
   ): PermissionDecision | null {
-    const result = this.db.prepare(
-      "UPDATE permission_decisions SET outcome = ?, resolved_at = ? WHERE id = ? AND resolved_at IS NULL"
-    ).run(outcome, resolvedAt, id);
+    const result = preparedStatement(this.db, "UPDATE permission_decisions SET outcome = ?, resolved_at = ? WHERE id = ? AND resolved_at IS NULL").run(outcome, resolvedAt, id);
     if (Number(result.changes) === 0) return null;
     return this.getDecision(id);
   }

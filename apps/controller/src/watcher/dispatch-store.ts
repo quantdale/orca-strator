@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { DispatchRecord, DispatchStatus, WatcherState } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface DispatchRow {
   id: string;
@@ -70,7 +71,7 @@ export class DispatchStore {
   }
 
   create(dispatch: DispatchRecord): void {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       INSERT INTO dispatches (
         id, repository_id, run_id, iteration, commit_sha, base_sha,
         change_path, goal, instructions_version, status, rejection_reason,
@@ -98,21 +99,19 @@ export class DispatchStore {
   }
 
   get(id: string): DispatchRecord | null {
-    const stmt = this.db.prepare("SELECT * FROM dispatches WHERE id = ?");
+    const stmt = preparedStatement(this.db, "SELECT * FROM dispatches WHERE id = ?");
     const row = stmt.get(id) as unknown as DispatchRow | undefined;
     return row ? this.mapDispatchRow(row) : null;
   }
 
   getByRepository(repositoryId: string): DispatchRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM dispatches WHERE repository_id = ? ORDER BY iteration DESC, created_at DESC"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM dispatches WHERE repository_id = ? ORDER BY iteration DESC, created_at DESC");
     const rows = stmt.all(repositoryId) as unknown as DispatchRow[];
     return rows.map((r) => this.mapDispatchRow(r));
   }
 
   updateStatus(id: string, status: DispatchStatus, rejectionReason: string | null = null): void {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       UPDATE dispatches
       SET status = ?, rejection_reason = ?, updated_at = ?
       WHERE id = ?
@@ -121,19 +120,19 @@ export class DispatchStore {
   }
 
   hasDispatch(id: string): boolean {
-    const stmt = this.db.prepare("SELECT 1 FROM dispatches WHERE id = ?");
+    const stmt = preparedStatement(this.db, "SELECT 1 FROM dispatches WHERE id = ?");
     const row = stmt.get(id);
     return Boolean(row);
   }
 
   hasCommit(commitSha: string): boolean {
-    const stmt = this.db.prepare("SELECT 1 FROM dispatches WHERE commit_sha = ?");
+    const stmt = preparedStatement(this.db, "SELECT 1 FROM dispatches WHERE commit_sha = ?");
     const row = stmt.get(commitSha);
     return Boolean(row);
   }
 
   getWatcherState(repositoryId: string): WatcherState | null {
-    const stmt = this.db.prepare("SELECT * FROM watcher_state WHERE repository_id = ?");
+    const stmt = preparedStatement(this.db, "SELECT * FROM watcher_state WHERE repository_id = ?");
     const row = stmt.get(repositoryId) as unknown as WatcherStateRow | undefined;
     return row ? this.mapWatcherStateRow(row) : null;
   }
@@ -152,7 +151,7 @@ export class DispatchStore {
       const updatedPolledAt = params.lastPolledAt !== undefined ? params.lastPolledAt : existing.lastPolledAt;
       const updatedError = params.lastError !== undefined ? params.lastError : existing.lastError;
 
-      const stmt = this.db.prepare(`
+      const stmt = preparedStatement(this.db, `
         UPDATE watcher_state
         SET last_observed_sha = ?, last_polled_at = ?, last_error = ?, updated_at = ?
         WHERE repository_id = ?
@@ -167,7 +166,7 @@ export class DispatchStore {
         updatedAt: now
       };
     } else {
-      const stmt = this.db.prepare(`
+      const stmt = preparedStatement(this.db, `
         INSERT INTO watcher_state (
           repository_id, last_observed_sha, last_polled_at, last_error, updated_at
         ) VALUES (?, ?, ?, ?, ?)

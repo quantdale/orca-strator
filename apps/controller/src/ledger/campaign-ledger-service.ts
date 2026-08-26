@@ -16,6 +16,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { UsageTelemetryStore } from "../usage/usage-telemetry-store.js";
 import type { StrategyRunStore } from "../strategy/strategy-run-store.js";
 import type { DagNodeStore } from "../strategy/dag-node-store.js";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface DispatchLike { id?: string; runId?: string; iteration?: number; }
 interface ControlLike { id?: string; controlId?: string; runId?: string; iteration?: number; relatedDispatchId?: string | null; }
@@ -47,10 +48,20 @@ export class CampaignLedgerService {
         ? this.stringValue(data.controlId) ?? control?.controlId ?? null
         : null;
       const dispatchRow = eventDispatchId
-        ? this.db.prepare("SELECT run_id, iteration FROM dispatches WHERE id = ?").get(eventDispatchId) as { run_id?: string; iteration?: number } | undefined
+        ? preparedStatement(this.db, "SELECT run_id, iteration FROM dispatches WHERE id = ?").get(eventDispatchId) as { run_id?: string; iteration?: number } | undefined
         : undefined;
-      const inferredRunId = event.type.startsWith("repository.") ? null : this.runStore.getLatestRun(event.repositoryId)?.id ?? null;
-      const runId = this.stringValue(data.runId) ?? dispatch?.runId ?? control?.runId ?? dispatchRow?.run_id ?? inferredRunId;
+      // Lazy fallback: getLatestRun costs a sorted SELECT, and nearly every
+      // production event already carries an explicit runId/dispatch/control
+      // reference (executor log lines carry dispatchId; loop/strategy events
+      // carry runId), so only pay for the lookup when nothing earlier resolved.
+      const runId =
+        this.stringValue(data.runId) ??
+        dispatch?.runId ??
+        control?.runId ??
+        dispatchRow?.run_id ??
+        (event.type.startsWith("repository.")
+          ? null
+          : this.runStore.getLatestRun(event.repositoryId)?.id ?? null);
       const iteration = this.numberValue(data.iteration) ?? dispatch?.iteration ?? control?.iteration ?? dispatchRow?.iteration ?? null;
       const phase = this.mapPhase(event, data);
       const status = this.mapStatus(event, data);
@@ -93,7 +104,7 @@ export class CampaignLedgerService {
     const summary = this.buildSummary(runId, timeline);
     const iterations = this.buildIterations(timeline);
     const usage = this.usageStore?.listByRun(runId) ?? [];
-    const rows = (table: string) => this.db.prepare(`SELECT * FROM ${table} WHERE run_id = ? ORDER BY created_at ASC`).all(runId) as unknown as Record<string, unknown>[];
+    const rows = (table: string) => preparedStatement(this.db, `SELECT * FROM ${table} WHERE run_id = ? ORDER BY created_at ASC`).all(runId) as unknown as Record<string, unknown>[];
     const strategyRuns = this.strategyStore?.listByRun(runId) ?? [];
     return {
       repository,

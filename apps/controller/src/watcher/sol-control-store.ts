@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { SolControlDecision } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 export type SolControlStatus = "detected" | "consumed" | "rejected";
 
@@ -69,7 +70,7 @@ export class SolControlStore {
   }
 
   create(input: CreateSolControlInput): void {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       INSERT INTO sol_controls (
         id, repository_id, run_id, control_id, decision, iteration,
         commit_sha, related_dispatch_id, status, rejection_reason,
@@ -93,26 +94,24 @@ export class SolControlStore {
   }
 
   get(id: string): SolControlRecord | null {
-    const stmt = this.db.prepare("SELECT * FROM sol_controls WHERE id = ?");
+    const stmt = preparedStatement(this.db, "SELECT * FROM sol_controls WHERE id = ?");
     const row = stmt.get(id) as unknown as SolControlRow | undefined;
     return row ? this.mapRow(row) : null;
   }
 
   getByRepository(repositoryId: string): SolControlRecord[] {
-    const stmt = this.db.prepare(
-      "SELECT * FROM sol_controls WHERE repository_id = ? ORDER BY created_at DESC"
-    );
+    const stmt = preparedStatement(this.db, "SELECT * FROM sol_controls WHERE repository_id = ? ORDER BY created_at DESC");
     const rows = stmt.all(repositoryId) as unknown as SolControlRow[];
     return rows.map((r) => this.mapRow(r));
   }
 
   hasControl(id: string): boolean {
-    const stmt = this.db.prepare("SELECT 1 FROM sol_controls WHERE id = ?");
+    const stmt = preparedStatement(this.db, "SELECT 1 FROM sol_controls WHERE id = ?");
     return Boolean(stmt.get(id));
   }
 
   updateStatus(id: string, status: SolControlStatus, rejectionReason: string | null = null): void {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       UPDATE sol_controls
       SET status = ?, rejection_reason = ?, updated_at = ?
       WHERE id = ?

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { UsageMetric, UsageMetricInput, UsageSource, UsageCostStatus } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface UsageRow {
   id: string;
@@ -60,7 +61,7 @@ export class UsageTelemetryStore {
       recordedAt: input.recordedAt ?? new Date().toISOString(),
       notes: input.notes ?? null
     };
-    this.db.prepare(`
+    preparedStatement(this.db, `
       INSERT INTO usage_metrics (
         id, repository_id, run_id, iteration, dispatch_id, executor_run_id,
         executor, provider, model, input_tokens, cached_input_tokens,
@@ -81,7 +82,7 @@ export class UsageTelemetryStore {
   }
 
   listByRepository(repositoryId: string, limit = 500): UsageMetric[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM usage_metrics
       WHERE repository_id = ?
       ORDER BY recorded_at DESC
@@ -91,7 +92,7 @@ export class UsageTelemetryStore {
   }
 
   listByRun(runId: string): UsageMetric[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM usage_metrics
       WHERE run_id = ?
       ORDER BY recorded_at ASC
@@ -100,7 +101,7 @@ export class UsageTelemetryStore {
   }
 
   listByIteration(runId: string, iteration: number): UsageMetric[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM usage_metrics
       WHERE run_id = ? AND iteration = ?
       ORDER BY recorded_at ASC

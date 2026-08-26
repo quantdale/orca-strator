@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { SolWakeResultStatus } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 export type SolOperationStatus = "active" | "stalled" | "completed";
 
@@ -107,7 +108,7 @@ export class SqliteSolOperationStore implements SolOperationStore {
   }
 
   upsert(record: SolOperationRecord): void {
-    const stmt = this.db.prepare(`
+    const stmt = preparedStatement(this.db, `
       INSERT INTO sol_operations (
         repository_id, run_id, iteration, wake_id, dispatch_id, conversation_url,
         repository_name, result_status, message, submitted_at, deadline,
@@ -152,13 +153,13 @@ export class SqliteSolOperationStore implements SolOperationStore {
   }
 
   get(repositoryId: string): SolOperationRecord | null {
-    const stmt = this.db.prepare("SELECT * FROM sol_operations WHERE repository_id = ?");
+    const stmt = preparedStatement(this.db, "SELECT * FROM sol_operations WHERE repository_id = ?");
     const row = stmt.get(repositoryId) as unknown as SolOperationRow | undefined;
     return row ? this.mapRow(row) : null;
   }
 
   listActive(): SolOperationRecord[] {
-    const stmt = this.db.prepare("SELECT * FROM sol_operations WHERE status = 'active'");
+    const stmt = preparedStatement(this.db, "SELECT * FROM sol_operations WHERE status = 'active'");
     const rows = stmt.all() as unknown as SolOperationRow[];
     return rows.map((r) => this.mapRow(r));
   }
@@ -175,7 +176,7 @@ export class SqliteSolOperationStore implements SolOperationStore {
   }
 
   delete(repositoryId: string): void {
-    const stmt = this.db.prepare("DELETE FROM sol_operations WHERE repository_id = ?");
+    const stmt = preparedStatement(this.db, "DELETE FROM sol_operations WHERE repository_id = ?");
     stmt.run(repositoryId);
   }
 }

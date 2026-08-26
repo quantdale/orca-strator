@@ -185,16 +185,16 @@ export class WatcherService {
     }
 
     if (remoteHeadSha === lastObservedSha) {
+      // Liveness still persists (watcher status reads last_polled_at from DB),
+      // but the no-change heartbeat is NOT published. At a 5s interval that
+      // event previously produced ~17k permanent campaign_trace_events rows per
+      // watched repository per day plus a websocket fanout per client, and no
+      // consumer (UI or ledger semantics) derives value from empty polls.
+      // Meaningful polls (HEAD moved, errors, inspections below) still publish.
       this.dispatchStore.upsertWatcherState({
         repositoryId: repo.id,
         lastPolledAt: now,
         lastError: null
-      });
-      this.publishEvent({
-        type: "watcher.poll_completed",
-        at: now,
-        repositoryId: repo.id,
-        data: {}
       });
       return;
     }

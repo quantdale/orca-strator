@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { DEFAULT_SCHEDULER_POLICY, type SchedulerAdmissionRequest, type SchedulerDecision, type SchedulerPolicy, type SchedulerAdmissionStatus, type SchedulerLimitDimension } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 interface DecisionRow {
   id: string;
@@ -26,7 +27,7 @@ export class SchedulerPolicyStore {
   constructor(private readonly db: DatabaseSync) {}
 
   getPolicy(): SchedulerPolicy {
-    const row = this.db.prepare("SELECT policy_json FROM scheduler_policies WHERE id = 'default'").get() as { policy_json?: string } | undefined;
+    const row = preparedStatement(this.db, "SELECT policy_json FROM scheduler_policies WHERE id = 'default'").get() as { policy_json?: string } | undefined;
     if (!row?.policy_json) {
       const policy = { ...DEFAULT_SCHEDULER_POLICY, updatedAt: new Date().toISOString() };
       return this.savePolicy(policy);
@@ -35,7 +36,7 @@ export class SchedulerPolicyStore {
   }
 
   savePolicy(policy: SchedulerPolicy): SchedulerPolicy {
-    this.db.prepare(`
+    preparedStatement(this.db, `
       INSERT INTO scheduler_policies (id, policy_json, updated_at)
       VALUES ('default', ?, ?)
       ON CONFLICT(id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at
@@ -44,7 +45,7 @@ export class SchedulerPolicyStore {
   }
 
   saveDecision(decision: SchedulerDecision): SchedulerDecision {
-    this.db.prepare(`
+    preparedStatement(this.db, `
       INSERT INTO scheduler_decisions (
         id, request_id, repository_id, run_id, iteration, executor, provider,
         model, kind, status, blocked_by, reason, queued_at, runnable_at,
@@ -64,7 +65,7 @@ export class SchedulerPolicyStore {
     const current = this.getDecision(requestId);
     if (!current) return;
     const next = { ...current, ...patch };
-    this.db.prepare(`
+    preparedStatement(this.db, `
       UPDATE scheduler_decisions
       SET status = ?, blocked_by = ?, reason = ?, runnable_at = ?, resolved_at = ?
       WHERE request_id = ? AND id = ?
@@ -72,12 +73,12 @@ export class SchedulerPolicyStore {
   }
 
   getDecision(requestId: string): SchedulerDecision | null {
-    const row = this.db.prepare("SELECT * FROM scheduler_decisions WHERE request_id = ? ORDER BY created_at DESC LIMIT 1").get(requestId) as unknown as DecisionRow | undefined;
+    const row = preparedStatement(this.db, "SELECT * FROM scheduler_decisions WHERE request_id = ? ORDER BY created_at DESC LIMIT 1").get(requestId) as unknown as DecisionRow | undefined;
     return row ? this.map(row) : null;
   }
 
   listDecisions(limit = 200): SchedulerDecision[] {
-    const rows = this.db.prepare("SELECT * FROM scheduler_decisions ORDER BY created_at DESC LIMIT ?").all(limit) as unknown as DecisionRow[];
+    const rows = preparedStatement(this.db, "SELECT * FROM scheduler_decisions ORDER BY created_at DESC LIMIT ?").all(limit) as unknown as DecisionRow[];
     return rows.map((row) => this.map(row));
   }
 

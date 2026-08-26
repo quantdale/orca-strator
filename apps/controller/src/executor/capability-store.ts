@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ExecutorCapabilitySnapshot, ProbeLevel } from "@orca/shared";
+import { preparedStatement } from "../db/statement-cache.js";
 
 export interface StoredCapabilityProbe {
   id: string;
@@ -29,7 +30,7 @@ export class CapabilityStore {
   constructor(private readonly db: DatabaseSync) {}
 
   save(probe: StoredCapabilityProbe): void {
-    this.db.prepare(`
+    preparedStatement(this.db, `
       INSERT INTO executor_capability_probes (
         id, repository_id, cli, model, environment, probe_level, overall,
         snapshot_json, probed_at
@@ -48,7 +49,7 @@ export class CapabilityStore {
   }
 
   latest(repositoryId: string): StoredCapabilityProbe | null {
-    const row = this.db.prepare(`
+    const row = preparedStatement(this.db, `
       SELECT * FROM executor_capability_probes
       WHERE repository_id = ?
       ORDER BY probed_at DESC
@@ -58,7 +59,7 @@ export class CapabilityStore {
   }
 
   list(repositoryId: string, limit = 20): StoredCapabilityProbe[] {
-    const rows = this.db.prepare(`
+    const rows = preparedStatement(this.db, `
       SELECT * FROM executor_capability_probes
       WHERE repository_id = ?
       ORDER BY probed_at DESC
@@ -74,7 +75,7 @@ export class CapabilityStore {
       ...latest.snapshot,
       rich: { ...latest.snapshot.rich, usageTelemetry: readiness }
     };
-    this.db.prepare(`
+    preparedStatement(this.db, `
       UPDATE executor_capability_probes
       SET snapshot_json = ?
       WHERE id = ?

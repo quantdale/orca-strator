@@ -68,13 +68,31 @@ export class SolWakeSubmitter {
     "checking if the site connection is secure"
   ];
 
+  /**
+   * True when ANY selector in the group is visible. Probes run concurrently:
+   * a miss burns its full waitForSelector timeout in the Playwright driver, so
+   * probing a group sequentially cost (N x timeout) on every clean page while
+   * concurrent probing costs max(timeout) with identical semantics.
+   */
+  private async anyVisible(
+    page: BrowserPage,
+    selectors: string[],
+    timeoutMs: number
+  ): Promise<boolean> {
+    const probes = await Promise.all(
+      selectors.map((sel) =>
+        page.hasSelector(sel, timeoutMs).catch(() => false)
+      )
+    );
+    return probes.some((seen) => seen);
+  }
+
   async detectAuthRequired(page: BrowserPage): Promise<boolean> {
-    for (const sel of this.authSelectors) {
-      try {
-        if (await page.hasSelector(sel, 1200)) return true;
-      } catch {}
-    }
-    const scoped = await this.scopedText(page);
+    const [authVisible, scoped] = await Promise.all([
+      this.anyVisible(page, this.authSelectors, 1200),
+      this.scopedText(page),
+    ]);
+    if (authVisible) return true;
     const low = scoped.toLowerCase();
     for (const s of this.authTextSignals) if (low.includes(s)) return true;
     for (const s of this.captchaSignals) if (low.includes(s)) return true;
@@ -82,25 +100,24 @@ export class SolWakeSubmitter {
   }
 
   async detectCaptcha(page: BrowserPage): Promise<boolean> {
-    for (const sel of this.captchaFrameSelectors) {
-      try {
-        if (await page.hasSelector(sel, 800)) return true;
-      } catch {}
-    }
+    if (await this.anyVisible(page, this.captchaFrameSelectors, 800)) return true;
     const low = (await this.scopedText(page)).toLowerCase();
     for (const s of this.captchaSignals) if (low.includes(s)) return true;
     return false;
   }
 
   async detectBusy(page: BrowserPage): Promise<boolean> {
-    const low = (await this.scopedText(page)).toLowerCase();
-    for (const s of this.busyTextSignals) if (low.includes(s)) return true;
-    for (const sel of this.busyDismissSelectors) {
-      try {
-        if (await page.hasSelector(sel, 600)) {
-          if (this.busyTextSignals.some((sig) => low.includes(sig))) return true;
-        }
-      } catch {}
+    const [low, dismissVisible] = await Promise.all([
+      this.scopedText(page),
+      this.anyVisible(page, this.busyDismissSelectors, 600),
+    ]);
+    const text = low.toLowerCase();
+    for (const s of this.busyTextSignals) if (text.includes(s)) return true;
+    if (
+      dismissVisible &&
+      this.busyTextSignals.some((sig) => text.includes(sig))
+    ) {
+      return true;
     }
     return false;
   }
@@ -184,13 +201,15 @@ export class SolWakeSubmitter {
   }
 
   private async scopedText(page: BrowserPage): Promise<string> {
-    const parts: string[] = [];
-    for (const sel of this.bannerSelectors) {
-      try {
-        const t = await page.getText(sel);
-        if (t) parts.push(t);
-      } catch {}
-    }
-    return parts.join(" \n ");
+    const texts = await Promise.all(
+      this.bannerSelectors.map(async (sel) => {
+        try {
+          return await page.getText(sel);
+        } catch {
+          return null;
+        }
+      })
+    );
+    return texts.filter((t): t is string => Boolean(t)).join(" \n ");
   }
 }

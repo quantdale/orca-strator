@@ -250,6 +250,38 @@ describe("Watcher & Transactional Dispatch Integration (Task 6)", () => {
     expect(detectedEvents).toHaveLength(1);
   });
 
+  it("unchanged polls stay silent: no poll_completed event, liveness still persisted", { timeout: 30_000 }, async () => {
+    const repo: RepositoryRecord = {
+      id: "repo-test-3b",
+      displayName: "Silent Heartbeat Repo",
+      githubRemote: remoteBareDir,
+      localPath: workRepoDir,
+      environment: "windows",
+      wslDistribution: null,
+      executorCli: "codex",
+      executorModel: "gpt-5.6",
+      solConversationUrl:
+        "https://chatgpt.com/c/67b5883a-1234-8001-a123-1234567890ab",
+      maxIterations: 20,
+      maxRuntimeMinutes: 480,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    repoStore.create(repo);
+
+    await watcherService.pollRepository(repo.id);
+    publishedEvents.length = 0;
+
+    // Unchanged remote: no event may be published (a heartbeat here previously
+    // produced ~17k permanent ledger rows per watched repository per day).
+    await watcherService.pollRepository(repo.id);
+    expect(publishedEvents).toHaveLength(0);
+
+    const status = watcherService.getWatcherStatus(repo.id);
+    expect(status.lastError).toBeNull();
+    expect(status.lastPolledAt).toBeTruthy();
+  });
+
   it("6.T4 mixed commit is rejected with structured reason", { timeout: 30_000 }, async () => {
     const repo: RepositoryRecord = {
       id: "repo-test-4",
