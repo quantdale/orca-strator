@@ -23,7 +23,7 @@
     "build:controller": "npm run build --workspace=@orca/controller",
     "build:desktop": "npm run build --workspace=@orca/desktop",
     "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
-    "test": "npm run build:shared && vitest run --exclude \"**/real-*.test.ts\"",
+    "test": "npm run build:shared && vitest run --exclude \"**/real-*.test.ts\" --testTimeout=30000 --hookTimeout=30000",
     "test:real": "npm --prefix apps/controller run test:real",
     "browser:install": "npm --prefix apps/controller run browser:install",
     "playwright:status": "npm --prefix apps/controller run playwright:status",
