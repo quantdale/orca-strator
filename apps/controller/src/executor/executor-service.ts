@@ -28,6 +28,9 @@ import { ExecutorRunner } from "./executor-runner.js";
 import { LogRotator } from "./log-rotator.js";
 import { buildExecutorInvocation, resolveProfile } from "./profiles.js";
 import { toWslPath } from "../wsl-path.js";
+import type { RepositoryActorLeaseService } from "../ownership/actor-lease-service.js";
+import type { ProcessOwnershipStore } from "../ownership/ownership-store.js";
+import type { ProcessProbe } from "../ownership/process-probe.js";
 
 export interface ExecutorStartOptions {
   /** Resume an interrupted dispatch; instructs the executor to preserve partial work. */
@@ -54,6 +57,21 @@ export interface ExecutorServiceOptions {
     result: ExecutorResult | null
   ) => void;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
+  /**
+   * Change 028 (D4/D5): durable execution-ownership wiring. When present, the
+   * direct executor acquires a SINGLE_AGENT actor lease before admission, and
+   * each spawned child persists a process ownership record via the onSpawn
+   * hook. Absent (legacy/test wiring) the service behaves exactly as before.
+   */
+  ownership?: ExecutorOwnershipDeps;
+}
+
+/** Durable ownership dependencies for the direct-executor path (Change 028). */
+export interface ExecutorOwnershipDeps {
+  leaseService: RepositoryActorLeaseService;
+  processStore: ProcessOwnershipStore;
+  probe: ProcessProbe;
+  controllerInstanceId: string;
 }
 
 const MAX_LAUNCH_ATTEMPTS = 3;
@@ -101,6 +119,7 @@ export class ExecutorService {
     result: ExecutorResult | null
   ) => void;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
+  private readonly ownership?: ExecutorOwnershipDeps;
   private readonly logRotator: LogRotator;
 
   private readonly activeRunners = new Map<string, ExecutorRunner>();
@@ -125,6 +144,7 @@ export class ExecutorService {
     this.usageTelemetryService = options.usageTelemetryService;
     this.onExecutorCompleted = options.onExecutorCompleted;
     this.eventPublisher = options.eventPublisher;
+    this.ownership = options.ownership;
     this.logRotator = new LogRotator(this.dataDir);
   }
 
@@ -230,6 +250,27 @@ export class ExecutorService {
     const adapter = profile === "opencode" && this.openCodeAdapter
       ? this.openCodeAdapter
       : repo.environment === "wsl" ? this.wslAdapter : this.windowsAdapter;
+    // Change 028 (D5.2): acquire a single durable SINGLE_AGENT actor lease
+    // BEFORE the direct executor process is admitted. A live/quarantined prior
+    // lease (e.g. from a crashed controller) blocks the new start.
+    if (this.ownership) {
+      const leaseRes = this.ownership.leaseService.acquire(
+        repositoryId,
+        this.ownership.controllerInstanceId,
+        "SINGLE_AGENT",
+        { actorId: runAttemptId, runId: dispatch.runId, iteration: dispatch.iteration }
+      );
+      if (leaseRes.outcome !== "acquired") {
+        throw new ValidationError(
+          `Repository ${repositoryId} execution actor is ${leaseRes.outcome} ` +
+            `(${leaseRes.reason ?? "unknown"}); refusing start`
+        );
+      }
+      this.ownership.leaseService.bindActor(repositoryId, runAttemptId, {
+        runId: dispatch.runId
+      });
+    }
+
     const runner = new ExecutorRunner({
       adapter,
       context: {
@@ -259,12 +300,76 @@ export class ExecutorService {
       onLog: (line) => {
         this.publishLog(repositoryId, dispatch.id, line);
       },
+      // Change 028 (D4.1/D4.2): surface PID after real spawn and persist
+      // durable process ownership before admission is reported.
+      onSpawn: this.ownership
+        ? async (pid: number) => {
+            const own = this.ownership!;
+            const evidence = own.probe.capture(pid);
+            try {
+              own.processStore.insert({
+                id: runAttemptId,
+                controllerInstanceId: own.controllerInstanceId,
+                repositoryId,
+                runId: dispatch.runId,
+                iteration: dispatch.iteration,
+                actorId: runAttemptId,
+                packetId: null,
+                processKind: "DIRECT_EXECUTOR",
+                hostPid: pid,
+                executableName: evidence.executableName ?? null,
+                startMarker: evidence.startMarker ?? null,
+                state: "RUNNING"
+              });
+              own.leaseService.markActive(repositoryId);
+            } catch (err) {
+              // D4.3: terminate only if identity verified; otherwise quarantine.
+              try {
+                own.probe.killVerifiedTree({
+                  hostPid: pid,
+                  executableName: evidence.executableName,
+                  startMarker: evidence.startMarker
+                });
+              } catch {
+                /* best-effort termination */
+              }
+              own.leaseService.quarantine(
+                repositoryId,
+                `process ownership persistence failed: ${(err as Error)?.message ?? String(err)}`
+              );
+              throw err;
+            }
+          }
+        : undefined,
       onExit: (exitCode, details) => {
         let finalStatus: "completed" | "failed" | "timed_out" | "paused" | "killed" = "completed";
         let errorMessage: string | null = null;
         try {
           this.activeRunners.delete(repositoryId);
           this.pendingRunners.delete(repositoryId);
+          // Change 028 (D4.4): persist terminal process state before releasing
+          // the repository actor lease so a concurrent start cannot acquire the
+          // lease in the intermediate window.
+          if (this.ownership) {
+            try {
+              const rec = this.ownership.processStore
+                .listByRepository(repositoryId)
+                .find((r) => r.actorId === runAttemptId);
+              if (rec) {
+                const terminal =
+                  details.wasKilled || details.reason === "EMERGENCY_KILLED"
+                    ? "KILL_CONFIRMED"
+                    : "EXITED";
+                this.ownership.processStore.setState(rec.id, terminal);
+              }
+              this.ownership.leaseService.release(
+                repositoryId,
+                this.ownership.controllerInstanceId
+              );
+            } catch (err) {
+              console.warn("[ExecutorService] ownership teardown failed:", err);
+            }
+          }
           const finishedAt = new Date().toISOString();
 
           // First-class exit reasons: PAUSED must not become RECOVERY_REQUIRED (item #5).

@@ -27,7 +27,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
 
   it('4.T1 fresh temp DB migrates and creates schema_migrations', () => {
     const rows = dbCtx.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
-    expect(rows).toHaveLength(23);
+    expect(rows).toHaveLength(24);
     expect(rows[0].version).toBe(1);
     expect(rows[0].name).toBe('001_create_repositories');
     expect(rows[1].version).toBe(2);
@@ -70,6 +70,12 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
     expect(rows[19].name).toBe('020_allow_dag_execution_strategy');
     expect(rows[20].version).toBe(21);
     expect(rows[20].name).toBe('021_create_execution_dag_nodes');
+    expect(rows[21].version).toBe(22);
+    expect(rows[21].name).toBe('022_execution_strategy_loop_integration');
+    expect(rows[22].version).toBe(23);
+    expect(rows[22].name).toBe('023_dag_node_base_sha');
+    expect(rows[23].version).toBe(24);
+    expect(rows[23].name).toBe('024_durable_execution_ownership');
   });
 
   it('4.T2 reopen is idempotent and does not fail or duplicate migrations', () => {
@@ -77,7 +83,7 @@ describe('SQLite Migration & Storage Layer (Tests 4)', () => {
     const reopened = initDatabase(dbPath);
     dbCtx = reopened;
     const rows = reopened.db.prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC').all() as any[];
-    expect(rows).toHaveLength(23);
+    expect(rows).toHaveLength(24);
   });
 
   it('4.T3 CRUD round-trips and supports multiple records', () => {

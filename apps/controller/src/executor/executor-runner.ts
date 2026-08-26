@@ -29,6 +29,14 @@ export interface RunnerOptions {
       wasPaused: boolean;
     }
   ) => void;
+  /**
+   * Change 028 (D4): invoked once the child has emitted `spawn` (PID known)
+   * and BEFORE start() resolves. The caller persists durable process
+   * ownership here so admission is never reported before ownership exists.
+   * Rejecting here aborts the launch (the already-spawned child must be
+   * terminated by the hook author).
+   */
+  onSpawn?: (pid: number) => void | Promise<void>;
 }
 
 export class ExecutorRunner {
@@ -75,6 +83,13 @@ export class ExecutorRunner {
     // Handshake: resolve only after successful spawn, reject on async spawn error (ENOENT etc.)
     // This enables genuine launch retries (item #8) – a failure to launch vs a failure after launch.
     await this.awaitSpawn();
+
+    // Change 028 (D4.1): surface PID after the real spawn handshake and before
+    // the caller treats launch as safely active. Persistence failure here must
+    // terminate the child (handled by the hook author) and abort admission.
+    if (this.options.onSpawn) {
+      await this.options.onSpawn(this.child!.pid!);
+    }
 
     // Setup watchdog enforcement (separate from wall-clock ceiling; disabled by default)
     if (this.watchdogMs > 0) {

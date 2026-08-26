@@ -48,7 +48,7 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 ## 5. Enforce one durable repository actor
 
 - [x] 5.1 Implement actor lease acquire/bind/quarantine/release/reconcile service with DB uniqueness as the ownership boundary (RepositoryActorLeaseService; tested).
-- [ ] 5.2 Acquire a SINGLE_AGENT lease before direct executor process admission.
+- [x] 5.2 Acquire a SINGLE_AGENT lease before direct executor process admission (ExecutorService.startRun acquires + binds + marks active; conflicts/quarantine block start).
 - [ ] 5.3 Acquire one SWARM/DAG strategy lease before workers are admitted; do not create one repository lease per worker.
 - [ ] 5.4 Persist worker process ownership beneath the strategy lease for every SWARM/DAG ExecutorRunner.
 - [ ] 5.5 Block manual/raw executor/strategy HTTP starts that bypass normal loop flow unless the same durable lease gate authorizes them.

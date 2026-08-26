@@ -60,6 +60,9 @@ import { DagNodeStore } from "./strategy/dag-node-store.js";
 import { SwarmExecutionService } from "./strategy/swarm-execution-service.js";
 import { DagExecutionService } from "./strategy/dag-execution-service.js";
 import { OpenCodeAdapter } from "./executor/adapters/opencode-adapter.js";
+import { RepositoryActorLeaseService } from "./ownership/actor-lease-service.js";
+import { ProcessOwnershipStore } from "./ownership/ownership-store.js";
+import { createProcessProbe } from "./ownership/process-probe.js";
 import { swarmRoutes } from "./http/routes/swarm.js";
 import { dagRoutes } from "./http/routes/dag.js";
 
@@ -145,6 +148,12 @@ export async function buildApp(
   const runStore = new RunStore(dbContext.db);
   const eventBus = new EventBus();
   const repositoryService = new RepositoryService(store, eventBus, runStore);
+
+  // Change 028 (D3/D5): one process probe per controller process. The probe is
+  // shared by the lease service and the executor ownership hooks so a captured
+  // child pid is known to restart reconciliation.
+  const processProbe = createProcessProbe();
+  const leaseService = new RepositoryActorLeaseService(dbContext.db, processProbe);
   const capabilityStore = new CapabilityStore(dbContext.db);
   const runPolicyStore = new RunPolicyStore(dbContext.db);
   const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);
@@ -296,6 +305,14 @@ export async function buildApp(
       void loopService.onExecutorCompleted(repositoryId, dispatchId, result);
     },
     eventPublisher: (event) => eventBus.publish(event),
+    // Change 028 (D4/D5): durable direct-executor ownership. Absent only in
+    // legacy/test wiring; production always supplies it.
+    ownership: {
+      leaseService,
+      processStore: new ProcessOwnershipStore(dbContext.db),
+      probe: processProbe,
+      controllerInstanceId: instanceId
+    }
   });
 
   const browserManager =
@@ -403,6 +420,22 @@ export async function buildApp(
     executorStore,
   );
   await reconciler.reconcile();
+
+  // Change 028 (D5/D6): reconcile prior-controller execution ownership BEFORE
+  // strategy/worktree recovery admits or sweeps anything. A live/uncertain
+  // prior writer is quarantined (fails closed); a provably-dead one is
+  // released so recovery can proceed. This is the restart half of F1.
+  const ownershipReconciliation = leaseService.reconcileOnStartup(instanceId);
+  for (const result of ownershipReconciliation) {
+    console.info(
+      `[ownership] repository ${result.repositoryId} reconciled: ` +
+        `${result.outcome} (${result.reason}); processes=` +
+        JSON.stringify(
+          result.processes.map((p) => ({ id: p.recordId, pid: p.hostPid, v: p.verdict }))
+        )
+    );
+  }
+
   await dagExecutionService.recoverAll();
 
   // Scheduler leases live in memory only; after a restart nothing is active

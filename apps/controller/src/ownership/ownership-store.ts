@@ -226,7 +226,7 @@ export class ProcessOwnershipStore {
   constructor(private readonly db: DatabaseSync) {}
 
   insert(
-    rec: Omit<ProcessOwnershipRecord, "createdAt" | "updatedAt">
+    rec: Omit<ProcessOwnershipRecord, "createdAt" | "updatedAt" | "lastError">
   ): void {
     const ts = nowIso();
     this.db
