@@ -1,207 +1,275 @@
-# Execution Prompt — Change 026: Fresh-Clone Integrity & Production Resilience Hardening
+# Change 028 execution prompt — durable execution ownership and crash consistency
 
-Status: **ACTIVE**
+**Status:** READY_TO_IMPLEMENT  
+**Planned-From:** `4d1246aa2b9d5fbdd455d17d72b3259896f80432`  
+**Target branch:** `main` (repository policy: commit/push directly; never force-push)  
+**Campaign:** `028-durable-execution-ownership-and-crash-consistency`  
+**Execution mode:** long autonomous hardening campaign. Use up to the user's requested ~12-hour session budget when useful, but do not pad runtime or wait artificially. If required work finishes earlier, spend remaining useful budget on fault injection, repeated crash/restart qualification, regression repair, and evidence—not new features.
 
-Planned-From: `77f76aa4e000e4d30591db242323de8a1ccdf895`
+## Mission
 
-Target branch: `main`
+Implement Change 028 completely enough that Orca's unattended-execution safety is true across **controller process death**, not merely while one Node process remains alive.
 
-Campaign type: **post-roadmap hardening / ship-readiness repair**
+The two non-negotiable outcomes are:
 
-## Objective
+1. **No second writer after controller crash.** A lost ChildProcess handle is not proof the child died. Persist actor/process ownership, reconcile it conservatively, and block a replacement actor until prior ownership is proven dead or explicitly/verifiedly terminated.
+2. **No consumed-without-applied transition.** Dispatch/control/completion protocol sources and their required run transitions must be crash-atomic; external effects happen from a durable idempotent outbox/replay path.
 
-Restore Orca-Strator to a state where the pushed repository itself — not an agent's pre-existing ignored working tree — is the complete, reproducible source of truth, then harden the packaged controller and the wider autonomous runtime against the failure modes most likely to break unattended leave-and-forget operation.
+This is hardening of existing Milestone 6/17/23/24 promises. Do not invent another product feature.
 
-This is the next campaign because the implementation roadmap is exhausted through Milestone 23 and there is no active OpenSpec change. Do **not** invent a feature milestone merely to keep moving. Treat this as a hardening campaign. Continue through every justified Critical/High defect uncovered by this audit; do not stop after the first fix.
+## Read first — authoritative order
 
-## Audit evidence that must be reconciled first
+1. `AGENTS.md`
+2. `.agent/state.json`
+3. `.agent/PLANNER_HANDOFF.md`
+4. `docs/audits/2026-08-26-next-campaign-crash-consistency.md`
+5. `openspec/changes/028-durable-execution-ownership-and-crash-consistency/proposal.md`
+6. all three delta specs under the change
+7. `design.md`
+8. `tasks.md`
+9. relevant canonical specs / `docs/RUNTIME-MODEL.md`, `ARCHITECTURE.md`, `DATA-MODEL.md`, `OBSERVABILITY.md`
 
-Current pushed `main` contains committed imports/tests for runtime source that is not present in the pushed tree:
+Then reconcile against current `main`. If newer commits already satisfy a requirement, prove it with tests and mark only the genuinely satisfied task; do not redo landed work.
 
-- `apps/controller/src/index.ts` imports `./runtime/build-identity.js` and `./runtime/singleton-lock.js`.
-- `apps/controller/src/config/load-config.ts` imports `../runtime/paths.js`.
-- `apps/controller/src/http/routes/system.ts` imports `../../runtime/readiness-service.js`.
-- `apps/controller/test/runtime-paths.test.ts` imports `../src/runtime/paths.js`.
-- The Change-025 tests/state/docs claim `runtime/paths.ts`, `runtime/singleton-lock.ts`, build identity, and readiness-service implementation exist and passed qualification.
-- On pushed GitHub `main`, `apps/controller/src/runtime/` is absent.
-- Root `.gitignore` contains the unanchored directory rule `runtime/`. Because this can match nested directories named `runtime`, it can suppress `apps/controller/src/runtime/**` from Git even while local tests/builds use those files.
+## Planning findings you must close
 
-This is a **P0 repository-integrity defect**. Until fixed, Change 025's local qualification cannot be treated as proof that a fresh clone can build or package the product.
+### P0/critical class A — orphan writer uncertainty
 
-Additional hardening evidence:
+Current startup reconciliation marks persisted active executors failed while explicitly having no safe proof the previous process is gone. Executor/worker PID identity is not durable. `RECOVERY_REQUIRED` falls outside active-run ownership, so a later campaign can start while an old process may still write.
 
-- packaged logging in `apps/controller/src/index.ts` checks the 5 MiB limit only when the controller starts, then appends indefinitely; a single long-running controller can exceed the intended bound without restart;
-- Change 025 records upgrade/data preservation as complete, but the principal runtime evidence is close/reopen persistence of one built artifact rather than a clean-origin upgrade/reinstall/migration-style exercise;
-- current `main` has Windows CI workflow files, but repository truth must be proven from a clean origin-only tree rather than trusted from historical local results;
-- no open GitHub issues, pull requests, or active OpenSpec changes currently supersede this campaign.
+Affected seams include at least:
 
-## Required working method
+- `apps/controller/src/loop/startup-reconciler.ts`
+- `apps/controller/src/executor/executor-runner.ts`
+- `apps/controller/src/executor/executor-service.ts`
+- `apps/controller/src/executor/executor-store.ts`
+- `apps/controller/src/strategy/swarm-execution-service.ts`
+- `apps/controller/src/strategy/dag-execution-service.ts`
+- `apps/controller/src/packets/worktree-isolation-service.ts`
+- `apps/controller/src/loop/iteration-execution-coordinator.ts`
+- `apps/controller/src/db/migrate.ts`
 
-Read and preserve `AGENTS.md`, `.agent/PLANNER_HANDOFF.md`, this file, `.agent/state.json`, `docs/ROADMAP.md`, and the relevant canonical specs/docs before editing. Inspect Git first. Preserve dirty/user work. Fetch/reconcile `origin/main` safely. Never force-push or use destructive reset/clean as convenience recovery.
+### P0/critical class B — split durable transition writes
 
-Create a focused OpenSpec change for this campaign (use the next appropriate change number; `026-fresh-clone-integrity-and-production-resilience` is the expected name unless current Git truth has already created a successor). Proposal/design/tasks must be based on the actual repository and this evidence, not copied blindly from this prompt.
+Examples on planning base:
 
-Do **not** begin with a broad historical test run. First establish source/Git truth and run the narrow checks that can falsify the P0 finding quickly.
+- valid executor completion can mark a dispatch consumed in ExecutorService before LoopService applies run continuation;
+- LoopService also consumes dispatch before awaited continuation;
+- Sol control flow closes Sol operation + consumes control before run transition;
+- watcher durable observation and marker insertion are not equivalent to durable application; callback delivery is one-time/in-memory.
 
-## Workstream 1 — P0 forensic Git/source-truth repair
+Close the defect class, not just one callsite.
 
-1. Inspect the actual working tree, ignored files, index, and pushed tree together:
-   - `git status --short --ignored`
-   - `git ls-files`
-   - `git check-ignore -v` for every suspicious source path, especially `apps/controller/src/runtime/**`
-   - compare current filesystem contents with `HEAD`/`origin/main`, not merely with the build output.
-2. Determine exactly which production source/config/test-support files are present locally but missing from Git because of ignore rules or prior commit mistakes. Audit all broad directory ignores (`runtime/`, `logs/`, `build/`, `dist/`, `browser-profile/`, etc.) for unintended suppression of source directories anywhere in the monorepo.
-3. Recover the intended Change-025 runtime sources into Git. Prefer preserving the existing local implementation if it exists and matches the qualified behavior. If the files are genuinely gone, reconstruct them only from current imports, committed tests, Change-025 canonical spec/design/tasks, and current architecture; do not silently redesign unrelated behavior.
-4. Fix `.gitignore` semantics so generated/local runtime data remains excluded **without** globally ignoring legitimate source directories. Prefer anchored/specific generated-data patterns over blanket directory names. Do not solve this with a brittle one-off exception unless the broader ignore audit proves that is the safest rule.
-5. Add a regression guard that fails when required production source is ignored/untracked. The guard must be meaningful from a clean checkout and should make the same class of mistake obvious before future package qualification.
-6. Inspect the full repository for other imports/references to files absent from `HEAD`, generated-only source assumptions, or package steps that accidentally depend on ignored/untracked local files.
+### High class C — unowned asynchronous state callbacks
 
-### P0 gate
+Production build wiring fires key loop mutation promises without local ownership. Convert to await/track/durable enqueue semantics and audit adjacent detached promises capable of state mutation/resource launch.
 
-Before moving on, prove from an **origin-only clean tree/worktree** that no ignored local source is rescuing the build. A fresh clone or detached clean worktree built strictly from committed files must resolve the runtime modules and pass at least the focused Change-025 path/singleton/readiness/controller-supervisor checks plus type resolution/build of affected workspaces.
+### High class D — unsafe init/listen failure teardown
 
-Do not mark this gate complete using the existing dirty/ignored working tree alone.
+`index.ts` assumes no browser/executor can exist before `buildApp` returns, but startup reconciliation can retry Sol/browser work and watcher starts before return. Signal/listen failure must run bounded cleanup before lock/DB release.
 
-## Workstream 2 — Whole-system blast-radius audit
+### High class E — automated profile stale lock
 
-The missing-source defect was introduced around Windows productization but its effects are system-wide. Audit how the repaired source and packaged-mode assumptions affect the entire codebase, not just the files touched by Change 025.
+Automated profile lock uses controller PID as owner; a surviving Chrome can outlive that PID. Reclaim only after authoritative profile-process proof; otherwise quarantine.
 
-Trace and verify these boundaries end to end:
+## Required architecture
 
-- controller bootstrap/config/path resolution, build identity, singleton ownership, listen failure, shutdown, and packaged logging;
-- SQLite initialization/migrations, startup reconciliation, run/dispatch/executor stores, durable idempotency, and crash recovery;
-- remote Git watcher -> dispatch -> iteration coordinator -> single-agent/swarm/DAG execution -> publication/postflight -> Sol wake/control closure;
-- executor start serialization, process-tree kill/shutdown, retry/postflight, WSL/native path handling, and persisted logs;
-- browser profile ownership, external setup Chrome, Playwright wake lifecycle, auth readiness, and crash/stale-lock behavior;
-- scheduler/usage leases, permission attention parking/resolution, restart reconciliation, and concurrent-repository isolation;
-- REST/WebSocket error contracts and UI projections for startup/readiness/failure states;
-- Electron shell/preload isolation, startup retry behavior, controller reuse, external navigation/link handling, and background lifetime;
-- package staging, production dependency closure, resource immutability, data-directory placement, and CI/release scripts;
-- `.orca` protocol schemas/correlation, Git-truth invariants, and all adjacent canonical docs/specs.
+You may rename classes/tables if repository conventions justify it, but the following semantics are mandatory.
 
-For every reproducible Critical/High defect found, add it explicitly to the active OpenSpec tasks and fix it in this campaign. Medium/low findings may be fixed when small and safe or recorded truthfully for later; do not let them distract from P0/P1 work.
+### 1. Controller instance epoch
 
-## Workstream 3 — Long-running packaged-controller durability
+Generate one random controller instance ID per process. It is diagnostic ownership identity, not an auth secret. Persist it with actor/process ownership.
 
-Harden the packaged controller for multi-hour/multi-day unattended use.
+### 2. Durable repository actor lease
 
-1. Replace startup-only packaged log rotation with a genuinely bounded runtime mechanism. Reuse the established executor `LogRotator` concepts where sensible or implement an equivalent safe controller logger.
-2. Prove rotation occurs while the same controller process stays alive after crossing the configured limit; do not rely on a restart to enforce the bound.
-3. Preserve timestamps/severity and useful error diagnostics/stack information. Do not reduce exceptions to useless `[object Object]` strings.
-4. Preserve redaction/secret boundaries: no cookies, auth tokens, provider secrets, raw environment dumps, or browser storage in controller logs.
-5. Logging failure, rotation failure, disk-full/permission-like errors, or a closed stream must not crash the orchestration controller. Surface the failure observably where practical.
-6. Audit other leave-and-forget growth surfaces (executor logs, event listeners, in-memory maps/timers, retained worktrees/staging directories, stale lock files, artifact/temp directories) and repair concrete unbounded or leak-prone behavior discovered.
+Use SQLite uniqueness to enforce one repository execution actor. SINGLE_AGENT owns one lease; SWARM/DAG each own one strategy lease while their workers get subordinate process records.
 
-## Workstream 4 — Failure-injection and restart resilience
+In-memory maps remain optimizations only.
 
-Add focused tests/qualifications for realistic faults that ordinary happy-path tests miss. At minimum cover the applicable cases below and expand when the audit finds adjacent hazards:
+### 3. Durable process ownership + conservative probe
 
-- concurrent desktop/controller startup and singleton race;
-- stale/corrupt lock plus PID-reuse/ownership-safety edge cases;
-- foreign/incompatible listener without killing it;
-- abrupt controller termination followed by restart reconciliation;
-- signal during controller initialization and shutdown while work is active;
-- unwritable/missing data/log directories and log sink failure;
-- database migration/init failure without reset/data loss;
-- path handling with spaces and non-ASCII characters for data dir/repository/package paths;
-- arbitrary process `cwd` in development and packaged mode;
-- controller version/protocol mismatch and reuse rules;
-- watcher/network/Git transient failures without duplicate executor launch;
-- executor/browser child failure during shutdown/restart without orphaning sibling repositories;
-- stale scheduler/strategy/worktree state recovery after process interruption.
+Capture child PID and stable, non-secret process identity immediately after real spawn. Reconciliation verdicts must distinguish live match, dead, PID reused, and unknown/unprovable.
 
-Tests must assert durable state and cross-subsystem side effects, not just returned status codes.
+Never kill on PID alone. Never auto-clear UNKNOWN. A live/unknown prior actor blocks a second writer.
 
-## Workstream 5 — Clean-origin packaging and upgrade/data-preservation truth
+### 4. Transition inbox + transaction application
 
-1. Run the Windows build/package pipeline from a clean origin-only tree after P0 repair. Packaging must not consume ignored/untracked source from the developer workspace.
-2. Re-run the real unpacked packaged-runtime smoke on the final implementing tree.
-3. Strengthen package smoke so it explicitly proves the staged controller dependency/source closure is derived from committed build inputs.
-4. Add a realistic data-preservation/migration exercise using an isolated `ORCA_DATA_DIR`: seed persisted repositories/run history/permissions/browser-profile metadata as appropriate, start a prior-compatible or pre-upgrade state, launch the current package/controller, let migrations/reconciliation run, and verify intended data survives unchanged except for documented migrations.
-5. Do not falsely call close/reopen of the same binary an "upgrade" test.
-6. Do not execute an NSIS install/uninstall or request elevation unless the current environment/user authorization already permits that machine mutation. If installer execution remains external, keep it explicitly `UNQUALIFIED` while still fully qualifying the unpacked/package and migration paths that can be tested safely.
-7. Code signing, application icon work, auto-update infrastructure, Tailscale installation, and real OpenCode provider qualification remain outside this campaign unless they are already available and become necessary to fix a concrete hardening defect.
+Persist an idempotent transition intent for protocol events. Source consume + required run mutation + required outbox rows happen in one SQLite transaction with expected-state/CAS predicates.
 
-## Workstream 6 — CI/repository-integrity enforcement
+No external I/O inside that transaction.
 
-Make it difficult to repeat the ignored-source qualification failure.
+### 5. Side-effect outbox/replay
 
-- Ensure Windows CI from a clean checkout runs dependency install, the repository-integrity/fresh-tree guard, fast tests, typecheck, build, lint, strict OpenSpec validation, and diff check.
-- Add the cheapest reliable check that catches "build passes only because an ignored local source directory exists". A detached clean worktree/build step, tracked-source manifest check, or equivalent is acceptable if deterministic and maintainable.
-- Keep package CI's `PACKAGE_BUILT` vs local real `PACKAGE_RUNTIME_QUALIFIED` distinction truthful.
-- Investigate any reason CI is not actually executing/visible for pushes; fix repository-controlled workflow/config defects if present. Do not fabricate successful CI evidence when account/repository settings outside Git are the blocker.
+After commit, deliver browser/process/network side effects from durable idempotent intent. Reuse existing durable Sol-operation semantics rather than creating a second wake truth source.
 
-## Workstream 7 — Documentation, OpenSpec, and durable state truth
+If actor start is outboxed, actor lease/process ownership is the logical exactly-once spawn boundary.
 
-After implementation evidence is real:
+### 6. Abortable construction + unified teardown
 
-1. Update Change-025 qualification wording wherever it overstates fresh-clone or upgrade proof. Preserve historical evidence, but clearly distinguish what was local-tree-qualified from what this campaign newly proves from committed origin truth.
-2. Update `docs/ROADMAP.md`, `README.md`, `docs/DEVELOPMENT.md`, `docs/TEST-STRATEGY.md`, `docs/SECURITY.md`, `docs/OBSERVABILITY-AND-FAILURES.md`, `docs/ARCHITECTURE.md`, and other affected canonical docs only where the audit/implementation changes the contract.
-3. Update `.agent/state.json` to activate and later close this hardening campaign with exact evidence and remaining external blockers.
-4. Fold completed OpenSpec deltas into canonical specs and archive the change only after all acceptance gates are met.
-5. If this campaign uncovers another independent Critical/High hardening wave that cannot be safely folded here, activate the next hardening change and continue rather than stopping merely because Change 026 closed.
+Shutdown can latch while `buildApp` is in flight. Partial construction must clean itself. Listen failure must call the assembled runtime teardown, not close DB first. Runtime singleton release is last after owned resources settle/bounded recovery is persisted.
 
-## Constraints / invariants
+### 7. Browser profile quarantine
 
-- Preserve controller ownership of orchestration; Electron remains a shell/supervisor.
-- Preserve Git/GitHub as durable cross-agent truth.
-- Preserve one active executor/strategy owner per repository campaign boundary and cross-repository independence.
-- Preserve strict dispatch/result/control correlation and replay/idempotency guards.
-- Preserve dirty work; never `git reset --hard`, destructive-clean, or force-push as convenience recovery.
-- Never kill foreign processes to resolve port/lock conflicts.
-- Keep default controller exposure loopback-only and preserve Electron `contextIsolation`, disabled `nodeIntegration`, and sandboxing.
-- Do not weaken path/schema validation or broaden shell-command construction from untrusted repository/UI data.
-- Do not commit DBs, logs, browser profiles/cookies, credentials, generated package resources, or machine-local runtime state while fixing `.gitignore`.
-- Do not fake Tailscale, OpenCode, ChatGPT auth, installer, signing, or other external qualification.
-- Do not assume any particular model, provider, agent harness, or reasoning-effort setting. Use repository contracts and available tools.
+Dead controller PID != dead Chrome. Check exact dedicated profile ownership. If uncertain, refuse acquisition and expose actionable quarantine.
 
-## Validation requirements
+## Ordered implementation workstreams
 
-Use focused tests during implementation. At meaningful checkpoints and before closeout, run the complete applicable gates on the final committed-source tree:
+Follow `tasks.md`; this section is an execution emphasis, not a second checklist.
 
-- repository-integrity / clean-worktree or fresh-clone guard added by this campaign;
-- focused Change-025/026 suites for runtime paths, singleton ownership, readiness, controller supervision, logging, failure injection, upgrade/data preservation, and any repaired subsystems;
-- `npm test`;
-- `npm run test:real` — only explicitly classified external-unqualified skips are acceptable;
-- `npm run typecheck`;
-- `npm run build`;
-- `npm run lint`;
-- `npx openspec validate --all --strict`;
-- `git diff --check`;
-- Windows `npm run package:win` from a clean origin-only tree;
-- final real `npm run smoke:package` against that artifact;
-- any additional targeted real-Git/process/restart qualifications required by defects fixed in this campaign.
+### Workstream A — reproduce before repair
 
-Record exact commands, counts, skips, artifacts, and failures. Historical green results are not substitutes.
+Create deterministic failing tests for:
 
-## Acceptance / completion gates
+- direct executor alive across controller restart + second-start attempt;
+- SWARM/DAG worker ownership across restart;
+- dispatch consumed before run continuation crash;
+- control consumed before run transition crash;
+- SIGTERM during startup reconciliation;
+- PID reuse/unknown probe.
 
-This campaign is complete only when all of the following are true:
+Do this early so architecture is driven by observable failures.
 
-1. Every production source file required by committed imports/build/package steps is actually tracked in Git and present in a fresh clone; `apps/controller/src/runtime/**` is no longer rescued by ignored local state.
-2. `.gitignore` still excludes runtime data/secrets/artifacts but cannot silently swallow legitimate nested production source directories of the same generic names.
-3. A clean origin-only tree installs/builds/tests the affected workspaces without borrowing ignored files from the original workspace.
-4. The full application/package pipeline passes from committed source, and the real packaged-runtime smoke is re-qualified on the final tree.
-5. Controller logging is bounded during one long-running process and preserves useful/redacted diagnostics.
-6. Reproducible Critical/High defects found by the whole-codebase blast-radius/failure audit are fixed with regression evidence.
-7. Upgrade/data-preservation claims are backed by a real isolated migration/preservation exercise, while installer execution remains honestly external if not authorized.
-8. OpenSpec/canonical docs/`.agent/state.json` reflect exact current truth with no stale "roadmap exhausted, ask user" waypoint while this campaign is active.
-9. Intended work is committed and pushed to `origin/main`; final local HEAD equals `origin/main`; working tree is clean except for explicitly documented user/machine-local ignored state.
+### Workstream B — persistence + ownership primitive
 
-## Git and reporting requirements
+Add additive migration (current schema max is 23 at planning time), stores, controller instance ID, process probe, actor lease service. Update schema compatibility/backup tests.
 
-Work directly on `main` per repository policy unless the user explicitly changes it. Reconcile remote divergence safely. Commit coherent checkpoints and push them; do not accumulate an enormous unpushed final state.
+Keep migration low-risk and additive.
 
-The final implementation commit/handoff message must be a substantive session report including:
+### Workstream C — direct executor integration
 
-- starting and final SHAs;
-- root cause of the ignored-source/fresh-clone defect and exactly what was recovered/tracked;
-- `.gitignore` changes and the regression guard;
-- every Critical/High defect fixed across the blast-radius audit;
-- focused/full/fresh-tree/package verification evidence;
-- upgrade/data-preservation evidence;
-- exact external-unqualified blockers still remaining;
-- OpenSpec/docs/state reconciliation performed;
-- confirmation that `main == origin/main` and intended work is pushed.
+Add ExecutorRunner spawn hook, persist each actual spawned attempt, bind direct executor to actor lease, persist exit before release, preserve launch retry/pause/kill/watchdog behavior.
 
-Do not stop to print another prompt. Execute this ACTIVE campaign under `/goal continue` semantics from the first genuinely incomplete requirement until the completion gates are satisfied or no safe useful work remains without a true external dependency.
+Pay special attention to spawn-success / ownership-write-failure. That path must not create an untracked writer.
+
+### Workstream D — strategy/worktree integration
+
+Acquire one strategy actor lease. Persist every worker process below it. Reorder restart reconciliation: actor/process truth before worker/worktree/staging cleanup. Protect live/unknown-owned worktrees.
+
+Do not serialize legitimate SWARM/DAG workers unnecessarily.
+
+### Workstream E — transition processor
+
+Introduce idempotent transition intents, CAS run updates, one-transaction marker consume + run state + outbox creation, startup replay, terminal stale/rejected intents.
+
+Remove premature dispatch consumption from ExecutorService.
+
+Migrate dispatch, control, direct completion, and strategy completion/postflight continuation carefully. Preserve postflight remote publication truth: COMPLETED is still not success unless remote publication is confirmed as current code requires.
+
+### Workstream F — async ownership
+
+Make watcher and direct executor completion paths awaitable/tracked. Every detached state mutation/resource-launch Promise must have a clear owner. Keep teardown-safe catches only where durable state has already made the operation recoverable.
+
+### Workstream G — lifecycle/profile
+
+Implement abortable build cleanup; fix listen failure; prevent rehydrate/start after shutdown latch. Harden automated browser stale profile lock with exact-profile process probe/quarantine.
+
+### Workstream H — qualification
+
+Run exhaustive state tests plus real subprocess fault injection. Repair every Critical/High regression introduced or exposed by this change before declaring it review-ready.
+
+## Safety constraints
+
+- NEVER `git reset --hard`, `git clean`, discard unknown dirty work, or force push.
+- NEVER kill an unverified/unknown/PID-reused process.
+- NEVER infer “dead” from “controller restarted.”
+- NEVER hold SQLite transaction across awaited browser/Git-network/process I/O.
+- NEVER mark a protocol marker consumed before its required run transition is atomically durable.
+- NEVER solve duplicate delivery by deleting audit evidence.
+- NEVER weaken dispatch/control correlation, remote publication verification, permission policy, scheduler isolation, or existing profile auth safety.
+- NEVER fake Tailscale/OpenCode/installer/soak evidence from Changes 026/027.
+- Keep secrets, auth cookie values, provider tokens, and sensitive command/env data out of new process/transition records and logs.
+- Maintain Windows-first behavior and WSL compatibility.
+
+## Test/qualification requirements
+
+Minimum required evidence before READY_FOR_REVIEW:
+
+1. process probe + actor lease unit tests;
+2. DB migration/store/idempotency/CAS tests;
+3. real child process survives controller-loss fixture and duplicate-start refusal;
+4. SWARM and DAG restart ownership tests;
+5. verified kill keeps unrelated foreign/sibling process alive;
+6. dispatch crash matrix at each transaction/outbox boundary;
+7. control crash matrix at each transaction/outbox boundary;
+8. actor-start replay double-spawn test;
+9. startup SIGTERM and listen-failure teardown tests;
+10. automated profile surviving-Chrome/unknown/reclaim tests;
+11. two-repository independence test;
+12. existing focused loop/strategy/postflight/runtime-controls/productization tests;
+13. full fast tier;
+14. typecheck/build/lint;
+15. strict OpenSpec validation;
+16. source-integrity/version/diff checks;
+17. supported real-process suites in bounded batches.
+
+If a real external dependency is unavailable, mark only that specific external assertion unqualified. Do not substitute a mock and call it real-qualified.
+
+## Long-session policy (~12-hour requested budget)
+
+Do not stop after the first green patch if useful hardening work remains. Once core requirements are implemented:
+
+- repeat crash/restart matrices many times to catch race windows;
+- run competing-start loops across two repositories;
+- run kill/shutdown while workers are at different launch/completion phases;
+- run migration/restart loops on copied fixture DBs;
+- inspect logs for unhandled rejections, FK warnings, duplicate events, stale leases, orphan worktrees, or leaked child PIDs;
+- profile control-plane overhead if the new stores introduce obvious hot-path regressions;
+- fix reproducible Critical/High findings inside scope.
+
+Do not burn time by sleeping, rerunning identical green tests without purpose, polishing UI, or inventing new features merely to occupy the requested duration.
+
+## Git and checkpoint discipline
+
+Repository policy is direct `main` integration.
+
+For each coherent slice:
+
+1. reconcile `git status` / latest remote main;
+2. preserve unrelated dirty work;
+3. implement + focused tests;
+4. update OpenSpec task truth;
+5. commit with a meaningful message;
+6. push to `main`;
+7. periodically update `.agent/state.json` so a fresh agent can resume without this conversation.
+
+Never make a false “clean” claim if uncommitted work exists.
+
+## Completion / stop rules
+
+Continue until one of these is true:
+
+### A. READY_FOR_REVIEW
+
+All Change 028 semantic requirements are implemented, required internal gates are green, real-process no-second-writer/no-foreign-kill evidence exists, docs/state are updated, useful work is committed/pushed.
+
+### B. Genuine blocker
+
+A blocker prevents safe continuation (for example an OS API cannot provide safe identity evidence). In that case:
+
+- do NOT guess around the safety constraint;
+- commit/push all safe progress;
+- record exact blocker, attempted approaches, evidence, affected task IDs, and safest next action in `.agent/state.json`;
+- leave the system fail-closed.
+
+### C. Session/tool boundary
+
+If the harness ends before completion, leave a detailed waypoint and pushed coherent checkpoint. The next agent must be able to resume from the first incomplete checkbox without redoing the audit.
+
+## Final report requirements
+
+The final commit/session report must include:
+
+- start SHA and final SHA;
+- files/systems changed;
+- exact ownership/transition architecture landed;
+- migration version and compatibility notes;
+- crash/failure-injection matrix with pass/fail counts;
+- real child-process evidence and process-leak check;
+- fast/typecheck/build/lint/OpenSpec results;
+- real-suite results and explicit external skips;
+- Critical/High defects found and fixed during campaign;
+- remaining Medium/Low debt intentionally deferred;
+- Changes 026/027 residual blockers unchanged unless genuinely qualified;
+- exact next action.
+
+Execute the campaign now. Do not return to planning unless implementation evidence invalidates the design; if it does, update the OpenSpec artifacts in the same branch and continue.
