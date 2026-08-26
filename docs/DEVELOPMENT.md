@@ -171,6 +171,21 @@ Packaging commands (run on Windows):
 - `npm run package:win` — build + stage runtime + electron-builder unpacked artifact (`apps/desktop/release/win-unpacked/`).
 - `npm run package:win:installer` — additionally builds the per-user NSIS installer.
 - `npm run smoke:package` — real packaged-runtime smoke; requires the built unpacked artifact.
+- `npm run openspec:validate` — strict OpenSpec validation using the
+  repository-pinned `@fission-ai/openspec` devDependency (never an implicit
+  global/npx resolution; a clean `npm ci` machine can always run this gate).
+
+**Code-signing seam (Change 026 §10, disabled by default).** electron-builder
+signing is configured through the standard environment credentials only:
+set `CSC_LINK` (path/URL to a PFX or base64 blob) and `CSC_KEY_PASSWORD`
+before `npm run package:win:installer` to sign. Nothing is committed and no
+certificate material belongs in Git. When absent, artifacts are truthfully
+UNSIGNED (`apps/desktop/electron-builder.yml` states this; no fallback
+certificate exists). Reported signing status is never assumed from
+configuration: `scripts/release/generate-release-manifest.mjs` derives it per
+artifact from actual `Get-AuthenticodeSignature` verification, so a
+configured-but-failed signature cannot yield mislabeled artifacts — the build
+itself fails the job before publication.
 
 The smoke harness (`scripts/package/package-smoke.mjs`) launches the built exe
 with isolated `ORCA_DATA_DIR`/port, proves controller autostart + UI/API +
@@ -179,4 +194,5 @@ on relaunch, persistence, controlled teardown, and package-resource immutability
 then writes `release/package-smoke-report.json`. CI workflows live under
 `.github/workflows/`: `windows-ci.yml` (fast tests/typecheck/build/lint/OpenSpec/
 diff-check) and `windows-package.yml` (tag/manual packaging with artifact upload;
-hosted results are labeled PACKAGE_BUILT, never runtime-qualified).
+hosted results are labeled PACKAGE_BUILT, never runtime-qualified). Operator
+rollback procedure: docs/RELEASE-AND-ROLLBACK.md.

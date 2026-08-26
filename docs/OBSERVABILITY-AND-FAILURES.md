@@ -361,6 +361,32 @@ and classified failure boundaries. Campaign history is queryable through REST
 and the UI without scraping raw executor output; bounded raw logs remain a
 separate diagnostic surface.
 
+**Referential-integrity contract (Change 027).** `campaign_trace_events`
+carries foreign keys to `repositories`, `runs`, `dispatches`, and
+`sol_controls`. Telemetry persistence failures are caught so the production
+event graph never crashes, but the ledger must not use that catch as a home
+for deterministic integrity violations. The attribution rules are:
+
+- only durable campaigns are attributed: an explicitly carried run reference
+  that has no `runs` row, and sentinel/pre-run dispatch records (rejected
+  dispatches persist `runId="unknown"`), are recorded with NULL `run_id`
+  instead of violating the FK or being re-attributed to an unrelated latest
+  campaign;
+- the lazy latest-run fallback fires only for events carrying no explicit
+  run/dispatch reference at all (performance contract of the systemic
+  optimization campaign preserved);
+- `repository.deleted` is out of read-model scope by design (deleting the
+  repository cascades away its history), so the terminal deletion event is
+  delivered to WebSocket/UI/log listeners but not persisted here — recording
+  it would violate the repositories FK on every deletion;
+- manual Sol wakes require a durable campaign: `/api/repositories/:id/wake`
+  refuses dispatches whose run does not exist instead of emitting an event
+  that could never be attributed.
+
+A green Vitest summary accompanied by repeated `[CampaignLedger] Failed to
+persist event:` warnings is NOT clean qualification; regression suite
+`campaign-ledger-integrity.test.ts` pins these rules.
+
 Executor readiness is a separate capability snapshot. Probe level and last
 probe time are always visible, and auth/model state remains UNKNOWN when a
 provider response was not safely obtained. Usage/cost fields are deliberately

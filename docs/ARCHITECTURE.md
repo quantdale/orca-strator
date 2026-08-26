@@ -540,3 +540,47 @@ default, `ORCA_DATA_DIR` override for tests/isolation — never inside packaged
 resources. Development mode (`ORCA_UI_DEV_URL`, `scripts/dev.js`) is explicit:
 the desktop never spawns a production controller there without the
 `ORCA_ALLOW_DEV_CONTROLLER_SPAWN=1` gate.
+
+## Installed-release lifecycle and resilience (Changes 026/027)
+
+Change 026 turns the packaged product into a safely upgradable application
+while preserving the ownership invariant above:
+
+- **Exact-build compatibility verdicts.** `ControllerIdentity` carries the
+  immutable build identity (`version`, `buildId` Git SHA, `mode`,
+  `maxSchemaVersion`; wall-clock is never identity). A packaged desktop
+  evaluates an explicit verdict (`EXACT_MATCH`, version-skew/
+  `RESTART_REQUIRED`, `PROTOCOL_INCOMPATIBLE`, `DATABASE_INCOMPATIBLE`) and
+  refuses silent reuse of a different build; development keeps looser
+  protocol-only reuse.
+- **Authenticated graceful replacement.** The controller writes a per-start
+  random control token into its runtime-lock metadata (constant-time compared,
+  never served over HTTP) and exposes loopback-only `/api/system/lifecycle`
+  + `/api/system/shutdown`. A mismatched packaged desktop replaces an idle
+  controller only through that contract (shutdown → observed exit + lock
+  release → spawn bundled build → exact-identity verify); active campaigns
+  yield a truthful `RESTART_PENDING`. Renderers/web pages receive no process
+  authority, foreign listeners are never touched.
+- **Database forward-compatibility guard.** A strict preflight refuses startup
+  with typed `DATABASE_TOO_NEW` (controller exit 12; desktop terminal recovery
+  state) when the on-disk schema exceeds the binary's knowledge — before any
+  migration/service runs, without mutating the database.
+- **Pre-migration snapshots** (`VACUUM INTO` + sidecar metadata + SHA-256,
+  bounded retention, fail-closed) under `<dataDir>/backups/pre-migration/`;
+  **user state backup bundles** via `POST /api/system/backup` (Settings →
+  Create Backup) and `npm run backup`; restore stays an offline CLI so
+  quiescence is provable. Bundles contain only the checksummed SQLite image +
+  manifest — cookies/profiles/credentials/repos/locks/logs are structurally
+  excluded. Rollback operator procedure: docs/RELEASE-AND-ROLLBACK.md.
+- **Single-source versioning + provenance.** Root `package.json` is canonical
+  (`npm run release:prepare` / `version:check` gates); releases carry a
+  machine-readable manifest, `SHA256SUMS.txt`, CycloneDX SBOM, tag==version
+  verification, and signing status derived from actual Authenticode results
+  (UNSIGNED unless real credentials are configured).
+
+Change 027 hardens long-running operation: anchored `.gitignore` semantics +
+`scripts/ci/check-source-integrity.mjs` keep Git truth equal to build truth,
+packaged controller logging is bounded while running, the post-startup
+controller resurrection watch lets the still-running supervisor recover a dead
+controller (a second app instance never can), and campaign-trace telemetry
+enforces referential integrity without ever crashing the event graph.

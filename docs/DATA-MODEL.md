@@ -251,6 +251,14 @@ Later runtime milestones must prevent unsafe deletion of a repository with an ac
 
 Change 001 UI should use explicit confirmation.
 
+Change 027 clarification: hard delete cascades away the repository's campaign
+history (`runs`, `dispatches`, `campaign_trace_events` via FK cascade) — that
+cascade IS the documented retention policy for per-repository operational
+records. The terminal `repository.deleted` event is therefore broadcast to
+WebSocket/UI listeners but intentionally not persisted into
+`campaign_trace_events` (its parent row no longer exists); see the ledger
+referential-integrity contract in docs/OBSERVABILITY-AND-FAILURES.md §17.
+
 ## 9. Future tables — reserved conceptually, not implemented in Change 001
 
 Later milestones are expected to add separate tables roughly along these responsibility boundaries:
