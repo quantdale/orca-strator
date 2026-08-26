@@ -1,5 +1,6 @@
 import { loadConfig } from "./config/load-config.js";
 import { getControllerIdentity } from "./runtime/build-identity.js";
+import { generateControllerInstanceId } from "./ownership/controller-instance.js";
 import { ControllerRuntimeLock } from "./runtime/singleton-lock.js";
 import { buildApp } from "./app.js";
 import { DatabaseTooNewError, preflightSchemaCompatibility, MAX_KNOWN_SCHEMA_VERSION } from "./db/schema-compat.js";
@@ -28,6 +29,12 @@ function installPackagedLogging(logDir: string): void {
 async function main() {
   const identity = getControllerIdentity();
   const config = loadConfig();
+
+  // Change 028 (D1): one cryptographic controller instance id per process.
+  // This is a startup epoch used to distinguish THIS controller's ownership
+  // records from a prior (possibly crashed) instance. It is NOT a secret and
+  // NOT an auth token (that is lock.controlToken).
+  const controllerInstanceId = generateControllerInstanceId();
 
   // Change 026: schema downgrade refusal runs before ANY other startup work —
   // before logging setup mutates nothing, before lock acquisition, before
@@ -67,7 +74,7 @@ async function main() {
   // Singleton ownership BEFORE any service construction: two controllers must
   // never race into interleaved SQLite/watcher/browser state.
   const lock = new ControllerRuntimeLock(config.runtimeLockPath);
-  const acquired = lock.acquire(identity.version);
+  const acquired = lock.acquire(identity.version, controllerInstanceId);
   if (acquired.outcome === "busy") {
     const current = acquired.current;
     console.warn(
@@ -120,6 +127,7 @@ async function main() {
   let app: AppRuntime;
   try {
     app = await buildApp(config, {
+      controllerInstanceId,
       lifecycle: {
         controlToken: lock.currentControlToken,
         requestShutdown: () => void shutdown("CONTROL_SHUTDOWN")

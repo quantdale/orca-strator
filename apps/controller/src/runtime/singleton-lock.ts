@@ -28,6 +28,8 @@ export interface RuntimeLockMetadata {
   protocol: number;
   endpoint?: string;
   controlToken?: string;
+  /** Change 028 (D1): per-process startup epoch; NOT an auth token. */
+  instanceId?: string;
 }
 
 export type LockAcquireOutcome =
@@ -140,7 +142,7 @@ export class ControllerRuntimeLock {
     return this.lockPath;
   }
 
-  acquire(version: string): LockAcquireOutcome {
+  acquire(version: string, instanceId?: string): LockAcquireOutcome {
     fs.mkdirSync(path.dirname(this.lockPath), { recursive: true });
 
     let handle: number;
@@ -154,7 +156,7 @@ export class ControllerRuntimeLock {
       const existing = readMetadata(this.lockPath);
       const meta = existing.metadata;
       if (!meta) {
-        const reclaimed = this.writeLock(version);
+        const reclaimed = this.writeLock(version, instanceId);
         return reclaimed
           ? { outcome: "reclaimed-stale", previous: null, reason: existing.error ?? "corrupt-lock" }
           : { outcome: "busy", current: unknownBusyMetadata() };
@@ -163,14 +165,14 @@ export class ControllerRuntimeLock {
         return { outcome: "busy", current: meta };
       }
       const reason = `stale-pid-${meta.pid}-not-alive`;
-      const reclaimed = this.writeLock(version);
+      const reclaimed = this.writeLock(version, instanceId);
       return reclaimed
         ? { outcome: "reclaimed-stale", previous: meta, reason }
         : { outcome: "busy", current: meta };
     }
 
     try {
-      const metadata = this.buildMetadata(version);
+      const metadata = this.buildMetadata(version, instanceId);
       fs.writeFileSync(handle, JSON.stringify(metadata, null, 2), "utf8");
     } finally {
       fs.closeSync(handle);
@@ -204,23 +206,24 @@ export class ControllerRuntimeLock {
     }
   }
 
-  private buildMetadata(version: string): RuntimeLockMetadata {
+  private buildMetadata(version: string, instanceId?: string): RuntimeLockMetadata {
     return {
       service: "orca-controller",
       pid: this.opts.pid ?? process.pid,
       startedAt: (this.opts.now ?? (() => new Date()))().toISOString(),
       version,
       protocol: ORCA_PROTOCOL_VERSION,
-      controlToken: this.controlToken
+      controlToken: this.controlToken,
+      instanceId
     };
   }
 
-  private writeLock(version: string): boolean {
+  private writeLock(version: string, instanceId?: string): boolean {
     try {
       fs.rmSync(this.lockPath, { force: true });
       const handle = fs.openSync(this.lockPath, "wx");
       try {
-        fs.writeFileSync(handle, JSON.stringify(this.buildMetadata(version), null, 2), "utf8");
+        fs.writeFileSync(handle, JSON.stringify(this.buildMetadata(version, instanceId), null, 2), "utf8");
       } finally {
         fs.closeSync(handle);
       }

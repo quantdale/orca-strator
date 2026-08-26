@@ -30,8 +30,8 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 ## 3. Add controller instance + process identity primitives
 
-- [ ] 3.1 Generate one cryptographic controller instance ID per process and pass it through app construction without conflating it with lifecycle auth tokens.
-- [ ] 3.2 Extend runtime-lock diagnostics with controller instance ID if useful; preserve backward compatibility for old lock metadata.
+- [x] 3.1 Generate one cryptographic controller instance ID per process and pass it through app construction without conflating it with lifecycle auth tokens (controller-instance.ts + index.ts + buildApp overrides + AppInstance.instanceId).
+- [x] 3.2 Extend runtime-lock diagnostics with controller instance ID (RuntimeLockMetadata.instanceId, written by ControllerRuntimeLock.acquire/buildMetadata); backward compatible for old lock metadata.
 - [x] 3.3 Implement `ProcessProbe` (or equivalent) with explicit LIVE_MATCH / DEAD / PID_REUSED / UNKNOWN semantics.
 - [x] 3.4 Implement bounded Windows process identity capture/classification without admin-only assumptions; keep Linux/test implementation deterministic (PortableProcessProbe + WindowsProcessProbe via Get-CimInstance).
 - [x] 3.5 Implement verified process-tree kill that refuses PID_REUSED/UNKNOWN records.

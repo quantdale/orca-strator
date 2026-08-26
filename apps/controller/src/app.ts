@@ -9,6 +9,7 @@ import { EventBus } from "./events/event-bus.js";
 import { errorHandler } from "./http/errors.js";
 import { healthRoutes } from "./http/routes/health.js";
 import { getControllerIdentity } from "./runtime/build-identity.js";
+import { generateControllerInstanceId } from "./ownership/controller-instance.js";
 import type { ControllerIdentity } from "@orca/shared";
 import { repositoryRoutes } from "./http/routes/repositories.js";
 import { watcherRoutes } from "./http/routes/watcher.js";
@@ -68,6 +69,8 @@ import type { ExternalSetupLauncherLike } from "./browser/external-setup-browser
 
 export interface AppInstance {
   identity: ControllerIdentity;
+  /** Change 028 (D1): per-process startup epoch. Not an auth token. */
+  instanceId: string;
   fastify: FastifyInstance;
   dbContext: DatabaseContext;
   eventBus: EventBus;
@@ -118,6 +121,8 @@ export async function buildApp(
     requireInstalledChromeForAutomation?: boolean;
     /** Change 026: authenticated graceful-shutdown control for the desktop. */
     lifecycle?: LifecycleControl;
+    /** Change 028 (D1): per-process startup epoch; generated if absent. */
+    controllerInstanceId?: string;
   } = {},
 ): Promise<AppInstance> {
   const fastify = Fastify({
@@ -129,6 +134,7 @@ export async function buildApp(
   fastify.setErrorHandler(errorHandler);
 
   const identity = getControllerIdentity();
+  const instanceId = overrides.controllerInstanceId ?? generateControllerInstanceId();
 
   const dbContext = initDatabase(config.dbPath);
   const store = new RepositoryStore(dbContext.db);
@@ -581,6 +587,7 @@ export async function buildApp(
 
   return {
     identity,
+    instanceId,
     fastify,
     dbContext,
     eventBus,
