@@ -154,7 +154,13 @@ repository/worktree directories, locks/PIDs, and logs can never be included.
 CLI seams: `scripts/backup/state-backup.mjs` / `state-restore.mjs` over built
 controller modules (`npm run backup -- --data-dir … --out …`,
 `npm run restore -- --bundle … --data-dir …`). Settings UI ships a minimal
-Create Backup action through a narrow main-process bridge; full in-app restore
+Create Backup action implemented as a controller-side `POST
+/api/system/backup` that writes the bundle under `<dataDir>/backups/manual/`
+(the request supplies no paths, so the renderer gains no filesystem
+authority; implementation refinement over the originally sketched Electron
+main-process bridge — same authority boundary, and the action also works
+from a browser/phone origin through the single loopback web surface). Full
+in-app restore
 is intentionally offline-CLI to guarantee quiescence honestly.
 
 ### D7. Versioning

@@ -8,7 +8,8 @@ export type ErrorCode =
   | "REPOSITORY_ACTIVE_RUN"
   | "PERMISSION_DECISION_NOT_FOUND"
   | "PERMISSION_DECISION_ALREADY_RESOLVED"
-  | "RUN_NOT_PAUSED";
+  | "RUN_NOT_PAUSED"
+  | "BACKUP_FAILED";
 
 export interface FieldError {
   field?: string;

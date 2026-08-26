@@ -532,6 +532,7 @@ export async function buildApp(
       port: config.port,
       identity,
       dataDir: config.dataDir,
+      dbPath: config.dbPath,
       db: dbContext.db,
       repositoryStore: store,
       browserManager,

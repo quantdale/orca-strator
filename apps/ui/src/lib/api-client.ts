@@ -80,6 +80,19 @@ export interface ProvisioningStatusView {
   details: string;
 }
 
+/** Payload of POST /api/system/backup (Change 026 Settings Create-Backup). */
+export interface SystemBackupResponse {
+  bundleDir: string;
+  manifest: {
+    kind: "orca-state-backup";
+    formatVersion: number;
+    applicationVersion: string;
+    sourceSchemaVersion: number;
+    createdAt: string;
+    files: { path: string; bytes: number; sha256: string }[];
+  };
+}
+
 export function createApiClient(baseUrl = "") {
   const cleanBase = baseUrl.replace(/\/$/, "");
 
@@ -92,6 +105,13 @@ export function createApiClient(baseUrl = "") {
     async getSystemReadiness(): Promise<SystemReadinessResponse> {
       const res = await fetch(`${cleanBase}/api/system/readiness`);
       return handleResponse<SystemReadinessResponse>(res);
+    },
+
+    async createSystemBackup(): Promise<SystemBackupResponse> {
+      const res = await fetch(`${cleanBase}/api/system/backup`, {
+        method: "POST",
+      });
+      return handleResponse<SystemBackupResponse>(res);
     },
 
     async listRepositories(): Promise<RepositoryListResponse> {

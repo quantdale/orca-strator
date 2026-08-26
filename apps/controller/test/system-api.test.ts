@@ -47,4 +47,23 @@ describe("System & Tailscale API (Task 1)", () => {
     expect(body.tailscale.command).toContain("tailscale serve --bg https / http://127.0.0.1:8765");
     expect(body.tailscale.instructions.length).toBeGreaterThan(0);
   });
+
+  // Change 026 §5: Settings Create-Backup action. The controller writes the
+  // bundle under its own data dir; the request supplies no paths.
+  it("1.T2 POST /api/system/backup creates a verified bundle under the data dir", async () => {
+    const res = await appInstance.fastify.inject({
+      method: "POST",
+      url: "/api/system/backup",
+    });
+
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.bundleDir.startsWith(tempDir.replace(/\\/g, "/")) || body.bundleDir.startsWith(tempDir)).toBe(true);
+    expect(body.manifest.kind).toBe("orca-state-backup");
+    expect(body.manifest.files.map((f: { path: string }) => f.path)).toEqual(["state/orca.db"]);
+    for (const file of body.manifest.files) {
+      expect(fs.existsSync(path.join(body.bundleDir, file.path))).toBe(true);
+      expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
 });

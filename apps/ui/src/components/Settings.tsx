@@ -4,6 +4,7 @@ import type { AuthReadinessReport, SystemReadinessResponse, TailscaleGuidance } 
 import type {
   BrowserStatusView,
   ProvisioningStatusView,
+  SystemBackupResponse,
 } from "../lib/api-client.js";
 import { ApiError, apiClient } from "../lib/api-client.js";
 
@@ -48,6 +49,27 @@ export const Settings: React.FC = () => {
     null,
   );
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Change 026 §5: Settings Create Backup (controller-side bundle; the UI
+  // supplies no paths and gains no filesystem authority).
+  const [backupPending, setBackupPending] = useState(false);
+  const [backupResult, setBackupResult] = useState<SystemBackupResponse | null>(
+    null,
+  );
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  const handleCreateBackup = async () => {
+    setBackupError(null);
+    setBackupPending(true);
+    try {
+      setBackupResult(await apiClient.createSystemBackup());
+    } catch (err) {
+      setBackupResult(null);
+      setBackupError(toErrorMessage(err, "Failed to create a state backup."));
+    } finally {
+      setBackupPending(false);
+    }
+  };
 
   const refreshBrowser = useCallback(async () => {
     setBrowserLoading(true);
@@ -577,6 +599,56 @@ export const Settings: React.FC = () => {
               </dd>
             </div>
           </dl>
+        )}
+      </section>
+
+      {/* State backup / recovery (Change 026 §5) */}
+      <section
+        className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 space-y-4"
+        data-testid="settings-backup-section"
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+            Backup / Recovery
+          </h3>
+          <button
+            onClick={() => void handleCreateBackup()}
+            disabled={backupPending}
+            className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+            data-testid="create-backup-button"
+          >
+            {backupPending ? "Creating…" : "Create Backup"}
+          </button>
+        </div>
+
+        <p className="text-sm text-slate-300">
+          Creates a verified bundle of durable Orca state under the controller
+          data directory. Cookies/profiles, credentials, repository working
+          directories, locks, and logs are structurally excluded. Restore is an
+          offline CLI (<code className="text-cyan-300">npm run restore</code>) so quiescence is provable.
+        </p>
+
+        {backupError && (
+          <div
+            className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-sm text-rose-300"
+            data-testid="backup-error"
+          >
+            {backupError}
+          </div>
+        )}
+
+        {backupResult && (
+          <div
+            className="rounded-lg border border-emerald-500/30 bg-emerald-950/40 p-4 text-sm text-emerald-300 space-y-1"
+            data-testid="backup-result"
+          >
+            <p>Backup created.</p>
+            <p className="break-all font-mono text-xs">{backupResult.bundleDir}</p>
+            <p className="text-xs text-slate-400">
+              schema v{backupResult.manifest.sourceSchemaVersion} ·{" "}
+              {backupResult.manifest.files.length} file(s) · sha256 verified
+            </p>
+          </div>
         )}
       </section>
 
