@@ -669,6 +669,96 @@ export const migrations: Migration[] = [
           ADD COLUMN node_base_sha TEXT;
       `);
     }
+  },
+  {
+    version: 24,
+    name: "024_durable_execution_ownership",
+    up: (db) => {
+      // Change 028: additive execution-ownership + crash-consistent transition
+      // persistence. These tables are the durable uniqueness/idempotency
+      // boundaries for repository actor leases, child-process identity,
+      // transition intents, and side-effect outbox. They never alter legacy
+      // protocol tables; behavioral wiring is added incrementally.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS repository_actor_leases (
+          repository_id TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+          lease_id TEXT NOT NULL,
+          controller_instance_id TEXT NOT NULL,
+          run_id TEXT,
+          iteration INTEGER,
+          actor_kind TEXT NOT NULL CHECK (actor_kind IN ('SINGLE_AGENT', 'SWARM', 'DAG')),
+          actor_id TEXT,
+          state TEXT NOT NULL CHECK (state IN ('STARTING', 'ACTIVE', 'RELEASING', 'QUARANTINED')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          released_at TEXT,
+          last_error TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS process_ownership_records (
+          id TEXT PRIMARY KEY,
+          controller_instance_id TEXT NOT NULL,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT,
+          iteration INTEGER,
+          actor_id TEXT,
+          packet_id TEXT,
+          process_kind TEXT NOT NULL CHECK (process_kind IN ('DIRECT_EXECUTOR', 'SWARM_WORKER', 'DAG_WORKER')),
+          host_pid INTEGER NOT NULL,
+          executable_name TEXT,
+          start_marker TEXT,
+          state TEXT NOT NULL CHECK (state IN ('STARTING', 'RUNNING', 'EXITED', 'KILL_CONFIRMED', 'UNKNOWN')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_error TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_process_ownership_repo
+          ON process_ownership_records(repository_id, state);
+        CREATE INDEX IF NOT EXISTS idx_process_ownership_actor
+          ON process_ownership_records(actor_id, state);
+
+        CREATE TABLE IF NOT EXISTS orchestration_transition_intents (
+          intent_id TEXT PRIMARY KEY,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT,
+          source_kind TEXT NOT NULL CHECK (source_kind IN ('DISPATCH', 'SOL_CONTROL', 'EXECUTOR_COMPLETION', 'STRATEGY_COMPLETION')),
+          source_id TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          state TEXT NOT NULL CHECK (state IN ('PENDING', 'APPLYING', 'APPLIED', 'FAILED_RETRYABLE', 'FAILED_TERMINAL')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (source_kind, source_id, operation)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_transition_intents_repo_state
+          ON orchestration_transition_intents(repository_id, state, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_transition_intents_state
+          ON orchestration_transition_intents(state, created_at ASC);
+
+        CREATE TABLE IF NOT EXISTS orchestration_outbox (
+          id TEXT PRIMARY KEY,
+          effect_key TEXT NOT NULL UNIQUE,
+          repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+          run_id TEXT,
+          effect_kind TEXT NOT NULL,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          state TEXT NOT NULL CHECK (state IN ('PENDING', 'DELIVERING', 'DELIVERED', 'FAILED_RETRYABLE', 'FAILED_TERMINAL')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_outbox_repo_state
+          ON orchestration_outbox(repository_id, state, created_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_outbox_state
+          ON orchestration_outbox(state, created_at ASC);
+      `);
+    }
   }
 ];
 

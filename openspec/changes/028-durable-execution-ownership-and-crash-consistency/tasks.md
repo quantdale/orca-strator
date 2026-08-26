@@ -4,10 +4,10 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 ## 0. Reconcile and freeze the baseline
 
-- [ ] 0.1 Confirm `main` contains planning commit for Change 028 and record exact implementation start SHA in `.agent/state.json`.
-- [ ] 0.2 Read proposal -> all delta specs -> design -> this task file before editing runtime code.
-- [ ] 0.3 Preserve Changes 026/027 and their external acceptance blockers unchanged; do not archive or fake them.
-- [ ] 0.4 Run the cheapest useful pre-change gates available on the execution host (`npm run version:check`, `npm run openspec:validate`, targeted fast tests). Record any pre-existing failures separately.
+- [x] 0.1 Confirm `main` contains planning commit for Change 028 and record exact implementation start SHA in `.agent/state.json`.
+- [x] 0.2 Read proposal -> all delta specs -> design -> this task file before editing runtime code.
+- [x] 0.3 Preserve Changes 026/027 and their external acceptance blockers unchanged; do not archive or fake them.
+- [x] 0.4 Run the cheapest useful pre-change gates available on the execution host (`npm run version:check`, `npm run openspec:validate`, targeted fast tests). Record any pre-existing failures separately.
 - [ ] 0.5 Add a short implementation ledger to the session report mapping F1–F7 in `docs/audits/2026-08-26-next-campaign-crash-consistency.md` to concrete tests/files.
 
 ## 1. Write failing crash-boundary tests first
@@ -21,21 +21,21 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 ## 2. Add additive ownership/transition persistence
 
-- [ ] 2.1 Add the next SQLite migration with repository actor lease persistence.
-- [ ] 2.2 Add process ownership persistence with controller instance, actor/packet correlation, PID + non-secret identity evidence, lifecycle state, timestamps, and indexes.
-- [ ] 2.3 Add durable transition-intent persistence with a UNIQUE logical idempotency key.
-- [ ] 2.4 Add durable side-effect outbox persistence with deterministic idempotency key and delivery state.
-- [ ] 2.5 Update schema-compatibility maximum version and all backup/migration/version tests affected by the additive schema.
-- [ ] 2.6 Add store tests for uniqueness, FK/correlation behavior, idempotent insert, CAS updates, and restart reads.
+- [x] 2.1 Add the next SQLite migration with repository actor lease persistence (migration 24).
+- [x] 2.2 Add process ownership persistence with controller instance, actor/packet correlation, PID + non-secret identity evidence, lifecycle state, timestamps, and indexes.
+- [x] 2.3 Add durable transition-intent persistence with a UNIQUE logical idempotency key (source_kind, source_id, operation).
+- [x] 2.4 Add durable side-effect outbox persistence with deterministic idempotency key and delivery state.
+- [x] 2.5 Update schema-compatibility maximum version (auto-derived from migrations list) and confirm additive schema passes existing schema-conformance/downgrade-guard tests.
+- [x] 2.6 Add store tests for uniqueness, FK/correlation behavior, idempotent insert, CAS updates, and restart reads (test/ownership.test.ts).
 
 ## 3. Add controller instance + process identity primitives
 
 - [ ] 3.1 Generate one cryptographic controller instance ID per process and pass it through app construction without conflating it with lifecycle auth tokens.
 - [ ] 3.2 Extend runtime-lock diagnostics with controller instance ID if useful; preserve backward compatibility for old lock metadata.
-- [ ] 3.3 Implement `ProcessProbe` (or equivalent) with explicit LIVE_MATCH / DEAD / PID_REUSED / UNKNOWN semantics.
-- [ ] 3.4 Implement bounded Windows process identity capture/classification without admin-only assumptions; keep Linux/test implementation deterministic.
-- [ ] 3.5 Implement verified process-tree kill that refuses PID_REUSED/UNKNOWN records.
-- [ ] 3.6 Add unit tests for evidence capture, dead process, live match, PID reuse, unknown probe failure, and no-foreign-kill behavior.
+- [x] 3.3 Implement `ProcessProbe` (or equivalent) with explicit LIVE_MATCH / DEAD / PID_REUSED / UNKNOWN semantics.
+- [x] 3.4 Implement bounded Windows process identity capture/classification without admin-only assumptions; keep Linux/test implementation deterministic (PortableProcessProbe + WindowsProcessProbe via Get-CimInstance).
+- [x] 3.5 Implement verified process-tree kill that refuses PID_REUSED/UNKNOWN records.
+- [x] 3.6 Add unit tests for evidence capture, dead process, live match, PID reuse, unknown probe failure, and no-foreign-kill behavior (test/ownership.test.ts).
 
 ## 4. Make ExecutorRunner durably own spawned processes
 
@@ -47,7 +47,7 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 ## 5. Enforce one durable repository actor
 
-- [ ] 5.1 Implement actor lease acquire/bind/quarantine/release/reconcile service with DB uniqueness as the ownership boundary.
+- [x] 5.1 Implement actor lease acquire/bind/quarantine/release/reconcile service with DB uniqueness as the ownership boundary (RepositoryActorLeaseService; tested).
 - [ ] 5.2 Acquire a SINGLE_AGENT lease before direct executor process admission.
 - [ ] 5.3 Acquire one SWARM/DAG strategy lease before workers are admitted; do not create one repository lease per worker.
 - [ ] 5.4 Persist worker process ownership beneath the strategy lease for every SWARM/DAG ExecutorRunner.
