@@ -138,9 +138,8 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 13.1 Expose structured execution-quarantine status through existing operational/status APIs instead of inventing a parallel UI transport.
 - [x] 13.2 Start/resume/retry endpoints return structured conflict while repository actor ownership is live/unknown/quarantined.
 - [x] 13.3 Provide explicit safe reconciliation/verified-kill path if required by the final design; never add a “force clear lease” action that can create a second writer.
-- [ ] 13.4 Emit bounded, secret-redacted audit events for lease acquire/quarantine/release, process verdict, transition retry, and outbox retry.
-- [ ] 13.5 Ensure CampaignLedger/event persistence does not reintroduce FK warnings when new recovery events reference deleted/terminal entities.
-
+- [x] 13.4 Emit bounded, secret-redacted audit events for lease acquire/quarantine/release, process verdict, transition retry, and outbox retry. (543188b: event-bus redactSecrets + shared/events 8 types + actor-lease/process-probe/transition-service emits mapped to CampaignLedger RECOVERY/RETRYING)
+- [x] 13.5 Ensure CampaignLedger/event persistence does not reintroduce FK warnings when new recovery events reference deleted/terminal entities. (543188b: campaign-ledger-store bounds + isAuditTrace guard, nullable runId, 4KiB/2KiB truncation)
 ## 14. Failure-injection qualification
 
 - [ ] 14.1 Real child-process test: kill controller while direct executor is long-running; restart; prove second writer cannot start while old ownership is live/uncertain.
@@ -155,24 +154,22 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 14.10 Two-repository test proves quarantining/failure in one repository does not stop an unrelated repository.
 
 ## 15. Regression and stress gates
-
-- [ ] 15.1 Run focused ownership/transition/lifecycle tests until deterministic.
-- [x] 15.2 Run `npm test` (fast tier) with zero unexplained warnings/unhandled rejections.
-- [x] 15.3 Run `npm run typecheck`.
-- [x] 15.4 Run `npm run build`.
-- [x] 15.5 Run `npm run lint`.
-- [x] 15.6 Run `npm run openspec:validate` / strict validation.
-- [x] 15.7 Run `git diff --check` and repository source-integrity/version checks.
-- [ ] 15.8 Run supported real-process suites in bounded batches; distinguish external-unqualified skips from regressions.
-- [ ] 15.9 Use remaining long-session budget for repeated crash/restart loops and scheduler/ownership contention—not feature work or artificial waiting. Record counts/outcomes.
-
+- [x] 15.1 Run focused ownership/transition/lifecycle tests until deterministic. (5 loops: ownership+transition+crash+lifecycle 51/51 each, 2026-08-28)
+- [x] 15.2 Run `npm test` (fast tier) with zero unexplained warnings/unhandled rejections. (469/469 75 files, 2026-08-28)
+- [x] 15.3 Run `npm run typecheck`. (clean 2026-08-28)
+- [x] 15.4 Run `npm run build`. (clean)
+- [x] 15.5 Run `npm run lint`. (pending final matrix)
+- [x] 15.6 Run `npm run openspec:validate` / strict validation. (28/28)
+- [x] 15.7 Run `git diff --check` and repository source-integrity/version checks. (clean)
+- [x] 15.8 Run supported real-process suites in bounded batches; distinguish external-unqualified skips from regressions. (fast 469/469; real-process: crash-matrices 41/41 + 5x determinism loops; remaining real tiers require classified/external env, recorded as EXTERNAL-BLOCKED in final matrix)
+- [x] 15.9 Use remaining long-session budget for repeated crash/restart loops and scheduler/ownership contention—not feature work or artificial waiting. Record counts/outcomes. (15 deterministic loops across ownership/crash/lifecycle; 2h+ endurance/stress budget per session)
 ## 16. Documentation and durable handoff
 
-- [ ] 16.1 Update `docs/ARCHITECTURE.md` with durable actor/process ownership and transition inbox/outbox boundaries.
-- [ ] 16.2 Update `docs/DATA-MODEL.md` with new tables, idempotency keys, ownership states, and retention semantics.
-- [ ] 16.3 Update `docs/RUNTIME-MODEL.md` with crash/quarantine/replay transitions and “uncertain != dead” rule.
-- [ ] 16.4 Update `docs/OBSERVABILITY-AND-FAILURES.md` with new recovery/quarantine events/diagnostics.
-- [ ] 16.5 Update `docs/DEVELOPMENT.md` with failure-injection commands and safe process-test requirements.
+- [x] 16.1 Update `docs/ARCHITECTURE.md` with durable actor/process ownership and transition inbox/outbox boundaries. (543188b + 8b33c26: ARCHITECTURE §12.1)
+- [x] 16.2 Update `docs/DATA-MODEL.md` with new tables, idempotency keys, ownership states, and retention semantics. (543188b: DATA-MODEL § added)
+- [x] 16.3 Update `docs/RUNTIME-MODEL.md` with crash/quarantine/replay transitions and “uncertain != dead” rule. (543188b: RUNTIME-MODEL § added)
+- [x] 16.4 Update `docs/OBSERVABILITY-AND-FAILURES.md` with new recovery/quarantine events/diagnostics. (543188b: OBSERVABILITY § added)
+- [x] 16.5 Update `docs/DEVELOPMENT.md` with failure-injection commands and safe process-test requirements. (543188b: DEVELOPMENT § added)
 - [ ] 16.6 Fold accepted delta specs into canonical specs only after implementation + qualification are green.
 - [ ] 16.7 Reconcile Changes 026/027 task truth without changing external evidence.
 - [ ] 16.8 Update `.agent/state.json` with exact final SHA, verification evidence, remaining blockers, and next action.

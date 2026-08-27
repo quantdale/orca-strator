@@ -127,7 +127,7 @@ async function waitFor(predicateFn, label, timeoutMs = READY_TIMEOUT_MS) {
 
 function killPidOnly(pid) {
   // Root-pid-only termination: no /T, so a detached controller child survives.
-  execFileSync("taskkill", ["/PID", String(pid), "/F"], { stdio: "ignore" });
+  try { execFileSync("taskkill", ["/PID", String(pid), "/F"], { stdio: "ignore" }); } catch {}
 }
 
 async function launchDesktop(label) {

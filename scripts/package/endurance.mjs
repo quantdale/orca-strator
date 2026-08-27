@@ -120,13 +120,16 @@ for (let cycle = 1; cycle <= CYCLES; cycle++) {
   try {
     identity = await launchAndReady(`cycle ${cycle}`, restartCycle ? 180_000 : 120_000);
   } catch (e) {
-    // One retry for restart cycles where port/lock contention transiently blocks startup.
-    if (restartCycle) {
-      console.warn(`[endurance] WARN cycle ${cycle} launch failed (${e?.message ?? e}), retrying after cleanup`);
-      try { execFileSync("taskkill", ["/PID", String(currentControllerPid), "/T", "/F"], { stdio: "ignore" }); } catch {}
-      await sleep(3000);
-      identity = await launchAndReady(`cycle ${cycle} retry`, 180_000);
-    } else throw e;
+    // One retry for any cycle where port/lock contention transiently blocks startup (esp cycle 1 after prior orphan).
+    console.warn(`[endurance] WARN cycle ${cycle} launch failed (${e?.message ?? e}), retrying after cleanup`);
+    try {
+      // Best-effort free the port if an orphan controller lingers
+      if (currentControllerPid) try { execFileSync("taskkill", ["/PID", String(currentControllerPid), "/T", "/F"], { stdio: "ignore" }); } catch {}
+      // Also try to find pid owning PORT via netstat and kill
+      try { execFileSync("powershell", ["-NoProfile","-Command",`$c=Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -First 1; if($c){ Stop-Process -Id $c -Force -ErrorAction SilentlyContinue }`], { stdio: "ignore" }); } catch {}
+    } catch {}
+    await sleep(3000);
+    identity = await launchAndReady(`cycle ${cycle} retry`, 180_000);
   }
   if (beforePid !== null && identity.identity.pid === beforePid) {
     record.events.push(reusedExpected ? "controller-reused" : "controller-recovered-same");
