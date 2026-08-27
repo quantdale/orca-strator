@@ -296,6 +296,20 @@ The controller persists runtime state in SQLite and rehydrates active repositori
 
 Safe waiting states may recover automatically. If an executor process was interrupted mid-work by a crash/reboot, preserve the checkout and mark it `RECOVERY_REQUIRED`; V1 requires explicit Resume before another executor process modifies that repository.
 
+### 12.1 Durable execution ownership and transition consistency (Change 028)
+
+Controller crash is an **epistemic boundary**: in-memory maps, ChildProcess handles, and Promise chains disappear, but SQLite rows, Git commits, workers, and Chrome profiles may survive. The design treats process death as “uncertain != dead.”
+
+* **Repository actor lease (one writer).** Each repository has at most one durable actor lease (`repository_actor_leases` repository_id PRIMARY KEY, UNIQUE). States: `STARTING`/`ACTIVE`/`RELEASING`/`QUARANTINED`. At most one `SINGLE_AGENT` direct lease or one `SWARM`/`DAG` strategy lease may authorize mutation. Workers are child process rows beneath the strategy lease, not competing repository leases. `LIVE_MATCH` or `UNKNOWN` prior ownership blocks or quarantines a second actor; `DEAD` is proven via `ProcessProbe`.
+
+* **Process ownership.** Every real OS spawn attempt gets a distinct durable attempt identity (`process_ownership` rows keyed by attempt) correlated to controller instance (`controller_instance_id` per-process cryptographic ID), actor/packet/run, `hostPid` + `startMarker` (`CreationDate`/`/proc/<pid>/stat` start time) + `executableName`. Classification is `LIVE_MATCH` / `DEAD` / `PID_REUSED` / `UNKNOWN`; only `LIVE_MATCH` authorizes tree kill (`taskkill`/`kill`). Incomplete identity fails closed to `UNKNOWN`. `UNKNOWN`/`PID_REUSED` quarantines instead of retrying into a possible second writer.
+
+* **Durable transition processor.** `OrchestrationTransitionService` serializes per-repository transitions and applies them in a `BEGIN IMMEDIATE` SQLite transaction: source consumption (dispatch / `SOL_CONTROL` / executor or strategy completion) + required `runs` transition +`orchestration_outbox` rows commit atomically. No external I/O (browser, Git, spawn, network) occurs inside the transaction; side effects are enqueued as deterministic `effect_key` outbox items (`SUBMIT_SOL_WAKE`, `COMPLETE_SOL_OPERATION`, `START_EXECUTION_ACTOR`, etc.) and delivered after commit via `deliverOutboxEffect` with replay on startup (after `reconcileOnStartup`). Duplicate `(sourceKind, sourceId, operation)` is `UNIQUE` and idempotent; a thrown `apply` rolls back leaving no `consumed-without-transition` state.
+
+* **Dispatch, Sol control, and completion atomicity.** Watcher dispatch detection, Sol-control wake consumption, direct executor and SWARM/DAG/postflight completion, drain-boundary `applyIterationCompletion`, and failure/non-COMPLETED branches all route through the same transition inbox/outbox boundary (see `LoopService` D9.5 paths with legacy inline fallback for tests without wiring). Browser `SOL_OPERATION` close and actor start are post-commit outbox effects, harmless if already closed.
+
+* **Startup and shutdown.** `buildApp` optionally takes an `AbortSignal`; signal during construction or `EADDRINUSE`/`listen` failure tears down the fully assembled graph in deterministic order (watchers → timers → coordinators/executors → `BrowserManager` → Fastify → DB → singleton lock). Startup reconciliation (`RepositoryActorLeaseService.reconcileOnStartup` → `recoverAll` reorder) runs before worktree sweep and respects the abort/shutdown latch; `LIVE`/`UNKNOWN` worktrees are never swept.
+
 ## 13. High-level goal loop
 
 Every autonomous run has a required durable high-level goal.

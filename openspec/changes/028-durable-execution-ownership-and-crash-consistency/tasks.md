@@ -13,17 +13,17 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 ## 1. Write failing crash-boundary tests first
 
-- [ ] 1.1 Add a deterministic test proving the current/reproduced F1 shape: persisted active executor + controller restart must not permit a second actor until ownership is reconciled.
-- [ ] 1.2 Add SWARM and DAG variants covering worker/worktree ownership after restart.
+- [x] 1.1 Add a deterministic test proving the current/reproduced F1 shape: persisted active executor + controller restart must not permit a second actor until ownership is reconciled.
+- [x] 1.2 Add SWARM and DAG variants covering worker/worktree ownership after restart.
 - [x] 1.3 Add a dispatch crash-window test: a durable validated completion must not end with `dispatch=consumed` while the required run transition is absent. (Proven at service level in test/transition-service.test.ts: the rollback test leaves the source unconsumed and with no outbox; the crash-window replay test redelivers a PENDING wake.)
-- [ ] 1.4 Add a Sol-control crash-window test: control consumption must not outrun the corresponding run transition.
-- [ ] 1.5 Add startup interruption/listen-failure tests that assert teardown ordering and no resource admission after shutdown is latched.
-- [ ] 1.6 Add PID-reuse/unknown-process tests before any kill/reconciliation implementation.
+- [x] 1.4 Add a Sol-control crash-window test: control consumption must not outrun the corresponding run transition.
+- [x] 1.5 Add startup interruption/listen-failure tests that assert teardown ordering and no resource admission after shutdown is latched.
+- [x] 1.6 Add PID-reuse/unknown-process tests before any kill/reconciliation implementation.
 - [x] 1.7 Add a Windows-process-probe regression: capture + classify must round-trip creation identity; incomplete evidence cannot yield LIVE_MATCH; missing PID and probe failure must produce different verdicts. (test/ownership.test.ts: WindowsProcessProbe win32 tests + PortableProcessProbe incomplete-evidence test; capture round-trips identity; notfound->DEAD vs error->UNKNOWN.)
 - [x] 1.8 Add a restart regression for a prior STARTING lease with zero process rows; it must remain blocking/quarantined rather than auto-release. (test/ownership.test.ts: "prior STARTING/ACTIVE lease with zero process records fails closed (quarantined)"; actor-lease-service.reconcileOnStartup quarantines ambiguous zero-process prior lease.)
-- [ ] 1.9 Add a post-spawn ownership-persistence failure regression proving the generic launch retry loop cannot spawn a second child while the first is live/unknown.
-- [ ] 1.10 Add a short-lived-child regression that exits while `onSpawn` persistence is awaiting; completion/terminal ownership must still be observed exactly once.
-- [ ] 1.11 Add an all-pre-spawn-launch-failures regression proving the current controller does not strand a reusable STARTING lease.
+- [x] 1.9 Add a post-spawn ownership-persistence failure regression proving the generic launch retry loop cannot spawn a second child while the first is live/unknown.
+- [x] 1.10 Add a short-lived-child regression that exits while `onSpawn` persistence is awaiting; completion/terminal ownership must still be observed exactly once.
+- [x] 1.11 Add an all-pre-spawn-launch-failures regression proving the current controller does not strand a reusable STARTING lease.
 
 ## 2. Add additive ownership/transition persistence
 
@@ -49,35 +49,35 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 ## 4. Make ExecutorRunner durably own spawned processes
 
 - [x] 4.1 Add a spawn hook/handshake that surfaces PID after real spawn and before the caller treats launch as safely active. Landed at `a1de7ab`; remaining D4 acceptance is tracked below.
-- [ ] 4.2 Persist each actual spawn attempt's process ownership; launch retries must remain distinguishable and once-only.
-- [ ] 4.3 On ownership persistence failure after spawn, terminate only if identity is verified; otherwise quarantine the actor.
-- [ ] 4.4 On process exit, persist terminal process state before releasing repository actor ownership.
-- [ ] 4.5 Preserve existing once-only exit callback, watchdog, pause, emergency-kill, and launch-retry behavior.
-- [ ] 4.6 Separate PRE_SPAWN launch failure from POST_SPAWN ownership/admission failure. A post-spawn failure MUST NOT enter generic launch retry unless the prior child is verified terminated and its durable attempt is terminal; UNKNOWN/PID_REUSED termination state quarantines and aborts.
-- [ ] 4.7 Install exit/error completion observation before the awaited `onSpawn` ownership hook (or equivalently reconcile an already-exited child after the hook) so a short-lived child cannot exit unnoticed while persistence is in flight.
-- [ ] 4.8 Give every real OS spawn attempt a distinct durable process-attempt identity correlated to the parent executor run; never reuse one process-row ID across retries.
-- [ ] 4.9 If all attempts fail before any real child is admitted, release/terminalize the current controller's STARTING lease. If any attempt crossed real spawn without proven termination, quarantine instead of releasing.
-- [ ] 4.10 Add deterministic tests for ownership-write failure after spawn, verified-kill success, unverified-kill refusal, no-double-spawn retry, short-lived exit during ownership handshake, and all-pre-spawn-attempts-failed lease cleanup.
+- [x] 4.2 Persist each actual spawn attempt's process ownership; launch retries must remain distinguishable and once-only.
+- [x] 4.3 On ownership persistence failure after spawn, terminate only if identity is verified; otherwise quarantine the actor.
+- [x] 4.4 On process exit, persist terminal process state before releasing repository actor ownership.
+- [x] 4.5 Preserve existing once-only exit callback, watchdog, pause, emergency-kill, and launch-retry behavior.
+- [x] 4.6 Separate PRE_SPAWN launch failure from POST_SPAWN ownership/admission failure. A post-spawn failure MUST NOT enter generic launch retry unless the prior child is verified terminated and its durable attempt is terminal; UNKNOWN/PID_REUSED termination state quarantines and aborts.
+- [x] 4.7 Install exit/error completion observation before the awaited `onSpawn` ownership hook (or equivalently reconcile an already-exited child after the hook) so a short-lived child cannot exit unnoticed while persistence is in flight.
+- [x] 4.8 Give every real OS spawn attempt a distinct durable process-attempt identity correlated to the parent executor run; never reuse one process-row ID across retries.
+- [x] 4.9 If all attempts fail before any real child is admitted, release/terminalize the current controller's STARTING lease. If any attempt crossed real spawn without proven termination, quarantine instead of releasing.
+- [x] 4.10 Add deterministic tests for ownership-write failure after spawn, verified-kill success, unverified-kill refusal, no-double-spawn retry, short-lived exit during ownership handshake, and all-pre-spawn-attempts-failed lease cleanup.
 
 ## 5. Enforce one durable repository actor
 
 - [x] 5.1 Implement actor lease acquire/bind/quarantine/release/reconcile service with DB uniqueness as the ownership boundary (RepositoryActorLeaseService; tested).
 - [x] 5.2 Acquire a SINGLE_AGENT lease before direct executor process admission (ExecutorService.startRun acquires + binds + marks active; conflicts/quarantine block start).
-- [ ] 5.3 Acquire one SWARM/DAG strategy lease before workers are admitted; do not create one repository lease per worker.
-- [ ] 5.4 Persist worker process ownership beneath the strategy lease for every SWARM/DAG ExecutorRunner.
-- [ ] 5.5 Block manual/raw executor/strategy HTTP starts that bypass normal loop flow unless the same durable lease gate authorizes them.
-- [ ] 5.6 Ensure lease release waits for terminal/proven-dead child ownership and actor boundary.
-- [ ] 5.7 Add concurrency tests: overlapping start calls, restart + old live writer, recovery retry, strategy/direct conflict, and two repositories remaining independent.
+- [x] 5.3 Acquire one SWARM/DAG strategy lease before workers are admitted; do not create one repository lease per worker.
+- [x] 5.4 Persist worker process ownership beneath the strategy lease for every SWARM/DAG ExecutorRunner.
+- [x] 5.5 Block manual/raw executor/strategy HTTP starts that bypass normal loop flow unless the same durable lease gate authorizes them.
+- [x] 5.6 Ensure lease release waits for terminal/proven-dead child ownership and actor boundary.
+- [x] 5.7 Add concurrency tests: overlapping start calls, restart + old live writer, recovery retry, strategy/direct conflict, and two repositories remaining independent.
 - [x] 5.8 Fail closed on a prior STARTING/ACTIVE lease with zero process records. Treat it as an ambiguous spawn-to-persistence crash window unless a durable pre-spawn-failure/admission phase proves no child was created. (actor-lease-service.reconcileOnStartup quarantines prior STARTING/ACTIVE lease with zero process rows; test/ownership.test.ts covers it.)
 - [x] 5.9 Add restart coverage for the zero-process lease case and prove a second writer is refused until safe reconciliation evidence exists. (quarantine sets state QUARANTINED + lastError matching /ambiguous/; acquire() returns quarantined outcome, blocking a second writer. Covered by test/ownership.test.ts.)
 
 ## 6. Reconcile ownership before worktrees
 
-- [ ] 6.1 Reorder startup so prior actor/process reconciliation runs before `SwarmExecutionService.recoverAll()` / worktree cleanup.
-- [ ] 6.2 Protect worktrees whose owner is LIVE_MATCH or UNKNOWN from automatic release/sweep.
-- [ ] 6.3 Reconcile proven-dead workers into truthful RECOVERY_REQUIRED evidence without deleting dirty user/worker files.
-- [ ] 6.4 Ensure orphan DAG staging sweep cannot remove a checkout still owned by a live/uncertain process.
-- [ ] 6.5 Add restart tests for clean, dirty, live-owned, unknown-owned, and truly orphaned worktrees/stagings.
+- [x] 6.1 Reorder startup so prior actor/process reconciliation runs before `SwarmExecutionService.recoverAll()` / worktree cleanup.
+- [x] 6.2 Protect worktrees whose owner is LIVE_MATCH or UNKNOWN from automatic release/sweep.
+- [x] 6.3 Reconcile proven-dead workers into truthful RECOVERY_REQUIRED evidence without deleting dirty user/worker files.
+- [x] 6.4 Ensure orphan DAG staging sweep cannot remove a checkout still owned by a live/uncertain process.
+- [x] 6.5 Add restart tests for clean, dirty, live-owned, unknown-owned, and truly orphaned worktrees/stagings.
 
 ## 7. Build the durable transition processor
 
@@ -93,8 +93,8 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 - [x] 8.1 Implement outbox claim/deliver/retry/terminal semantics with deterministic effect keys. (OutboxStore UNIQUE effect_key; replayOutbox markDelivering->DELIVERED/FAILED_RETRYABLE.)
 - [x] 8.2 Reuse BrowserManager's existing durable Sol-operation intent for Sol-wake idempotency rather than creating a competing wake protocol. (SUBMIT_SOL_WAKE effect delegates to existing submitSolWakeForRun.)
-- [ ] 8.3 Make browser operation completion/page close replayable and harmless when already closed.
-- [ ] 8.4 If actor start is delivered through outbox, make actor lease/process ownership the exactly-once logical spawn boundary.
+- [x] 8.3 Make browser operation completion/page close replayable and harmless when already closed.
+- [x] 8.4 If actor start is delivered through outbox, make actor lease/process ownership the exactly-once logical spawn boundary.
 - [x] 8.5 Replay pending outbox items during startup only after execution ownership reconciliation. (app.ts calls replayPendingTransitionOutbox after leaseService.reconcileOnStartup.)
 - [x] 8.6 Add duplicate-delivery and crash-after-commit-before-delivery tests for every effect kind introduced. (test/transition-service.test.ts: replay-idempotent + crash-window PENDING replay tests.)
 
@@ -102,42 +102,42 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 - [x] 9.1 Remove dispatch consumption from `ExecutorService.handleTurnCompletion()`; completion validation reports durable evidence but does not independently consume the protocol source. (Guarded on the transition dep; inline consume removed when wired.)
 - [x] 9.2 Route direct executor completion through the transition processor so dispatch consume + run transition are atomic. (LoopService.applyIterationCompletion COMPLETED branch uses enqueueAndApply.)
-- [ ] 9.3 Route SWARM/DAG completion/postflight continuation through equivalent atomic application while preserving existing remote-publication truthfulness and postflight-only retry behavior.
-- [ ] 9.4 Route Sol controls through transaction application: run transition + control consumed atomically; browser close follows from outbox.
-- [ ] 9.5 Route dispatch detection/start authorization through durable transition intent so watcher replay never depends on one in-memory callback.
-- [ ] 9.6 Preserve strict run/repository/iteration/relatedDispatchId/strategy correlation and stale-marker rejection behavior.
-- [ ] 9.7 Add regression tests for late duplicate dispatch, duplicate control, stale older-run control, terminal race, and postflight retry.
+- [x] 9.3 Route SWARM/DAG completion/postflight continuation through equivalent atomic application while preserving existing remote-publication truthfulness and postflight-only retry behavior.
+- [x] 9.4 Route Sol controls through transaction application: run transition + control consumed atomically; browser close follows from outbox.
+- [x] 9.5 Route dispatch detection/start authorization through durable transition intent so watcher replay never depends on one in-memory callback.
+- [x] 9.6 Preserve strict run/repository/iteration/relatedDispatchId/strategy correlation and stale-marker rejection behavior.
+- [x] 9.7 Add regression tests for late duplicate dispatch, duplicate control, stale older-run control, terminal race, and postflight retry.
 
 ## 10. Own every critical async callback
 
-- [ ] 10.1 Change watcher dispatch/control callback contracts to Promise-aware or durable enqueue semantics.
-- [ ] 10.2 Remove naked fire-and-forget loop mutation callbacks from `buildApp`; await/track or catch+persist failure explicitly.
-- [ ] 10.3 Track direct executor completion promises through shutdown similarly to existing strategy completion tracking.
-- [ ] 10.4 Audit `void`/detached promises in controller runtime and fix every instance capable of changing durable orchestration state or launching resources.
-- [ ] 10.5 Add rejection-injection tests proving no unhandled rejection and durable recovery evidence.
+- [x] 10.1 Change watcher dispatch/control callback contracts to Promise-aware or durable enqueue semantics.
+- [x] 10.2 Remove naked fire-and-forget loop mutation callbacks from `buildApp`; await/track or catch+persist failure explicitly.
+- [x] 10.3 Track direct executor completion promises through shutdown similarly to existing strategy completion tracking.
+- [x] 10.4 Audit `void`/detached promises in controller runtime and fix every instance capable of changing durable orchestration state or launching resources.
+- [x] 10.5 Add rejection-injection tests proving no unhandled rejection and durable recovery evidence.
 
 ## 11. Make initialization abortable and teardown unified
 
-- [ ] 11.1 Add construction cancellation/cleanup ownership for resources created before `buildApp()` returns.
-- [ ] 11.2 SIGINT/SIGTERM during initialization latches shutdown, prevents new resource admission, settles partial cleanup, then releases singleton ownership.
-- [ ] 11.3 Make startup reconciliation/browser rehydrate respect the shutdown/abort latch before retrying a Sol wake or launching Chrome.
-- [ ] 11.4 On Fastify listen failure (including EADDRINUSE), close the assembled app/runtime graph before DB + runtime-lock release.
-- [ ] 11.5 Ensure watcher, loop timers, coordinator/executor children, BrowserManager, Fastify, DB, and singleton lock close in a deterministic bounded order.
-- [ ] 11.6 Add subprocess tests that deliver SIGTERM at multiple construction checkpoints and assert no surviving owned children/profile lock.
+- [x] 11.1 Add construction cancellation/cleanup ownership for resources created before `buildApp()` returns.
+- [x] 11.2 SIGINT/SIGTERM during initialization latches shutdown, prevents new resource admission, settles partial cleanup, then releases singleton ownership.
+- [x] 11.3 Make startup reconciliation/browser rehydrate respect the shutdown/abort latch before retrying a Sol wake or launching Chrome.
+- [x] 11.4 On Fastify listen failure (including EADDRINUSE), close the assembled app/runtime graph before DB + runtime-lock release.
+- [x] 11.5 Ensure watcher, loop timers, coordinator/executor children, BrowserManager, Fastify, DB, and singleton lock close in a deterministic bounded order.
+- [x] 11.6 Add subprocess tests that deliver SIGTERM at multiple construction checkpoints and assert no surviving owned children/profile lock.
 
 ## 12. Harden automated browser-profile stale recovery
 
-- [ ] 12.1 Add a bounded host Chrome profile-ownership probe keyed to the exact dedicated `--user-data-dir`.
-- [ ] 12.2 A dead controller PID is insufficient to reclaim an AUTOMATED profile lock; require authoritative “no matching Chrome” proof.
-- [ ] 12.3 LIVE_MATCH/UNKNOWN profile ownership yields structured browser quarantine/readiness evidence and refuses a second automated Chrome.
-- [ ] 12.4 Preserve interactive setup's actual external Chrome PID ownership semantics.
-- [ ] 12.5 Add real/subprocess or safely simulated tests for surviving Chrome, dead Chrome, unknown probe, and ordinary clean reclaim.
+- [x] 12.1 Add a bounded host Chrome profile-ownership probe keyed to the exact dedicated `--user-data-dir`.
+- [x] 12.2 A dead controller PID is insufficient to reclaim an AUTOMATED profile lock; require authoritative “no matching Chrome” proof.
+- [x] 12.3 LIVE_MATCH/UNKNOWN profile ownership yields structured browser quarantine/readiness evidence and refuses a second automated Chrome.
+- [x] 12.4 Preserve interactive setup's actual external Chrome PID ownership semantics.
+- [x] 12.5 Add real/subprocess or safely simulated tests for surviving Chrome, dead Chrome, unknown probe, and ordinary clean reclaim.
 
 ## 13. Recovery/API/observability
 
-- [ ] 13.1 Expose structured execution-quarantine status through existing operational/status APIs instead of inventing a parallel UI transport.
-- [ ] 13.2 Start/resume/retry endpoints return structured conflict while repository actor ownership is live/unknown/quarantined.
-- [ ] 13.3 Provide explicit safe reconciliation/verified-kill path if required by the final design; never add a “force clear lease” action that can create a second writer.
+- [x] 13.1 Expose structured execution-quarantine status through existing operational/status APIs instead of inventing a parallel UI transport.
+- [x] 13.2 Start/resume/retry endpoints return structured conflict while repository actor ownership is live/unknown/quarantined.
+- [x] 13.3 Provide explicit safe reconciliation/verified-kill path if required by the final design; never add a “force clear lease” action that can create a second writer.
 - [ ] 13.4 Emit bounded, secret-redacted audit events for lease acquire/quarantine/release, process verdict, transition retry, and outbox retry.
 - [ ] 13.5 Ensure CampaignLedger/event persistence does not reintroduce FK warnings when new recovery events reference deleted/terminal entities.
 
@@ -147,22 +147,22 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [ ] 14.2 Repeat for SWARM worker and DAG worker/staging path.
 - [ ] 14.3 Verified-kill test proves correct process tree dies and an unrelated sibling/foreign process remains alive.
 - [ ] 14.4 PID-reuse/UNKNOWN test proves no kill and repository stays quarantined.
-- [ ] 14.5 Crash matrix around dispatch completion transaction/outbox boundary proves no consumed-without-transition state.
-- [ ] 14.6 Crash matrix around Sol-control transaction/outbox boundary proves no consumed-without-transition state.
-- [ ] 14.7 Crash matrix around actor-start delivery proves replay never double-spawns.
+- [x] 14.5 Crash matrix around dispatch completion transaction/outbox boundary proves no consumed-without-transition state.
+- [x] 14.6 Crash matrix around Sol-control transaction/outbox boundary proves no consumed-without-transition state.
+- [x] 14.7 Crash matrix around actor-start delivery proves replay never double-spawns.
 - [ ] 14.8 Startup SIGTERM during expired Sol rehydrate proves no orphan browser/profile owner.
-- [ ] 14.9 Listen-failure test proves all constructed resources settle before lock release.
-- [ ] 14.10 Two-repository test proves quarantining/failure in one repository does not stop an unrelated repository.
+- [x] 14.9 Listen-failure test proves all constructed resources settle before lock release.
+- [x] 14.10 Two-repository test proves quarantining/failure in one repository does not stop an unrelated repository.
 
 ## 15. Regression and stress gates
 
 - [ ] 15.1 Run focused ownership/transition/lifecycle tests until deterministic.
-- [ ] 15.2 Run `npm test` (fast tier) with zero unexplained warnings/unhandled rejections.
-- [ ] 15.3 Run `npm run typecheck`.
-- [ ] 15.4 Run `npm run build`.
-- [ ] 15.5 Run `npm run lint`.
-- [ ] 15.6 Run `npm run openspec:validate` / strict validation.
-- [ ] 15.7 Run `git diff --check` and repository source-integrity/version checks.
+- [x] 15.2 Run `npm test` (fast tier) with zero unexplained warnings/unhandled rejections.
+- [x] 15.3 Run `npm run typecheck`.
+- [x] 15.4 Run `npm run build`.
+- [x] 15.5 Run `npm run lint`.
+- [x] 15.6 Run `npm run openspec:validate` / strict validation.
+- [x] 15.7 Run `git diff --check` and repository source-integrity/version checks.
 - [ ] 15.8 Run supported real-process suites in bounded batches; distinguish external-unqualified skips from regressions.
 - [ ] 15.9 Use remaining long-session budget for repeated crash/restart loops and scheduler/ownership contention—not feature work or artificial waiting. Record counts/outcomes.
 
