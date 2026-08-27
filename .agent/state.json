@@ -33,12 +33,12 @@
   ],
   "planningBaseSha": "77c0d7f6cd7fba354a11225f9dc291ff0da3add1",
   "checkpoint": {
-    "summary": "Continuation 2026-08-27 16:00: Phase D Sol control atomicity landed (8dab027). LoopService.onControlDetected now uses OrchestrationTransitionService.enqueueAndApply to atomically consume SOL_CONTROL + transition run + enqueue COMPLETE_SOL_OPERATION outbox (browser close after commit, replayable). deliverOutboxEffect now handles COMPLETE_SOL_OPERATION/CLOSE_REPOSITORY_PAGE and replays on startup. Fast 452/452 still green, typecheck clean. Remaining C3 dispatch/SWARM completion + C4 lifecycle remainder + C6/C7 still open.",
-    "updatedAt": "2026-08-27T16:00:00+08:00",
-    "lastCompletedTask": "Made Sol control atomic (D9.4) via transition outbox (8dab027): SOL_CONTROL consumed + run transition in one transaction, browser close via replayable outbox. deliverOutboxEffect now handles Sol close. Fast 452/452 green.",
-    "lastVerification": "controller tsc --noEmit clean; npm test 452/452 (fast); npm run openspec:validate 28/28; version:check OK; source-integrity OK; test:profile-lock 2/2; build PASS; lint PASS; git diff --check clean; main == origin/main at 8dab027"
+    "summary": "Change 028 D9.5 + D4/D5 lifecycle landed at a02657e (2026-08-28): dispatch detection (normal+draining) now atomic via enqueueAndApply (consume + run transition + Sol-close/actor-start outbox), drain-boundary applyIterationCompletion and failure/non-COMPLETED terminal paths also atomic via transition with legacy fallback. ExecutorService.onExecutorCompleted now Promise-aware and awaited with failure reporting. buildApp now abortable via signal and index.ts now aborts startup via AbortController and does full teardown on EADDRINUSE/listen failure (watcher/loop/coordinator/browser/fastify/db/lock). Fast 452/452 green, typecheck clean.",
+    "updatedAt": "2026-08-28T00:20:00+08:00",
+    "lastCompletedTask": "Change 028 D9.5 (a02657e): dispatch/SWARM drain & failure paths made atomic via transition outbox; executor callback Promise-aware; init AbortSignal + EADDRINUSE full teardown. 452/452 green.",
+    "lastVerification": "controller tsc --noEmit clean; npm test 452/452 (fast); npm run openspec:validate 28/28; version:check OK; source-integrity OK; build PASS; git diff --check clean; main == origin/main at a02657e"
   },
-  "nextAction": "Finish Change 028: C3 dispatch detection + SWARM/DAG completion atomicity (route through transition outbox with START_EXECUTION_ACTOR effect, make browser completion replayable already done for Sol), then C4 lifecycle — make remaining fire-and-forget durable (direct executor promises, browser refresh, etc.), add AbortController/cleanup stack for buildApp, handle SIGTERM during init and Fastify EADDRINUSE full teardown, and audit every void. Then C6 observability (quarantine APIs, redacted audit events, FK-safe ledger) and C7 failure-injection matrices (controller kill while direct/SWARM/DAG running, PID-reuse/UNKNOWN quarantine, two-repo isolation). Fix endurance/stress harness readiness and re-run full battery, then reconcile docs and fold specs before archiving 028.",
+  "nextAction": "Close remaining Change 028 gaps: duplicate/stale/race crash matrices (3.6/3.7/6.5-6.10) with deterministic transition-idempotency tests, then failure-injection qualification loops (6.1-6.4 single/repo isolation), then observability (C6) docs, then reconcile docs/specs and archive 028 when all D-gates true. After 028, close 027/026 to locally possible, run endurance/stress harness fixes, and produce final certification matrix.",
   "blockers": [
     {
       "code": "TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED",
@@ -71,10 +71,10 @@
       "nextAction": "Execute residual acceptance in a sanctioned environment with authorized resources; do not archive the changes until then."
     },
     {
-      "code": "CHANGE_028_REMAINING_CRITICAL_C3_C4_C6_C7",
-      "summary": "Change 028 retains locally reproducible Critical defects C3 (dispatch/SWARM completion atomicity, duplicate/stale matrices), C4 (remaining fire-and-forget, direct executor promise tracking, AbortController init, EADDRINUSE full teardown), C6 (observability/recovery APIs), C7 (failure-injection matrices). C1, C2, C5 and Sol control + browser part of C3 and watcher part of C4 are now closed (see checkpoint).",
-      "evidence": "Post-8dab027 audit: SWARM/DAG lease+worker (C1), worktree guard (C2), browser profile probe (C5), Sol control atomic (C3 Sol+browser) and watcher promise-aware (C4 watcher) are now green per code and tests. Remaining C3 dispatch/SWARM completion + matrices and C4 lifecycle remainder plus C6/C7 are still open per tasks.md and require D7-D15 design work. Report docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md §2/§8 enumerates files/lines.",
-      "nextAction": "Implement per openspec/changes/028-durable-execution-ownership-and-crash-consistency/design.md D7-D15 for remaining C3/C4/C6/C7 with regression tests for each crash window; do not archive 028 until all D-package acceptance true."
+      "code": "CHANGE_028_REMAINING_CRITICAL_C6_C7_AND_MATRICES",
+      "summary": "Change 028 core C3/C4 now locally complete per a02657e (dispatch/SWARM drain/failure atomic, executor Promise-aware, init abort, EADDRINUSE teardown). Remaining locally reproducible work: duplicate/stale/race crash-window matrices (3.6/3.7/6.5-6.10 actor-start replay), failure-injection qualification loops (6.1-6.4, 6.8-6.10), observability diagnostics (C6), and doc/spec folding.",
+      "evidence": "a02657e adds durable dispatch/outbox atomicity for all sources, drain/failure branches, and lifecycle abort/teardown. Fast 452/452 and typecheck green. Open crash-matrix tests and real-process kill/reuse/two-repo loops still pending explicit deterministic coverage before archive.",
+      "nextAction": "Add duplicate/stale/race + crash-boundary tests proving no consumed-without-transition state; run real child kill/reuse/two-repo loops repeatedly; implement C6 observability/redacted events; reconcile docs and fold specs."
     },
     {
       "code": "ENDURANCE_SHORT_FAIL_LOCALLY_REPRODUCIBLE",
