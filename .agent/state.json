@@ -33,12 +33,12 @@
   ],
   "planningBaseSha": "77c0d7f6cd7fba354a11225f9dc291ff0da3add1",
   "checkpoint": {
-    "summary": "Change 028 D9.5 + D4/D5 lifecycle landed at a02657e (2026-08-28): dispatch detection (normal+draining) now atomic via enqueueAndApply (consume + run transition + Sol-close/actor-start outbox), drain-boundary applyIterationCompletion and failure/non-COMPLETED terminal paths also atomic via transition with legacy fallback. ExecutorService.onExecutorCompleted now Promise-aware and awaited with failure reporting. buildApp now abortable via signal and index.ts now aborts startup via AbortController and does full teardown on EADDRINUSE/listen failure (watcher/loop/coordinator/browser/fastify/db/lock). Fast 452/452 green, typecheck clean.",
-    "updatedAt": "2026-08-28T00:20:00+08:00",
-    "lastCompletedTask": "Change 028 D9.5 (a02657e): dispatch/SWARM drain & failure paths made atomic via transition outbox; executor callback Promise-aware; init AbortSignal + EADDRINUSE full teardown. 452/452 green.",
-    "lastVerification": "controller tsc --noEmit clean; npm test 452/452 (fast); npm run openspec:validate 28/28; version:check OK; source-integrity OK; build PASS; git diff --check clean; main == origin/main at a02657e"
+    "summary": "029 campaign continuation 2026-08-28: D9.5 dispatch/drain/failure atomic (a02657e), crash matrices 17/17 (a30097b, 469/469 fast), ARCHITECTURE §12.1 + 64 tasks.md ticks (8b33c26), direct executor void fix (0f558ac, Promise-aware), deep audit (grep TODO/void/kill/tx, fixed one Critical void), FINAL-PROJECT-COMPLETION-REPORT.md (1b60c78) with 463-file inventory, certification matrix, and honest blocker enumeration. All durable core C3/C4 now locally complete; remaining 028 work is 13.4/13.5 audit events + 14.x real-process kill/reuse/SIGTERM matrices + 15.x repeated real/stress loops + 2 harness FAILs.",
+    "updatedAt": "2026-08-28T00:45:00+08:00",
+    "lastCompletedTask": "Docs+tasks+report: ARCHITECTURE §12.1 (durable ownership/transition), 64 tasks.md ticks (1.x/4.x/5.x/6.x/8.3-8.4/9.x/10.x/11.x/12.x/13.1-13.3/14.5-14.7/15.2-15.7), crash-matrices.test.ts 17/17 (469/469), void fix 0f558ac, audit + FINAL-PROJECT-COMPLETION-REPORT.md 1b60c78 (463 files, matrix PASS 9 gates, 2 harness FAILs).",
+    "lastVerification": "npm test 469/469 (75 files) PASS; typecheck clean; build PASS; lint PASS; openspec:validate 28/28 PASS; version:check OK; source-integrity 208/716 OK; git diff --check clean; backup-restore PASS; main == origin/main at 1b60c78; deep audit 1 Critical void fixed, no new TODO/FIXME"
   },
-  "nextAction": "Close remaining Change 028 gaps: duplicate/stale/race crash matrices (3.6/3.7/6.5-6.10) with deterministic transition-idempotency tests, then failure-injection qualification loops (6.1-6.4 single/repo isolation), then observability (C6) docs, then reconcile docs/specs and archive 028 when all D-gates true. After 028, close 027/026 to locally possible, run endurance/stress harness fixes, and produce final certification matrix.",
+  "nextAction": "Fix 2 locally reproducible harness FAILs (ENDURANCE_SHORT 47xxx cycle1 125s timeout, MULTI_REPO_STRESS 82xxx readiness) by tuning harness-lib port/lock contention or controller startup readiness; run 14.1-14.4/14.8 real-process controller-kill while direct/SWARM/DAG + verified-kill sibling + PID-reuse quarantine + SIGTERM rehydrate loops repeatedly; implement 13.4 secret-redacted audit events + 13.5 FK-safe CampaignLedger; run 15.1 focused ownership/transition/crash loops until deterministic and 15.8-15.9 real/stress repeated; fold DATA-MODEL/RUNTIME-MODEL/OBSERVABILITY + 16.x specs, then archive 028 → 027 → 026 when all D-gates true. External Tailscale/OpenCode/installer/long-endurance remain honest external qualification per report §7.",
   "blockers": [
     {
       "code": "TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED",
@@ -71,21 +71,21 @@
       "nextAction": "Execute residual acceptance in a sanctioned environment with authorized resources; do not archive the changes until then."
     },
     {
-      "code": "CHANGE_028_REMAINING_CRITICAL_C6_C7_AND_MATRICES",
-      "summary": "Change 028 core C3/C4 now locally complete per a02657e (dispatch/SWARM drain/failure atomic, executor Promise-aware, init abort, EADDRINUSE teardown). Remaining locally reproducible work: duplicate/stale/race crash-window matrices (3.6/3.7/6.5-6.10 actor-start replay), failure-injection qualification loops (6.1-6.4, 6.8-6.10), observability diagnostics (C6), and doc/spec folding.",
-      "evidence": "a02657e adds durable dispatch/outbox atomicity for all sources, drain/failure branches, and lifecycle abort/teardown. Fast 452/452 and typecheck green. Open crash-matrix tests and real-process kill/reuse/two-repo loops still pending explicit deterministic coverage before archive.",
-      "nextAction": "Add duplicate/stale/race + crash-boundary tests proving no consumed-without-transition state; run real child kill/reuse/two-repo loops repeatedly; implement C6 observability/redacted events; reconcile docs and fold specs."
+      "code": "CHANGE_028_REMAINING_CRITICAL_13_14_15_AND_HARNESS",
+      "summary": "Change 028 retains locally reproducible open work: 13.4 secret-redacted audit events, 13.5 FK-safe CampaignLedger, 14.1-14.4/14.8 real-process controller-kill while direct/SWARM/DAG + verified-kill sibling + PID-reuse/UNKNOWN quarantine + startup SIGTERM rehydrate, 15.1/15.8-15.9 repeated real/stress loops, plus 2 harness FAILs (ENDURANCE_SHORT 47xxx 125s cycle1 timeout, MULTI_REPO_STRESS 82xxx readiness). Core C3/C4 durable dispatch/Sol/strategy atomic + watcher/lifecycle/profile (8b33c26) and crash matrices (a30097b 17/17, 469/469) are now green.",
+      "evidence": "Post-1b60c78: ARCHITECTURE §12.1, 64 tasks.md ticks, crash-matrices 17/17, 469/469 fast, typecheck/build/lint/openspec 28/28, version/integrity/diff/backup PASS, void fix 0f558ac. Report docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md §2/§3/§8 enumerates remaining 13.4/14.x/15.x + 2 harness FAILs as locally reproducible blockers.",
+      "nextAction": "Fix ENDURANCE_SHORT/MULTI_REPO_STRESS harness readiness (port/lock contention), implement 13.4/13.5, run 14.x real-process loops repeatedly, run 15.x focused+real loops until deterministic, fold DATA-MODEL/RUNTIME-MODEL/OBSERVABILITY, then archive 028 when all D-gates true."
     },
     {
       "code": "ENDURANCE_SHORT_FAIL_LOCALLY_REPRODUCIBLE",
       "summary": "test:endurance:short fails locally with 'Timed out waiting for cycle 1 readiness' (harness-lib.mjs:90) — not external qualification.",
-      "evidence": "2026-08-27 runs on 92ce961, a1cabfc, 8dab027: mode=short cycles=6 port=47xxx timed out after 125s at cycle 1 readiness; locally reproducible.",
+      "evidence": "Reproduced on 0f558ac/1b60c78: mode=short cycles=6 port=47xxx timed out after 125s at cycle 1 readiness; locally reproducible, not external.",
       "nextAction": "Investigate harness readiness port/lock contention and controller startup on this host; fix controller startup or harness timeout tuning; re-run `npm run test:endurance:short` until 6 cycles PASS."
     },
     {
       "code": "MULTI_REPO_STRESS_FAIL_LOCALLY_REPRODUCIBLE",
       "summary": "test:stress:repos fails locally with 'Timed out waiting for readiness' (harness launch pid=82xxx) — not external.",
-      "evidence": "2026-08-27 run on 92ce961: multi-repo-stress harness timed out at readiness wait; locally reproducible.",
+      "evidence": "Reproduced on 0f558ac/1b60c78: multi-repo-stress harness timed out at readiness wait; locally reproducible.",
       "nextAction": "Investigate multi-repo harness readiness (port 82xxx) and parallel repo creation; fix isolation or timeout; re-run `npm run test:stress:repos` until PASS."
     }
   ],
