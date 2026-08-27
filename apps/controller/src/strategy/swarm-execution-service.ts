@@ -42,7 +42,9 @@ import type { StrategyStagingHandle } from "../packets/worktree-isolation-servic
 import type { IntegrationService } from "../packets/integration-service.js";
 import { toWslPath } from "../wsl-path.js";
 import type { StrategyRunStore } from "./strategy-run-store.js";
-
+import type { RepositoryActorLeaseService } from "../ownership/actor-lease-service.js";
+import type { ProcessOwnershipStore } from "../ownership/ownership-store.js";
+import type { ProcessProbe } from "../ownership/process-probe.js";
 const DEFAULT_MAX_CONCURRENCY = 2;
 const MAX_MAX_CONCURRENCY = 32;
 const SCHEDULER_POLL_MS = 100;
@@ -84,6 +86,14 @@ export interface SwarmStartOptions {
   maxConcurrency?: number;
 }
 
+export interface StrategyOwnershipDeps {
+  leaseService: RepositoryActorLeaseService;
+  processStore: ProcessOwnershipStore;
+  probe: ProcessProbe;
+  controllerInstanceId: string;
+}
+
+
 export interface SwarmExecutionServiceOptions {
   repositoryStore: RepositoryStore;
   runStore: RunStore;
@@ -101,6 +111,7 @@ export interface SwarmExecutionServiceOptions {
   wslAdapter?: ExecutorAdapter;
   openCodeAdapter?: OpenCodeAdapter;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
+  ownership?: StrategyOwnershipDeps;
 }
 
 export class SwarmExecutionService {
@@ -120,6 +131,7 @@ export class SwarmExecutionService {
   private readonly wslAdapter: ExecutorAdapter;
   private readonly openCodeAdapter?: OpenCodeAdapter;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
+  private readonly ownership?: StrategyOwnershipDeps;
   private readonly active = new Map<string, ActiveStrategy>();
   private readonly hooks = new Map<string, StrategyExecutionHooks>();
   /**
@@ -159,6 +171,7 @@ export class SwarmExecutionService {
     this.wslAdapter = options.wslAdapter ?? new WslAdapter();
     this.openCodeAdapter = options.openCodeAdapter;
     this.eventPublisher = options.eventPublisher;
+    this.ownership = options.ownership;
   }
 
   /** Start an explicitly selected swarm in the background for REST callers. */
@@ -212,6 +225,25 @@ export class SwarmExecutionService {
     strategyBaseSha: string | null = null,
   ): StrategyRunRecord {
     const context = this.validateStart(repositoryId, runId, iteration, options);
+    // Change 028 (D5.3): acquire one durable strategy lease per repository actor
+    // before admitting workers. SWARM/DAG workers are child ownership, not
+    // competing leases. LIVE/UNKNOWN prior ownership blocks or quarantines.
+    let strategyRunId: string | null = null;
+    if (this.ownership) {
+      strategyRunId = crypto.randomUUID();
+      const actorKind = strategy === "DAG" ? "DAG" : "SWARM";
+      const leaseRes = this.ownership.leaseService.acquire(
+        repositoryId,
+        this.ownership.controllerInstanceId,
+        actorKind as import("../ownership/ownership-store.js").ActorKind,
+        { actorId: strategyRunId, runId, iteration }
+      );
+      if (leaseRes.outcome !== "acquired") {
+        throw new ValidationError(
+          `Repository ${repositoryId} execution actor is ${leaseRes.outcome} (${leaseRes.reason ?? "unknown"}); refusing ${strategy} start`
+        );
+      }
+    }
     const record = this.createRecord(
       strategy,
       context.repository,
@@ -220,7 +252,19 @@ export class SwarmExecutionService {
       options.maxConcurrency,
       dispatchId,
       strategyBaseSha,
+      strategyRunId ?? undefined
     );
+    if (this.ownership) {
+      // Bind the lease to the concrete strategy run and mark active so
+      // restart reconciliation sees LIVE ownership.
+      try {
+        this.ownership.leaseService.bindActor(repositoryId, record.strategyRunId, { runId });
+        this.ownership.leaseService.markActive(repositoryId);
+      } catch (err) {
+        this.ownership.leaseService.quarantine(repositoryId, `strategy lease bind failed: ${(err as Error)?.message ?? String(err)}`);
+        throw new ValidationError(`Strategy lease bind failed for ${repositoryId}: ${(err as Error)?.message ?? String(err)}`);
+      }
+    }
     this.hooks.set(record.strategyRunId, hooks);
     hooks.onCreated?.(record, context.packets);
     void this.executeRecord(
@@ -685,11 +729,12 @@ export class SwarmExecutionService {
     maxConcurrency = DEFAULT_MAX_CONCURRENCY,
     dispatchId: string | null = null,
     strategyBaseSha: string | null = null,
+    strategyRunId: string | null = null,
   ): StrategyRunRecord {
     const now = new Date().toISOString();
     return this.strategyStore.create({
       schemaVersion: 1,
-      strategyRunId: crypto.randomUUID(),
+      strategyRunId: strategyRunId ?? crypto.randomUUID(),
       repositoryId: repository.id,
       campaignId: run.id,
       runId: run.id,
@@ -1814,6 +1859,26 @@ export class SwarmExecutionService {
         report,
         lastError: blocker,
       });
+      // Change 028 (D5.6/D5.4): release the strategy actor lease only after all
+      // worker process records are terminal/proven-dead. This prevents a
+      // concurrent strategy start from acquiring the lease while workers are
+      // still alive/uncertain. PAUSED keeps the lease (resume continues same
+      // actor); terminal states attempt release.
+      if (this.ownership && status !== "PAUSED") {
+        try {
+          const procs = this.ownership.processStore.listByActor(record.strategyRunId);
+          const allTerminal = procs.length === 0 || procs.every((p) => p.state === "EXITED" || p.state === "KILL_CONFIRMED");
+          if (allTerminal) {
+            this.ownership.leaseService.release(repository.id, this.ownership.controllerInstanceId);
+          } else if (status !== "RECOVERY_REQUIRED") {
+            // Fail closed: non-terminal workers with a terminal strategy is
+            // ambiguous (crash window); quarantine instead of silently releasing.
+            this.ownership.leaseService.quarantine(repository.id, `strategy ${record.strategyRunId} terminal ${status} but ${procs.filter((p) => p.state !== "EXITED" && p.state !== "KILL_CONFIRMED").length} worker(s) not terminal`);
+          }
+        } catch {
+          // best-effort lease teardown
+        }
+      }
       const finalRecord =
         final ?? {
           ...record,
@@ -1907,6 +1972,7 @@ export class SwarmExecutionService {
         settled = true;
         resolve(result);
       };
+      let workerAttemptId: string | null = null;
       const runner = new ExecutorRunner({
         adapter,
         context: {
@@ -1959,7 +2025,57 @@ export class SwarmExecutionService {
         logPath,
         watchdogMs: packet.budget.maxRuntimeMs,
         onLog: () => {},
+        onSpawn: this.ownership
+          ? async (pid: number) => {
+              const own = this.ownership!;
+              const evidence = own.probe.capture(pid);
+              const attemptId = crypto.randomUUID();
+              workerAttemptId = attemptId;
+              try {
+                own.processStore.insert({
+                  id: attemptId,
+                  controllerInstanceId: own.controllerInstanceId,
+                  repositoryId: repository.id,
+                  runId: strategy.runId,
+                  iteration: strategy.iteration,
+                  actorId: strategy.strategyRunId,
+                  packetId: packet.packetId,
+                  processKind: strategy.strategy === "DAG" ? "DAG_WORKER" : "SWARM_WORKER",
+                  hostPid: pid,
+                  executableName: evidence.executableName ?? null,
+                  startMarker: evidence.startMarker ?? null,
+                  state: "RUNNING"
+                });
+              } catch (err) {
+                try {
+                  own.probe.killVerifiedTree({
+                    hostPid: pid,
+                    executableName: evidence.executableName,
+                    startMarker: evidence.startMarker
+                  });
+                } catch {
+                  // best-effort
+                }
+                own.leaseService.quarantine(
+                  repository.id,
+                  `worker ownership persistence failed: ${(err as Error)?.message ?? String(err)}`
+                );
+                throw err;
+              }
+            }
+          : undefined,
         onExit: (exitCode, details) => {
+          if (this.ownership && workerAttemptId) {
+            try {
+              const terminal =
+                details.wasKilled || details.reason === "EMERGENCY_KILLED"
+                  ? "KILL_CONFIRMED"
+                  : "EXITED";
+              this.ownership.processStore.setState(workerAttemptId, terminal);
+            } catch {
+              // best-effort terminal persistence
+            }
+          }
           void this.buildWorkerResult(
             repository,
             packet,

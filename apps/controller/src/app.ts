@@ -155,6 +155,7 @@ export async function buildApp(
   // child pid is known to restart reconciliation.
   const processProbe = createProcessProbe();
   const leaseService = new RepositoryActorLeaseService(dbContext.db, processProbe);
+  const processOwnershipStore = new ProcessOwnershipStore(dbContext.db);
   // Change 028 (D7/D8/D9): one durable transition processor per controller
   // process. Shares the controller DB so dispatch/control/completion source
   // consumption + run transition + outbox rows commit in one transaction.
@@ -252,6 +253,12 @@ export async function buildApp(
     dataDir: config.dataDir,
     openCodeAdapter,
     eventPublisher: (event) => eventBus.publish(event),
+    ownership: {
+      leaseService,
+      processStore: processOwnershipStore,
+      probe: processProbe,
+      controllerInstanceId: instanceId
+    }
   });
   const dagExecutionService = new DagExecutionService({
     repositoryStore: store,
@@ -314,11 +321,10 @@ export async function buildApp(
     // legacy/test wiring; production always supplies it.
     ownership: {
       leaseService,
-      processStore: new ProcessOwnershipStore(dbContext.db),
+      processStore: processOwnershipStore,
       probe: processProbe,
       controllerInstanceId: instanceId
     },
-    // Change 028 (D9/D10): route completion dispatch consumption through the
     // atomic transition processor (production wiring only).
     transition: transitionService
   });
