@@ -38,6 +38,8 @@ import {
   formatPostflightBlocker,
   isRemotePublishConfirmed,
 } from "./strategy-ownership.js";
+import type { OrchestrationTransitionService } from "../ownership/transition-service.js";
+import type { OutboxItem } from "../ownership/ownership-store.js";
 
 export interface LoopServiceOptions {
   repoStore: RepositoryStore;
@@ -51,6 +53,12 @@ export interface LoopServiceOptions {
   strategyRunStore?: StrategyRunStore | null;
   coordinator?: IterationExecutionCoordinator;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
+  /** Change 028 (D7/D8/D9/D10): durable transition processor. When present,
+   * dispatch consumption + run transition are committed in one transaction and
+   * the Sol wake is delivered afterward from a replayable outbox. Absent in
+   * legacy/test wiring, which preserves the prior inline behavior.
+   */
+  transition?: OrchestrationTransitionService;
 }
 
 /** Canonical loop states from which a new dispatch/executor cycle may begin. */
@@ -65,6 +73,7 @@ export class LoopService {
   private readonly solControlStore: SolControlStore | null;
   private readonly runPolicyStore?: RunPolicyStore;
   private readonly strategyRunStore: StrategyRunStore | null;
+  private readonly transition?: OrchestrationTransitionService;
   private coordinator?: IterationExecutionCoordinator;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
 
@@ -86,6 +95,7 @@ export class LoopService {
     this.solControlStore = options.solControlStore ?? null;
     this.runPolicyStore = options.runPolicyStore;
     this.strategyRunStore = options.strategyRunStore ?? null;
+    this.transition = options.transition;
     this.coordinator = options.coordinator;
     this.eventPublisher = options.eventPublisher;
   }
@@ -859,6 +869,33 @@ export class LoopService {
     }
 
     if (isCompleted) {
+      // Change 028 (D10.2/D9): when a durable transition processor is wired,
+      // consume the dispatch and enqueue the Sol-wake side effect in ONE
+      // transaction; the wake is delivered after commit from a replayable
+      // outbox. A crash between commit and delivery replays the wake, so a
+      // dispatch can never be `consumed` while its run transition is missing.
+      if (this.transition) {
+        await this.transition.enqueueAndApply({
+          sourceKind: "DISPATCH",
+          sourceId: dispatchId,
+          operation: "COMPLETE",
+          repositoryId,
+          runId: activeRun.id,
+          payloadJson: JSON.stringify({ iteration: activeRun.currentIteration }),
+          apply: ({ enqueueOutbox }) => {
+            this.dispatchStore?.updateStatus(dispatchId, "consumed");
+            enqueueOutbox({
+              effectKey: `sol-wake:${repositoryId}:${activeRun.id}:${dispatchId}`,
+              repositoryId,
+              runId: activeRun.id,
+              effectKind: "SUBMIT_SOL_WAKE",
+              payloadJson: JSON.stringify({ resultStatus: "COMPLETED" }),
+            });
+          },
+        });
+        await this.transition.replayOutbox((item) => this.deliverOutboxEffect(item));
+        return;
+      }
       this.dispatchStore?.updateStatus(dispatchId, "consumed");
       await this.continueCompletedIteration(repositoryId, activeRun);
       return;
@@ -1388,6 +1425,35 @@ export class LoopService {
     this.clearBusyRetry(repositoryId);
     this.cancelWallClockCeiling(repositoryId);
   }
+  /**
+   * Change 028 (D9): deliver one transition outbox side effect after its
+   * transaction committed. External I/O (browser/network) lives here, never
+   * inside the transition transaction. Currently the only effect is the Sol
+   * wake that had been a premature inline call in the completion path.
+   */
+  private async deliverOutboxEffect(item: OutboxItem): Promise<void> {
+    if (item.effectKind === "SUBMIT_SOL_WAKE") {
+      const runId = item.runId;
+      if (!runId) return;
+      const run = this.runStore.get(runId);
+      if (!run) return;
+      let resultStatus: SolWakeResultStatus = "COMPLETED";
+      try {
+        const payload = JSON.parse(item.payloadJson || "{}");
+        if (payload.resultStatus) resultStatus = payload.resultStatus as SolWakeResultStatus;
+      } catch {
+        /* default COMPLETED */
+      }
+      await this.submitSolWakeForRun(item.repositoryId, run, resultStatus);
+    }
+  }
+
+  /** Startup replay of outbox effects left PENDING by a controller crash. */
+  async replayPendingTransitionOutbox(): Promise<void> {
+    if (!this.transition) return;
+    await this.transition.replayOutbox((item) => this.deliverOutboxEffect(item));
+  }
+
   private publishEvent(event: RepositoryMutationEvent): void {
     if (this.eventPublisher) {
       try {

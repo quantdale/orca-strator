@@ -31,6 +31,7 @@ import { toWslPath } from "../wsl-path.js";
 import type { RepositoryActorLeaseService } from "../ownership/actor-lease-service.js";
 import type { ProcessOwnershipStore } from "../ownership/ownership-store.js";
 import type { ProcessProbe } from "../ownership/process-probe.js";
+import type { OrchestrationTransitionService } from "../ownership/transition-service.js";
 
 export interface ExecutorStartOptions {
   /** Resume an interrupted dispatch; instructs the executor to preserve partial work. */
@@ -64,6 +65,13 @@ export interface ExecutorServiceOptions {
    * hook. Absent (legacy/test wiring) the service behaves exactly as before.
    */
   ownership?: ExecutorOwnershipDeps;
+  /** Change 028 (D9/D10): when present, dispatch consumption is owned
+   * atomically by the loop's transition processor rather than here, so a
+   * validated result never marks a dispatch consumed before its run
+   * transition is committed. Absent (legacy/test wiring) preserves the prior
+   * inline consumption.
+   */
+  transition?: OrchestrationTransitionService;
 }
 
 /** Durable ownership dependencies for the direct-executor path (Change 028). */
@@ -120,6 +128,7 @@ export class ExecutorService {
   ) => void;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private readonly ownership?: ExecutorOwnershipDeps;
+  private readonly transition?: OrchestrationTransitionService;
   private readonly logRotator: LogRotator;
 
   private readonly activeRunners = new Map<string, ExecutorRunner>();
@@ -145,6 +154,7 @@ export class ExecutorService {
     this.onExecutorCompleted = options.onExecutorCompleted;
     this.eventPublisher = options.eventPublisher;
     this.ownership = options.ownership;
+    this.transition = options.transition;
     this.logRotator = new LogRotator(this.dataDir);
   }
 
@@ -546,8 +556,15 @@ export class ExecutorService {
     }
 
     if (result) {
-      // Mark consumed only when a valid, committed result exists (E).
-      this.dispatchStore.updateStatus(dispatchId, "consumed");
+      // Change 028 (D10.1): when a durable transition processor is wired, the
+      // dispatch is consumed atomically with the run transition by the loop's
+      // transition processor (see LoopService.applyIterationCompletion). Do NOT
+      // consume it here, or a crash could strand a consumed dispatch whose run
+      // transition never applied.
+      if (!this.transition) {
+        // Mark consumed only when a valid, committed result exists (E).
+        this.dispatchStore.updateStatus(dispatchId, "consumed");
+      }
     }
 
     const completionDispatch = this.dispatchStore.get(dispatchId);

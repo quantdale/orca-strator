@@ -63,6 +63,7 @@ import { OpenCodeAdapter } from "./executor/adapters/opencode-adapter.js";
 import { RepositoryActorLeaseService } from "./ownership/actor-lease-service.js";
 import { ProcessOwnershipStore } from "./ownership/ownership-store.js";
 import { createProcessProbe } from "./ownership/process-probe.js";
+import { OrchestrationTransitionService } from "./ownership/transition-service.js";
 import { swarmRoutes } from "./http/routes/swarm.js";
 import { dagRoutes } from "./http/routes/dag.js";
 
@@ -154,6 +155,10 @@ export async function buildApp(
   // child pid is known to restart reconciliation.
   const processProbe = createProcessProbe();
   const leaseService = new RepositoryActorLeaseService(dbContext.db, processProbe);
+  // Change 028 (D7/D8/D9): one durable transition processor per controller
+  // process. Shares the controller DB so dispatch/control/completion source
+  // consumption + run transition + outbox rows commit in one transaction.
+  const transitionService = new OrchestrationTransitionService(dbContext.db);
   const capabilityStore = new CapabilityStore(dbContext.db);
   const runPolicyStore = new RunPolicyStore(dbContext.db);
   const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);
@@ -312,7 +317,10 @@ export async function buildApp(
       processStore: new ProcessOwnershipStore(dbContext.db),
       probe: processProbe,
       controllerInstanceId: instanceId
-    }
+    },
+    // Change 028 (D9/D10): route completion dispatch consumption through the
+    // atomic transition processor (production wiring only).
+    transition: transitionService
   });
 
   const browserManager =
@@ -350,6 +358,8 @@ export async function buildApp(
       runPolicyStore,
       strategyRunStore,
       eventPublisher: (event) => eventBus.publish(event),
+      // Change 028 (D7/D8/D9/D10): atomic transition processor (production only).
+      transition: transitionService,
     });
 
   // Change 020: resolution closes an attention-parked campaign when its last
@@ -472,6 +482,18 @@ export async function buildApp(
   } catch (err) {
     console.warn(
       "[app] pending postflight retry failed:",
+      (err as Error | null)?.message ?? String(err),
+    );
+  }
+
+  // Change 028 (D9): replay any transition outbox effects left PENDING by a
+  // controller crash so a consumed dispatch whose Sol wake never delivered is
+  // made whole again (idempotent; effect keys prevent double wakes).
+  try {
+    await loopService.replayPendingTransitionOutbox();
+  } catch (err) {
+    console.warn(
+      "[app] transition outbox replay failed:",
       (err as Error | null)?.message ?? String(err),
     );
   }

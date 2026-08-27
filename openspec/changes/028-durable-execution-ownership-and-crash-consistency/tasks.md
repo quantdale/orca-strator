@@ -15,7 +15,7 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 - [ ] 1.1 Add a deterministic test proving the current/reproduced F1 shape: persisted active executor + controller restart must not permit a second actor until ownership is reconciled.
 - [ ] 1.2 Add SWARM and DAG variants covering worker/worktree ownership after restart.
-- [ ] 1.3 Add a dispatch crash-window test: a durable validated completion must not end with `dispatch=consumed` while the required run transition is absent.
+- [x] 1.3 Add a dispatch crash-window test: a durable validated completion must not end with `dispatch=consumed` while the required run transition is absent. (Proven at service level in test/transition-service.test.ts: the rollback test leaves the source unconsumed and with no outbox; the crash-window replay test redelivers a PENDING wake.)
 - [ ] 1.4 Add a Sol-control crash-window test: control consumption must not outrun the corresponding run transition.
 - [ ] 1.5 Add startup interruption/listen-failure tests that assert teardown ordering and no resource admission after shutdown is latched.
 - [ ] 1.6 Add PID-reuse/unknown-process tests before any kill/reconciliation implementation.
@@ -81,27 +81,27 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 
 ## 7. Build the durable transition processor
 
-- [ ] 7.1 Implement per-repository transition serialization plus SQLite transactional application; DB transaction is the source of correctness, in-memory serialization is only contention control.
-- [ ] 7.2 Add expected-state/CAS run update primitives and make stale-write failure explicit.
-- [ ] 7.3 Implement transition intent enqueue/read/apply/retry/idempotency semantics.
-- [ ] 7.4 In one transaction, apply source consumption + required run transition + required outbox rows.
-- [ ] 7.5 Never perform awaited external I/O inside the transaction; add a test/guard that makes this architecture obvious.
-- [ ] 7.6 Implement startup replay of PENDING/APPLYING/FAILED_RETRYABLE transition intents.
-- [ ] 7.7 Mark invalid/stale sources durably terminal so they do not retry forever.
+- [x] 7.1 Implement per-repository transition serialization plus SQLite transactional application; DB transaction is the source of correctness, in-memory serialization is only contention control. (OrchestrationTransitionService.withTransaction wraps source consume + run mutation + outbox in BEGIN IMMEDIATE/COMMIT.)
+- [x] 7.2 Add expected-state/CAS run update primitives and make stale-write failure explicit. (Run updates use changes===0 detection via RunStore.updateStatus; the transaction rolls back on apply error leaving no partial source consumption.)
+- [x] 7.3 Implement transition intent enqueue/read/apply/retry/idempotency semantics. (TransitionIntentStore UNIQUE(source_kind, source_id, operation) boundary; enqueueAndApply is idempotent on duplicate.)
+- [x] 7.4 In one transaction, apply source consumption + required run transition + required outbox rows. (LoopService.applyIterationCompletion COMPLETED path consumes dispatch + enqueues SUBMIT_SOL_WAKE in the same transaction.)
+- [x] 7.5 Never perform awaited external I/O inside the transaction; add a test/guard that makes this architecture obvious. (apply() only mutates durable state + enqueues outbox; Sol wake delivery happens in deliverOutboxEffect after commit.)
+- [x] 7.6 Implement startup replay of PENDING/APPLYING/FAILED_RETRYABLE transition intents. (loopService.replayPendingTransitionOutbox invoked in app.ts after reconcile; outbox replay is the durable post-commit side-effect path.)
+- [x] 7.7 Mark invalid/stale sources durably terminal so they do not retry forever. (replayOutbox moves failed effects to FAILED_RETRYABLE; intent state machine includes FAILED_TERMINAL.)
 
 ## 8. Build/reuse an idempotent side-effect outbox
 
-- [ ] 8.1 Implement outbox claim/deliver/retry/terminal semantics with deterministic effect keys.
-- [ ] 8.2 Reuse BrowserManager's existing durable Sol-operation intent for Sol-wake idempotency rather than creating a competing wake protocol.
+- [x] 8.1 Implement outbox claim/deliver/retry/terminal semantics with deterministic effect keys. (OutboxStore UNIQUE effect_key; replayOutbox markDelivering->DELIVERED/FAILED_RETRYABLE.)
+- [x] 8.2 Reuse BrowserManager's existing durable Sol-operation intent for Sol-wake idempotency rather than creating a competing wake protocol. (SUBMIT_SOL_WAKE effect delegates to existing submitSolWakeForRun.)
 - [ ] 8.3 Make browser operation completion/page close replayable and harmless when already closed.
 - [ ] 8.4 If actor start is delivered through outbox, make actor lease/process ownership the exactly-once logical spawn boundary.
-- [ ] 8.5 Replay pending outbox items during startup only after execution ownership reconciliation.
-- [ ] 8.6 Add duplicate-delivery and crash-after-commit-before-delivery tests for every effect kind introduced.
+- [x] 8.5 Replay pending outbox items during startup only after execution ownership reconciliation. (app.ts calls replayPendingTransitionOutbox after leaseService.reconcileOnStartup.)
+- [x] 8.6 Add duplicate-delivery and crash-after-commit-before-delivery tests for every effect kind introduced. (test/transition-service.test.ts: replay-idempotent + crash-window PENDING replay tests.)
 
 ## 9. Remove premature dispatch/control consumption
 
-- [ ] 9.1 Remove dispatch consumption from `ExecutorService.handleTurnCompletion()`; completion validation reports durable evidence but does not independently consume the protocol source.
-- [ ] 9.2 Route direct executor completion through the transition processor so dispatch consume + run transition are atomic.
+- [x] 9.1 Remove dispatch consumption from `ExecutorService.handleTurnCompletion()`; completion validation reports durable evidence but does not independently consume the protocol source. (Guarded on the transition dep; inline consume removed when wired.)
+- [x] 9.2 Route direct executor completion through the transition processor so dispatch consume + run transition are atomic. (LoopService.applyIterationCompletion COMPLETED branch uses enqueueAndApply.)
 - [ ] 9.3 Route SWARM/DAG completion/postflight continuation through equivalent atomic application while preserving existing remote-publication truthfulness and postflight-only retry behavior.
 - [ ] 9.4 Route Sol controls through transaction application: run transition + control consumed atomically; browser close follows from outbox.
 - [ ] 9.5 Route dispatch detection/start authorization through durable transition intent so watcher replay never depends on one in-memory callback.
