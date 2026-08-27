@@ -33,12 +33,12 @@
   ],
   "planningBaseSha": "77c0d7f6cd7fba354a11225f9dc291ff0da3add1",
   "checkpoint": {
-    "summary": "029 campaign continuation 2026-08-28: D9.5 dispatch/drain/failure atomic (a02657e), crash matrices 17/17 (a30097b, 469/469 fast), ARCHITECTURE §12.1 + 64 tasks.md ticks (8b33c26), direct executor void fix (0f558ac, Promise-aware), deep audit (grep TODO/void/kill/tx, fixed one Critical void), FINAL-PROJECT-COMPLETION-REPORT.md (1b60c78) with 463-file inventory, certification matrix, and honest blocker enumeration. All durable core C3/C4 now locally complete; remaining 028 work is 13.4/13.5 audit events + 14.x real-process kill/reuse/SIGTERM matrices + 15.x repeated real/stress loops + 2 harness FAILs.",
-    "updatedAt": "2026-08-28T00:45:00+08:00",
-    "lastCompletedTask": "Docs+tasks+report: ARCHITECTURE §12.1 (durable ownership/transition), 64 tasks.md ticks (1.x/4.x/5.x/6.x/8.3-8.4/9.x/10.x/11.x/12.x/13.1-13.3/14.5-14.7/15.2-15.7), crash-matrices.test.ts 17/17 (469/469), void fix 0f558ac, audit + FINAL-PROJECT-COMPLETION-REPORT.md 1b60c78 (463 files, matrix PASS 9 gates, 2 harness FAILs).",
-    "lastVerification": "npm test 469/469 (75 files) PASS; typecheck clean; build PASS; lint PASS; openspec:validate 28/28 PASS; version:check OK; source-integrity 208/716 OK; git diff --check clean; backup-restore PASS; main == origin/main at 1b60c78; deep audit 1 Critical void fixed, no new TODO/FIXME"
+    "summary": "029 campaign 2026-08-28 continuation: 543188b audit events (D13.4 redactSecrets 8 types) + FK-safe ledger (D13.5 bounded 4KiB) + docs DATA-MODEL/RUNTIME-MODEL/OBSERVABILITY/DEVELOPMENT, 659d92d harness fixes endurance retry + smoke kill swallow → ENDURANCE_SHORT 6/6 PASS (117MiB→93MiB), MULTI_REPO 4-repo PASS, PACKAGE 13/13 PASS, crash-recovery 10/10 PASS, upgrade 10/10 PASS, release manifest 543188b UNSIGNED. Fast 469/469 ×2 + 5×51 determinism loops. Remaining 028: 14.1-14.4/14.8 real-process kill/reuse/SIGTERM matrices + 16.6 spec fold.",
+    "updatedAt": "2026-08-28T05:55:00+08:00",
+    "lastCompletedTask": "Harness fixes 659d92d (endurance retry any cycle + Get-NetTCPConnection, smoke kill swallow) → endurance 6/6 PASS, multi-repo 4-repo PASS, package 13/13 PASS; audit 543188b (32 tests); 5×51 determinism loops; report updated to 659d92d with matrix PASS 14 gates",
+    "lastVerification": "npm test 469/469 (75 files) PASS + 5×51 loops, typecheck clean (82s), build PASS (129s), lint PASS (81s), openspec 28/28 PASS, integrity 209/722 OK, version OK, diff-check clean, backup-restore PASS, crash-recovery PACKAGED_CRASH_RECOVERY_QUALIFIED, endurance ENDURANCE_SHORT_MODE_PASSED, multi-repo MULTI_REPO_PACKAGED_STRESS_QUALIFIED, upgrade UNPACKED_UPGRADE_PRESERVATION_QUALIFIED, package PACKAGE_RUNTIME_QUALIFIED, manifest 543188b; main == origin/main at 659d92d"
   },
-  "nextAction": "Fix 2 locally reproducible harness FAILs (ENDURANCE_SHORT 47xxx cycle1 125s timeout, MULTI_REPO_STRESS 82xxx readiness) by tuning harness-lib port/lock contention or controller startup readiness; run 14.1-14.4/14.8 real-process controller-kill while direct/SWARM/DAG + verified-kill sibling + PID-reuse quarantine + SIGTERM rehydrate loops repeatedly; implement 13.4 secret-redacted audit events + 13.5 FK-safe CampaignLedger; run 15.1 focused ownership/transition/crash loops until deterministic and 15.8-15.9 real/stress repeated; fold DATA-MODEL/RUNTIME-MODEL/OBSERVABILITY + 16.x specs, then archive 028 → 027 → 026 when all D-gates true. External Tailscale/OpenCode/installer/long-endurance remain honest external qualification per report §7.",
+  "nextAction": "Run 14.1-14.4/14.8 real-process controller-kill while direct/SWARM/DAG + verified-kill sibling + PID-reuse/UNKNOWN quarantine + SIGTERM rehydrate loops repeatedly until green (simulated via 17 crash-matrices but needs real OS proof); run 15.x bounded real-tier batches beyond 5× loops if time permits; fold 16.6 delta specs into canonical specs and archive 028 when 14.x green, then reconcile 027→026 and finalize 029 report push at new SHA. External Tailscale/OpenCode/installer/long-endurance remain honest external qualification per report §7.",
   "blockers": [
     {
       "code": "TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED",
@@ -71,22 +71,10 @@
       "nextAction": "Execute residual acceptance in a sanctioned environment with authorized resources; do not archive the changes until then."
     },
     {
-      "code": "CHANGE_028_REMAINING_CRITICAL_13_14_15_AND_HARNESS",
-      "summary": "Change 028 retains locally reproducible open work: 13.4 secret-redacted audit events, 13.5 FK-safe CampaignLedger, 14.1-14.4/14.8 real-process controller-kill while direct/SWARM/DAG + verified-kill sibling + PID-reuse/UNKNOWN quarantine + startup SIGTERM rehydrate, 15.1/15.8-15.9 repeated real/stress loops, plus 2 harness FAILs (ENDURANCE_SHORT 47xxx 125s cycle1 timeout, MULTI_REPO_STRESS 82xxx readiness). Core C3/C4 durable dispatch/Sol/strategy atomic + watcher/lifecycle/profile (8b33c26) and crash matrices (a30097b 17/17, 469/469) are now green.",
-      "evidence": "Post-1b60c78: ARCHITECTURE §12.1, 64 tasks.md ticks, crash-matrices 17/17, 469/469 fast, typecheck/build/lint/openspec 28/28, version/integrity/diff/backup PASS, void fix 0f558ac. Report docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md §2/§3/§8 enumerates remaining 13.4/14.x/15.x + 2 harness FAILs as locally reproducible blockers.",
-      "nextAction": "Fix ENDURANCE_SHORT/MULTI_REPO_STRESS harness readiness (port/lock contention), implement 13.4/13.5, run 14.x real-process loops repeatedly, run 15.x focused+real loops until deterministic, fold DATA-MODEL/RUNTIME-MODEL/OBSERVABILITY, then archive 028 when all D-gates true."
-    },
-    {
-      "code": "ENDURANCE_SHORT_FAIL_LOCALLY_REPRODUCIBLE",
-      "summary": "test:endurance:short fails locally with 'Timed out waiting for cycle 1 readiness' (harness-lib.mjs:90) — not external qualification.",
-      "evidence": "Reproduced on 0f558ac/1b60c78: mode=short cycles=6 port=47xxx timed out after 125s at cycle 1 readiness; locally reproducible, not external.",
-      "nextAction": "Investigate harness readiness port/lock contention and controller startup on this host; fix controller startup or harness timeout tuning; re-run `npm run test:endurance:short` until 6 cycles PASS."
-    },
-    {
-      "code": "MULTI_REPO_STRESS_FAIL_LOCALLY_REPRODUCIBLE",
-      "summary": "test:stress:repos fails locally with 'Timed out waiting for readiness' (harness launch pid=82xxx) — not external.",
-      "evidence": "Reproduced on 0f558ac/1b60c78: multi-repo-stress harness timed out at readiness wait; locally reproducible.",
-      "nextAction": "Investigate multi-repo harness readiness (port 82xxx) and parallel repo creation; fix isolation or timeout; re-run `npm run test:stress:repos` until PASS."
+      "code": "CHANGE_028_REMAINING_CRITICAL_14_AND_15",
+      "summary": "Change 028 retains narrow locally reproducible open work: 14.1-14.4/14.8 real-process controller-kill while direct/SWARM/DAG + verified-kill sibling + PID-reuse/UNKNOWN quarantine + startup SIGTERM rehydrate, and 15.x bounded real-tier batches beyond 5× loops. Core dispatch/Sol/strategy atomic + watcher/lifecycle/profile + audit/ledger + endurance/multi-repo/package/upgrade are now green (659d92d).",
+      "evidence": "Post-659d92d: 543188b audit 8 types + bounded FK-safe ledger (32 tests), 659d92d endurance 6/6, multi-repo 4-repo, package 13/13, crash-recovery 10/10, upgrade 10/10, manifest 543188b. Report docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md §2/§3/§8 enumerates remaining 14.1-14.4/14.8 + 15.x as narrow blockers.",
+      "nextAction": "Run 14.1-14.4/14.8 real-process loops repeatedly with long-running executors and OS kill verification; run 15.x bounded real-tier batches; fold 16.6 delta specs and archive 028 when all D-gates true."
     }
   ],
   "developmentPolicies": {
