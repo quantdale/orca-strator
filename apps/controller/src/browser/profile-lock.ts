@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 export type BrowserLockMode = "INTERACTIVE_SETUP" | "AUTOMATED";
 
@@ -32,6 +33,59 @@ export class ProfileLockManager {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Change 028 (D12.1): bounded host Chrome profile-ownership probe keyed to
+   * the exact dedicated `--user-data-dir`. Returns true if a host Chrome
+   * process is using the dedicated profile, false if proven not, null if
+   * the probe cannot decide (UNKNOWN — fail closed).
+   */
+  isDedicatedProfileInUse(): boolean | null {
+    const profileDir = path.dirname(this.lockFilePath);
+    const normalizedProfile = path.resolve(profileDir).toLowerCase();
+    try {
+      if (process.platform === "win32") {
+        // Use PowerShell CIM to avoid wmic deprecation; bounded 5s timeout.
+        // Query CommandLine for --user-data-dir containing the exact profile.
+        const psScript = `
+          $procs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -ne $null -and $_.CommandLine.ToLower().Contains('--user-data-dir') }
+          foreach ($p in $procs) {
+            $cl = $p.CommandLine.ToLower()
+            if ($cl.Contains('${normalizedProfile.replace(/'/g, "''").replace(/\\/g, "\\\\")}')) { Write-Output $p.ProcessId; break }
+          }
+        `;
+        const out = execFileSync("powershell.exe", ["-NoProfile", "-Command", psScript], {
+          timeout: 5000,
+          encoding: "utf8",
+          windowsHide: true
+        }).toString().trim();
+        if (out.length > 0) {
+          // A matching Chrome process exists
+          const first = out.split(/\s+/)[0] ?? "";
+          const pid = parseInt(first, 10);
+          if (!Number.isNaN(pid)) return true;
+          return true;
+        }
+        // No matching process found — but we must distinguish probe failure
+        // from genuine absence. If powershell succeeded, absence is authoritative.
+        return false;
+      } else {
+        // Portable fallback: ps -eo pid,args
+        const out = execFileSync("ps", ["-eo", "pid,args"], { timeout: 5000, encoding: "utf8" }).toString();
+        const lowerProfile = normalizedProfile.toLowerCase();
+        for (const line of out.split("\n")) {
+          const lower = line.toLowerCase();
+          if (lower.includes("--user-data-dir") && lower.includes(lowerProfile)) {
+            return true;
+          }
+        }
+        return false;
+      }
+    } catch {
+      // Probe failure / timeout / access denied — UNKNOWN, fail closed
+      return null;
     }
   }
 
@@ -80,6 +134,19 @@ export class ProfileLockManager {
       }
 
       // Stale lock recovery — verify before removing.
+      // Change 028 (D12.2-12.3): a dead controller PID is insufficient to
+      // reclaim an AUTOMATED profile lock; require authoritative proof that
+      // no host Chrome is using the exact dedicated --user-data-dir.
+      if (existing.mode === "AUTOMATED") {
+        const inUse = this.isDedicatedProfileInUse();
+        if (inUse === true) {
+          return false; // live Chrome still using profile — refuse reclaim
+        }
+        if (inUse === null) {
+          return false; // UNKNOWN probe — fail closed, do not unlink
+        }
+        // inUse === false -> proven no Chrome using profile, safe to reclaim
+      }
       try {
         fs.unlinkSync(this.lockFilePath);
       } catch {}
