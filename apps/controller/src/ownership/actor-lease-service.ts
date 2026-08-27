@@ -183,13 +183,36 @@ export class RepositoryActorLeaseService {
     const results: ReconcileResult[] = [];
     const leases = this.priorInstanceLeases(currentInstanceId, repositories);
 
-    for (const lease of leases) {
-      const processes = this.processStore.listByRepository(lease.repositoryId);
-      const classified: ReconcileProcessResult[] = processes.map((rec) => ({
-        recordId: rec.id,
-        hostPid: rec.hostPid,
-        verdict: this.classifyRecord(rec)
-      }));
+     for (const lease of leases) {
+       const processes = this.processStore.listByRepository(lease.repositoryId);
+
+       // Change 028 P0 (5.8/5.9): a prior STARTING/ACTIVE lease with zero
+       // process ownership records means admission happened but we cannot prove
+       // whether a child was actually spawned or persisted. The spawn-to-
+       // persistence window is ambiguous after a restart; never auto-release it
+       // and never assume the writer is dead. Fail closed to QUARANTINED.
+       if (
+         processes.length === 0 &&
+         (lease.state === "STARTING" || lease.state === "ACTIVE")
+       ) {
+         const reason =
+           "prior lease has no process ownership record; spawn/persistence window is ambiguous after restart";
+         this.leaseStore.updateState(lease.repositoryId, "QUARANTINED", { lastError: reason });
+         results.push({
+           repositoryId: lease.repositoryId,
+           priorLease: lease,
+           processes: [],
+           outcome: "quarantined",
+           reason
+         });
+         continue;
+       }
+
+       const classified: ReconcileProcessResult[] = processes.map((rec) => ({
+         recordId: rec.id,
+         hostPid: rec.hostPid,
+         verdict: this.classifyRecord(rec)
+       }));
 
       const blocking = classified.find((c) => !isProcessReleasable(c.verdict));
       if (blocking) {

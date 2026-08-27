@@ -57,6 +57,35 @@ export function isProcessBlocking(verdict: ProcessIdentityVerdict): boolean {
   return verdict === "LIVE_MATCH" || verdict === "PID_REUSED" || verdict === "UNKNOWN";
 }
 
+/**
+ * Best-effort portable OS identity capture for Linux hosts: start time (ticks
+ * since boot, from /proc/<pid>/stat field 22) as a stable start marker and the
+ * comm basename as non-secret executable identity. Returns {} when unavailable
+ * (non-Linux, missing /proc, or the process is already gone). Used only to give
+ * the portable probe real identity to round-trip in classify; absence of
+ * evidence is handled fail-closed there.
+ */
+function readPortableIdentity(
+  pid: number
+): Partial<Pick<ProcessIdentityEvidence, "startMarker" | "executableName">> {
+  if (process.platform !== "linux") return {};
+  try {
+    const stat = require("node:fs").readFileSync(`/proc/${pid}/stat`, "utf8");
+    // comm may contain spaces/parens; the start time is the field after the
+    // last ')'. Safer: split on the first '(' and last ')'.
+    const afterParen = stat.slice(stat.indexOf(")") + 1).trim();
+    const fields = afterParen.split(/\s+/);
+    const starttime = fields[19]; // state is fields[0]; starttime is index 19
+    const comm = stat.slice(stat.indexOf("(") + 1, stat.indexOf(")"));
+    const result: Partial<Pick<ProcessIdentityEvidence, "startMarker" | "executableName">> = {};
+    if (starttime) result.startMarker = starttime;
+    if (comm) result.executableName = comm;
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 /** Returns true if the OS considers the pid alive (signal 0 probe). */
 function isPidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -83,7 +112,10 @@ export class PortableProcessProbe implements ProcessProbe {
   capture(pid: number): ProcessIdentityEvidence {
     const evidence: ProcessIdentityEvidence = {
       pid,
-      capturedAtIso: new Date().toISOString()
+      capturedAtIso: new Date().toISOString(),
+      // Best-effort portable OS identity: Linux exposes start time via
+      // /proc/<pid>/stat (field 22, clock ticks since boot) and the comm basename.
+      ...readPortableIdentity(pid)
     };
     this.captures.set(pid, evidence);
     return evidence;
@@ -107,6 +139,12 @@ export class PortableProcessProbe implements ProcessProbe {
       // A live process we never captured evidence for cannot be safely matched.
       return "UNKNOWN";
     }
+    // Incomplete recorded evidence can never prove a match (Change 028 P0): a
+    // record with no identity must not yield LIVE_MATCH against an arbitrary
+    // live pid, or a foreign reused pid could be killed.
+    const hasEvidence =
+      record.startMarker !== undefined || record.executableName !== undefined;
+    if (!hasEvidence) return "UNKNOWN";
     const markerMatches = record.startMarker === undefined
       ? captured.startMarker === undefined
       : record.startMarker === captured.startMarker;
@@ -141,10 +179,31 @@ export class PortableProcessProbe implements ProcessProbe {
  */
 export class WindowsProcessProbe implements ProcessProbe {
   capture(pid: number): ProcessIdentityEvidence {
-    return { pid, capturedAtIso: new Date().toISOString() };
+    // Capture real OS identity at spawn so reconciliation can distinguish PID
+    // reuse: process creation date is the authoritative start marker and the
+    // executable basename is non-secret identity. On query failure the evidence
+    // is left undefined, which makes classify fail closed to UNKNOWN (a record
+    // with no identity must never yield LIVE_MATCH, Change 028 P0).
+    const info = this.queryProcess(pid);
+    const evidence: ProcessIdentityEvidence = {
+      pid,
+      capturedAtIso: new Date().toISOString()
+    };
+    if (info && info.kind === "found") {
+      evidence.startMarker = info.creationDate;
+      evidence.executableName = info.name || undefined;
+    }
+    return evidence;
   }
 
-  private queryProcess(pid: number): { creationDate: string; name: string } | null {
+  /**
+   * Query the OS for a process. Returns a discriminated result so callers can
+   * tell PID-not-found (DEAD) apart from a probe failure (UNKNOWN): the two must
+   * never collapse into one verdict (Change 028 P0).
+   */
+  private queryProcess(
+    pid: number
+  ): { kind: "found"; creationDate: string; name: string } | { kind: "notfound" } | { kind: "error" } {
     try {
       // Bounded PowerShell fetch of creation date + process name. No admin
       // rights required for read-only process enumeration.
@@ -159,25 +218,31 @@ export class WindowsProcessProbe implements ProcessProbe {
         ],
         { timeout: 5000, windowsHide: true }
       ).toString().trim();
-      if (!out) return null;
+      if (!out) return { kind: "notfound" };
       const parsed = JSON.parse(out) as { CreationDate?: string; Name?: string };
-      if (!parsed.CreationDate) return null;
-      return { creationDate: parsed.CreationDate, name: parsed.Name ?? "" };
+      if (!parsed.CreationDate) return { kind: "notfound" };
+      return { kind: "found", creationDate: parsed.CreationDate, name: parsed.Name ?? "" };
     } catch {
-      return null;
+      return { kind: "error" };
     }
   }
 
   classify(record: ProcessOwnershipRecordLike): ProcessIdentityVerdict {
-    const info = this.queryProcess(record.hostPid);
-    if (!info) return "UNKNOWN";
+    const res = this.queryProcess(record.hostPid);
+    if (res.kind === "notfound") return "DEAD";
+    if (res.kind === "error") return "UNKNOWN";
+
+    // Incomplete recorded evidence can never prove a match (Change 028 P0).
+    const hasEvidence =
+      record.startMarker !== undefined || record.executableName !== undefined;
+    if (!hasEvidence) return "UNKNOWN";
 
     const markerMatches = record.startMarker === undefined
       ? true
-      : record.startMarker === info.creationDate;
+      : record.startMarker === res.creationDate;
     const exeMatches = record.executableName === undefined
       ? true
-      : record.executableName.toLowerCase() === (info.name || "").toLowerCase();
+      : record.executableName.toLowerCase() === (res.name || "").toLowerCase();
 
     if (markerMatches && exeMatches) return "LIVE_MATCH";
     return "PID_REUSED";

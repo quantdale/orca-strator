@@ -13,6 +13,7 @@ import {
 } from "../src/ownership/ownership-store.js";
 import {
   PortableProcessProbe,
+  WindowsProcessProbe,
   isProcessBlocking,
   type ProcessProbe
 } from "../src/ownership/process-probe.js";
@@ -314,15 +315,22 @@ describe("PortableProcessProbe (D3 verdicts + no-foreign-kill)", () => {
     return child;
   }
 
-  it("classifies a captured live child as LIVE_MATCH and a dead pid as DEAD", () => {
+  it("classifies a captured live child: LIVE_MATCH with identity, UNKNOWN (fail-closed) without (D3/P0 1.7)", () => {
     const child = spawnChild();
     const evidence = probe.capture(child.pid!);
+    const hasIdentity =
+      evidence.startMarker !== undefined || evidence.executableName !== undefined;
     const verdict = probe.classify({
       hostPid: child.pid!,
       executableName: evidence.executableName,
       startMarker: evidence.startMarker
     });
-    expect(verdict).toBe("LIVE_MATCH");
+    // When the OS yields verifiable identity the match is proven; when it does
+    // not (e.g. portable probe on a host without /proc), incomplete evidence
+    // must never yield LIVE_MATCH (Change 028 P0): a foreign reused pid could
+    // otherwise be verify-killed.
+    if (hasIdentity) expect(verdict).toBe("LIVE_MATCH");
+    else expect(verdict).toBe("UNKNOWN");
     child.kill("SIGKILL");
     // give process a moment to die
     const deadline = Date.now() + 2000;
@@ -347,23 +355,50 @@ describe("PortableProcessProbe (D3 verdicts + no-foreign-kill)", () => {
     ).toBe("PID_REUSED");
   });
 
-  it("refuses to kill UNKNOWN/PID_REUSED and kills only LIVE_MATCH", () => {
+  it("D3/P0: incomplete identity evidence never yields LIVE_MATCH (Change 028 1.7)", () => {
+    const child = spawnChild();
+    // Simulate a persisted record that captured NO identity (pre-hardening
+    // WindowsProcessProbe behavior / a spawn window where capture failed).
+    probe.seed({ pid: child.pid!, capturedAtIso: new Date().toISOString() });
+    // A live pid whose recorded ownership has no identity must be UNKNOWN, never
+    // LIVE_MATCH: otherwise a foreign reused pid could be verified-killed.
+    expect(
+      probe.classify({ hostPid: child.pid! })
+    ).toBe("UNKNOWN");
+  });
+
+  it("refuses to kill UNKNOWN/PID_REUSED and kills only a verified LIVE_MATCH (D3/P0 1.7)", () => {
     const child = spawnChild();
     const evidence = probe.capture(child.pid!);
+    const hasIdentity =
+      evidence.startMarker !== undefined || evidence.executableName !== undefined;
     const record = {
       hostPid: child.pid!,
       executableName: evidence.executableName,
       startMarker: evidence.startMarker
     };
-    // Foreign live pid (our own process) without matching evidence => UNKNOWN.
-    expect(() => probe.killVerifiedTree({ hostPid: process.pid })).toThrow(/REFUSING_KILL/);
-    // Our own record matches => verified kill succeeds.
-    probe.killVerifiedTree(record);
-    const deadline = Date.now() + 2000;
-    while (Date.now() < deadline && probe.classify(record).startsWith("LIVE")) {
-      // busy wait
+    if (hasIdentity) {
+      // Foreign live pid (our own process) without matching evidence => UNKNOWN.
+      expect(() => probe.killVerifiedTree({ hostPid: process.pid })).toThrow(/REFUSING_KILL/);
+      // Our own record matches => verified kill succeeds.
+      probe.killVerifiedTree(record);
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline && probe.classify(record).startsWith("LIVE")) {
+        // busy wait
+      }
+      expect(probe.classify(record)).toBe("DEAD");
+    } else {
+      // No OS identity available: even our own child cannot be verify-killed
+      // (fail-closed). The foreign-pid refusal still holds.
+      expect(() => probe.killVerifiedTree(record)).toThrow(/REFUSING_KILL/);
+      expect(() => probe.killVerifiedTree({ hostPid: process.pid })).toThrow(/REFUSING_KILL/);
+      child.kill("SIGKILL");
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline && probe.classify({ hostPid: child.pid! }).startsWith("LIVE")) {
+        // busy wait
+      }
+      expect(probe.classify({ hostPid: child.pid! })).toBe("DEAD");
     }
-    expect(probe.classify(record)).toBe("DEAD");
   });
 
   it("isProcessBlocking marks LIVE_MATCH/PID_REUSED/UNKNOWN as blocking", () => {
@@ -371,6 +406,59 @@ describe("PortableProcessProbe (D3 verdicts + no-foreign-kill)", () => {
     expect(isProcessBlocking("PID_REUSED")).toBe(true);
     expect(isProcessBlocking("UNKNOWN")).toBe(true);
     expect(isProcessBlocking("DEAD")).toBe(false);
+  });
+});
+
+describe("WindowsProcessProbe (D3/P0 capture + dead-vs-error, win32 only)", () => {
+  const children: ChildProcess[] = [];
+  afterEach(() => {
+    for (const c of children) {
+      try {
+        c.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }
+    children.length = 0;
+  });
+
+  // These exercise the real OS query path and are only meaningful on Windows.
+  const maybe = process.platform === "win32" ? it : it.skip;
+
+  maybe("capture records creation/executable identity and classifies LIVE_MATCH", () => {
+    const child = spawn(process.execPath, ["-e", "setInterval(()=>{}, 1000)"], {
+      stdio: "ignore"
+    });
+    children.push(child);
+    const probe = new WindowsProcessProbe();
+    const evidence = probe.capture(child.pid!);
+    expect(typeof evidence.startMarker).toBe("string");
+    expect(evidence.startMarker!.length).toBeGreaterThan(0);
+    expect(evidence.executableName?.toLowerCase()).toContain("node");
+    expect(
+      probe.classify({
+        hostPid: child.pid!,
+        executableName: evidence.executableName,
+        startMarker: evidence.startMarker
+      })
+    ).toBe("LIVE_MATCH");
+  });
+
+  maybe("classifies a never-existing pid as DEAD (notfound), not UNKNOWN (error)", () => {
+    const probe = new WindowsProcessProbe();
+    expect(probe.classify({ hostPid: 4000000000 })).toBe("DEAD");
+  });
+
+  maybe("refuses LIVE_MATCH for a record with no identity (incomplete evidence)", () => {
+    const child = spawn(process.execPath, ["-e", "setInterval(()=>{}, 1000)"], {
+      stdio: "ignore"
+    });
+    children.push(child);
+    const probe = new WindowsProcessProbe();
+    probe.capture(child.pid!); // real capture writes identity into the record path
+    // Now classify a persisted record that (like a pre-hardening one) carries no
+    // identity: must be UNKNOWN, never LIVE_MATCH.
+    expect(probe.classify({ hostPid: child.pid! })).toBe("UNKNOWN");
   });
 });
 
@@ -460,6 +548,29 @@ describe("RepositoryActorLeaseService (D5 acquire/quarantine/reconcile)", () => 
     });
     const results = svc.reconcileOnStartup(C2, [REPO]);
     expect(results[0].outcome).toBe("released");
+    expect(svc.getLease(REPO)).toBeNull();
+  });
+
+  it("D5/P0: a prior STARTING/ACTIVE lease with zero process records fails closed (quarantined, 5.8/5.9)", () => {
+    // Admission happened on the prior controller but no durable process record
+    // was persisted: the spawn/persistence window is ambiguous after restart.
+    svc.acquire(REPO, C1, "SINGLE_AGENT");
+    svc.bindActor(REPO, "actor-1");
+    svc.markActive(REPO);
+    // No ProcessOwnershipStore.insert call: zero process rows.
+    const results = svc.reconcileOnStartup(C2, [REPO]);
+    expect(results).toHaveLength(1);
+    expect(results[0].outcome).toBe("quarantined");
+    expect(svc.getLease(REPO)?.state).toBe("QUARANTINED");
+    expect(svc.getLease(REPO)?.lastError ?? "").toMatch(/ambiguous/i);
+  });
+
+  it("D5/P0: a prior RELEASING lease with zero process records is still left to its terminal state (no false release)", () => {
+    svc.acquire(REPO, C1, "SINGLE_AGENT");
+    // A genuinely released lease row should not be re-quarantined as a writer.
+    svc.release(REPO, C1);
+    const results = svc.reconcileOnStartup(C2, [REPO]);
+    expect(results).toHaveLength(0);
     expect(svc.getLease(REPO)).toBeNull();
   });
 

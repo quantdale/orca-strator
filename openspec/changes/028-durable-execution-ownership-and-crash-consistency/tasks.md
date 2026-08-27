@@ -19,8 +19,8 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [ ] 1.4 Add a Sol-control crash-window test: control consumption must not outrun the corresponding run transition.
 - [ ] 1.5 Add startup interruption/listen-failure tests that assert teardown ordering and no resource admission after shutdown is latched.
 - [ ] 1.6 Add PID-reuse/unknown-process tests before any kill/reconciliation implementation.
-- [ ] 1.7 Add a Windows-process-probe regression: capture + classify must round-trip creation identity; incomplete evidence cannot yield LIVE_MATCH; missing PID and probe failure must produce different verdicts.
-- [ ] 1.8 Add a restart regression for a prior STARTING lease with zero process rows; it must remain blocking/quarantined rather than auto-release.
+- [x] 1.7 Add a Windows-process-probe regression: capture + classify must round-trip creation identity; incomplete evidence cannot yield LIVE_MATCH; missing PID and probe failure must produce different verdicts. (test/ownership.test.ts: WindowsProcessProbe win32 tests + PortableProcessProbe incomplete-evidence test; capture round-trips identity; notfound->DEAD vs error->UNKNOWN.)
+- [x] 1.8 Add a restart regression for a prior STARTING lease with zero process rows; it must remain blocking/quarantined rather than auto-release. (test/ownership.test.ts: "prior STARTING/ACTIVE lease with zero process records fails closed (quarantined)"; actor-lease-service.reconcileOnStartup quarantines ambiguous zero-process prior lease.)
 - [ ] 1.9 Add a post-spawn ownership-persistence failure regression proving the generic launch retry loop cannot spawn a second child while the first is live/unknown.
 - [ ] 1.10 Add a short-lived-child regression that exits while `onSpawn` persistence is awaiting; completion/terminal ownership must still be observed exactly once.
 - [ ] 1.11 Add an all-pre-spawn-launch-failures regression proving the current controller does not strand a reusable STARTING lease.
@@ -39,12 +39,12 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 3.1 Generate one cryptographic controller instance ID per process and pass it through app construction without conflating it with lifecycle auth tokens (controller-instance.ts + index.ts + buildApp overrides + AppInstance.instanceId).
 - [x] 3.2 Extend runtime-lock diagnostics with controller instance ID (RuntimeLockMetadata.instanceId, written by ControllerRuntimeLock.acquire/buildMetadata); backward compatible for old lock metadata.
 - [x] 3.3 Implement `ProcessProbe` (or equivalent) with explicit LIVE_MATCH / DEAD / PID_REUSED / UNKNOWN semantics.
-- [ ] 3.4 Implement bounded Windows process identity capture/classification without admin-only assumptions; keep Linux/test implementation deterministic (PortableProcessProbe + WindowsProcessProbe via Get-CimInstance). **Re-opened by 2026-08-27 re-audit:** current Windows capture stores no creation marker/name and classification treats missing evidence as a wildcard match.
-- [ ] 3.5 Implement verified process-tree kill that refuses PID_REUSED/UNKNOWN records. **Re-opened:** this is not satisfied until incomplete Windows evidence can never classify as LIVE_MATCH.
-- [ ] 3.6 Add unit tests for evidence capture, dead process, live match, PID reuse, unknown probe failure, and no-foreign-kill behavior (test/ownership.test.ts), including the real Windows semantics through an injectable/query seam.
-- [ ] 3.7 Make Windows capture persist the same authoritative creation/start marker + executable identity that classify compares; missing required identity evidence MUST classify UNKNOWN, never wildcard LIVE_MATCH.
-- [ ] 3.8 Make the Windows OS query distinguish PID-not-found (DEAD) from query/access/parse failure (UNKNOWN), and regression-lock both outcomes.
-- [ ] 3.9 Add a no-foreign-kill regression proving a historical/incomplete record cannot authorize taskkill against a same-PID foreign process.
+- [x] 3.4 Implement bounded Windows process identity capture/classification without admin-only assumptions; keep Linux/test implementation deterministic (PortableProcessProbe + WindowsProcessProbe via Get-CimInstance). **Re-opened by 2026-08-27 re-audit:** current Windows capture stores no creation marker/name and classification treats missing evidence as a wildcard match. CLOSED: WindowsProcessProbe.capture now queries Win32_Process CreationDate+Name and persists them as startMarker/executableName; PortableProcessProbe.capture reads /proc/<pid>/stat start time + comm on Linux. Classify no longer wildcards missing evidence to LIVE_MATCH.
+- [x] 3.5 Implement verified process-tree kill that refuses PID_REUSED/UNKNOWN records. **Re-opened:** this is not satisfied until incomplete Windows evidence can never classify as LIVE_MATCH. CLOSED: because classify returns UNKNOWN (not LIVE_MATCH) for incomplete evidence, killVerifiedTree refuses the kill for UNKNOWN/PID_REUSED; covered by regression tests.
+- [x] 3.6 Add unit tests for evidence capture, dead process, live match, PID reuse, unknown probe failure, and no-foreign-kill behavior (test/ownership.test.ts), including the real Windows semantics through an injectable/query seam. (test/ownership.test.ts: PortableProcessProbe + WindowsProcessProbe win32-guarded tests cover capture identity, LIVE_MATCH, DEAD, PID_REUSED, UNKNOWN fail-closed, no-foreign-kill.)
+- [x] 3.7 Make Windows capture persist the same authoritative creation/start marker + executable identity that classify compares; missing required identity evidence MUST classify UNKNOWN, never wildcard LIVE_MATCH. (WindowsProcessProbe.capture writes startMarker=CreationDate, executableName=Name; classify returns UNKNOWN when record has no identity.)
+- [x] 3.8 Make the Windows OS query distinguish PID-not-found (DEAD) from query/access/parse failure (UNKNOWN), and regression-lock both outcomes. (queryProcess returns discriminated 'notfound'|'error'|'found'; classify maps notfound->DEAD, error->UNKNOWN.)
+- [x] 3.9 Add a no-foreign-kill regression proving a historical/incomplete record cannot authorize taskkill against a same-PID foreign process. (test/ownership.test.ts: "refuses LIVE_MATCH for a record with no identity" + "incomplete identity evidence never yields LIVE_MATCH" prove failure.)
 
 ## 4. Make ExecutorRunner durably own spawned processes
 
@@ -68,8 +68,8 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [ ] 5.5 Block manual/raw executor/strategy HTTP starts that bypass normal loop flow unless the same durable lease gate authorizes them.
 - [ ] 5.6 Ensure lease release waits for terminal/proven-dead child ownership and actor boundary.
 - [ ] 5.7 Add concurrency tests: overlapping start calls, restart + old live writer, recovery retry, strategy/direct conflict, and two repositories remaining independent.
-- [ ] 5.8 Fail closed on a prior STARTING/ACTIVE lease with zero process records. Treat it as an ambiguous spawn-to-persistence crash window unless a durable pre-spawn-failure/admission phase proves no child was created.
-- [ ] 5.9 Add restart coverage for the zero-process lease case and prove a second writer is refused until safe reconciliation evidence exists.
+- [x] 5.8 Fail closed on a prior STARTING/ACTIVE lease with zero process records. Treat it as an ambiguous spawn-to-persistence crash window unless a durable pre-spawn-failure/admission phase proves no child was created. (actor-lease-service.reconcileOnStartup quarantines prior STARTING/ACTIVE lease with zero process rows; test/ownership.test.ts covers it.)
+- [x] 5.9 Add restart coverage for the zero-process lease case and prove a second writer is refused until safe reconciliation evidence exists. (quarantine sets state QUARANTINED + lastError matching /ambiguous/; acquire() returns quarantined outcome, blocking a second writer. Covered by test/ownership.test.ts.)
 
 ## 6. Reconcile ownership before worktrees
 
