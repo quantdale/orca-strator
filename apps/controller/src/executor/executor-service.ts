@@ -281,6 +281,9 @@ export class ExecutorService {
       });
     }
 
+    let spawnedProcessAttemptId: string | null = null;
+    let hasSpawnedProcess = false;
+
     const runner = new ExecutorRunner({
       adapter,
       context: {
@@ -310,15 +313,20 @@ export class ExecutorService {
       onLog: (line) => {
         this.publishLog(repositoryId, dispatch.id, line);
       },
-      // Change 028 (D4.1/D4.2): surface PID after real spawn and persist
-      // durable process ownership before admission is reported.
+      // Change 028 (D4.1/D4.2/D4.6/D4.8): surface PID after real spawn and persist
+      // durable process ownership before admission is reported. Every real OS
+      // spawn gets a distinct durable attempt identity (D4.8) correlated to the
+      // parent run via actorId = runAttemptId. Post-spawn persistence failure
+      // is marked so launch retry does not double-spawn (D4.6).
       onSpawn: this.ownership
         ? async (pid: number) => {
             const own = this.ownership!;
             const evidence = own.probe.capture(pid);
+            const processAttemptId = crypto.randomUUID();
+            spawnedProcessAttemptId = processAttemptId;
             try {
               own.processStore.insert({
-                id: runAttemptId,
+                id: processAttemptId,
                 controllerInstanceId: own.controllerInstanceId,
                 repositoryId,
                 runId: dispatch.runId,
@@ -331,6 +339,7 @@ export class ExecutorService {
                 startMarker: evidence.startMarker ?? null,
                 state: "RUNNING"
               });
+              hasSpawnedProcess = true;
               own.leaseService.markActive(repositoryId);
             } catch (err) {
               // D4.3: terminate only if identity verified; otherwise quarantine.
@@ -347,7 +356,9 @@ export class ExecutorService {
                 repositoryId,
                 `process ownership persistence failed: ${(err as Error)?.message ?? String(err)}`
               );
-              throw err;
+              const marked = err as unknown as Error & { __postSpawnPersistenceFailure?: boolean };
+              (marked as { __postSpawnPersistenceFailure?: boolean }).__postSpawnPersistenceFailure = true;
+              throw marked;
             }
           }
         : undefined,
@@ -362,9 +373,17 @@ export class ExecutorService {
           // lease in the intermediate window.
           if (this.ownership) {
             try {
-              const rec = this.ownership.processStore
-                .listByRepository(repositoryId)
-                .find((r) => r.actorId === runAttemptId);
+              let rec: { id: string } | null = null;
+              if (spawnedProcessAttemptId) {
+                const byId = this.ownership.processStore.listByRepository(repositoryId).find((r) => r.id === spawnedProcessAttemptId);
+                if (byId) rec = byId;
+              }
+              if (!rec) {
+                const fallback = this.ownership.processStore
+                  .listByRepository(repositoryId)
+                  .find((r) => r.actorId === runAttemptId);
+                if (fallback) rec = fallback;
+              }
               if (rec) {
                 const terminal =
                   details.wasKilled || details.reason === "EMERGENCY_KILLED"
@@ -419,8 +438,9 @@ export class ExecutorService {
           // Bound per-run log retention: prune oldest persisted run logs after each completion.
           try {
             this.logRotator.pruneLogs(repositoryId);
-          } catch (err: any) {
-            this.publishLog(repositoryId, dispatch.id, `[system] Log pruning failed: ${err?.message || String(err)}`);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.publishLog(repositoryId, dispatch.id, `[system] Log pruning failed: ${msg}`);
           }
         } catch (err) {
           // Teardown-order safety (same contract as the Fix #11 guards): an exit
@@ -444,7 +464,24 @@ export class ExecutorService {
     this.pendingRunners.set(repositoryId, { runner, runAttemptId });
 
     const launchAttempts = policy?.executor.launchAttempts ?? MAX_LAUNCH_ATTEMPTS;
-    const started = await this.launchWithRetry(repo, runner, launchAttempts);
+    let started = false;
+    try {
+      started = await this.launchWithRetry(repo, runner, launchAttempts);
+    } catch (err) {
+      const maybePost = err as unknown as { __postSpawnPersistenceFailure?: unknown };
+      const isPostSpawn = maybePost !== null && typeof maybePost === "object" && "__postSpawnPersistenceFailure" in maybePost && maybePost.__postSpawnPersistenceFailure === true;
+      if (isPostSpawn) {
+        this.activeRunners.delete(repositoryId);
+        this.pendingRunners.delete(repositoryId);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.executorStore.updateStatus(runAttemptId, "failed", {
+          errorMessage: `Executor ownership persistence failed: ${msg}`,
+          finishedAt: new Date().toISOString()
+        });
+        throw new ValidationError(`Executor ownership persistence failed for repository ${repositoryId}: ${msg}`);
+      }
+      throw err;
+    }
     if (!started) {
       this.activeRunners.delete(repositoryId);
       this.pendingRunners.delete(repositoryId);
@@ -452,6 +489,27 @@ export class ExecutorService {
         errorMessage: `Executor failed to start after ${launchAttempts} attempts (contact/launch unavailable).`,
         finishedAt: new Date().toISOString()
       });
+      // Change 028 (D4.9): if all attempts failed before any real child was
+      // admitted, release the STARTING lease so the repository is not
+      // stranded. If any attempt crossed real spawn without proven termination,
+      // quarantine instead of releasing (the onSpawn path already quarantined
+      // post-spawn persistence failures, but this covers ambiguous cases).
+      if (this.ownership) {
+        if (hasSpawnedProcess || spawnedProcessAttemptId !== null) {
+          this.ownership.leaseService.quarantine(repositoryId, "launch failed after real spawn without proven termination");
+        } else {
+          const procs = this.ownership.processStore.listByActor(runAttemptId);
+          if (procs.length === 0) {
+            try {
+              this.ownership.leaseService.release(repositoryId, this.ownership.controllerInstanceId);
+            } catch {
+              // best-effort release
+            }
+          } else {
+            this.ownership.leaseService.quarantine(repositoryId, "launch failed with ambiguous process state");
+          }
+        }
+      }
       throw new ValidationError(
         `Executor failed to start for repository ${repositoryId} after ${launchAttempts} attempts`
       );
@@ -464,14 +522,6 @@ export class ExecutorService {
     this.pendingRunners.delete(repositoryId);
     return runRecord;
   }
-
-  /**
-   * Launch the runner, retrying up to 3 times on inability to START the process
-   * (e.g., missing executor CLI / async ENOENT). This is NOT retrying merely
-   * because an executor turn reports a failure (D). A process that starts and
-   * then exits quickly has genuinely completed its (possibly failed) turn and is
-   * handled via the normal onExit result-contract path.
-   */
   private async launchWithRetry(
     repo: RepositoryRecord,
     runner: ExecutorRunner,
@@ -494,8 +544,22 @@ export class ExecutorService {
       try {
         await runner.start();
         return true;
-      } catch (err: any) {
-        const message = err?.message || String(err);
+      } catch (err) {
+        const maybePost = err as unknown as { __postSpawnPersistenceFailure?: unknown };
+        const isPostSpawn = maybePost !== null && typeof maybePost === "object" && "__postSpawnPersistenceFailure" in maybePost && maybePost.__postSpawnPersistenceFailure === true;
+        if (isPostSpawn) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.publishEvent({
+            type: "executor.log",
+            at: new Date().toISOString(),
+            repositoryId: repo.id,
+            data: {
+              logMessage: `[system] Post-spawn ownership persistence failed; aborting launch sequence without retry (quarantined): ${message}`
+            }
+          });
+          throw err;
+        }
+        const message = err instanceof Error ? err.message : String(err);
         if (attempt < maxAttempts) {
           this.publishEvent({
             type: "executor.log",

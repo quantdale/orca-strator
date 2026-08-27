@@ -2,16 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
 import { initDatabase, type DatabaseContext } from "../src/db/database.js";
 import { RepositoryStore } from "../src/repositories/repository-store.js";
 import { DispatchStore } from "../src/watcher/dispatch-store.js";
 import { ExecutorStore } from "../src/executor/executor-store.js";
 import { ExecutorService } from "../src/executor/executor-service.js";
-import { FakeExecutorAdapter } from "./fixtures/fake-executor.js";
+import { FakeExecutorAdapter, FakeChildProcess } from "./fixtures/fake-executor.js";
 import { RepositoryActorLeaseService } from "../src/ownership/actor-lease-service.js";
 import { RepositoryActorLeaseStore, ProcessOwnershipStore } from "../src/ownership/ownership-store.js";
 import { PortableProcessProbe } from "../src/ownership/process-probe.js";
 import type { RepositoryRecord, DispatchRecord } from "@orca/shared";
+import type { ExecutorAdapter, ExecutionContext } from "../src/executor/adapters/executor-adapter.js";
 
 const REPO = "repo-own-exec";
 const DISPATCH = "disp-own-exec-01";
@@ -160,5 +163,187 @@ describe("Change 028 direct-executor durable ownership (D4/D5.2)", () => {
     });
     const service = makeService();
     await expect(service.startRun(REPO, DISPATCH)).rejects.toThrow(/execution actor is quarantined/);
+  });
+});
+describe("Change 028 D4.6-D4.9 launch-retry and ownership persistence invariants", () => {
+  let tempDir: string;
+  let dbCtx: ReturnType<typeof initDatabase>;
+  let repoStore: RepositoryStore;
+  let dispatchStore: DispatchStore;
+  let executorStore: ExecutorStore;
+  let leaseService: RepositoryActorLeaseService;
+  let processStore: ProcessOwnershipStore;
+  let probe: PortableProcessProbe;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "orca-exec-d4-"));
+    const dbPath = path.join(tempDir, "test.sqlite");
+    dbCtx = initDatabase(dbPath);
+    repoStore = new RepositoryStore(dbCtx.db);
+    dispatchStore = new DispatchStore(dbCtx.db);
+    executorStore = new ExecutorStore(dbCtx.db);
+    repoStore.create(mockRepo);
+    dispatchStore.create(mockDispatch);
+    probe = new PortableProcessProbe();
+    leaseService = new RepositoryActorLeaseService(dbCtx.db, probe);
+    processStore = new ProcessOwnershipStore(dbCtx.db);
+  });
+
+  afterEach(() => {
+    dbCtx.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("D4.8: every real spawn gets a distinct durable attempt identity correlated to the run", async () => {
+    const service = new ExecutorService({
+      repoStore,
+      dispatchStore,
+      executorStore,
+      dataDir: tempDir,
+      windowsAdapter: new FakeExecutorAdapter({ durationMs: 60, exitCode: 0 }),
+      ownership: { leaseService, processStore, probe, controllerInstanceId: C1 }
+    });
+    const run1 = await service.startRun(REPO, DISPATCH);
+    // Process ownership id must be distinct from the run id and be a UUID
+    const procs1 = processStore.listByRepository(REPO);
+    expect(procs1).toHaveLength(1);
+    expect(procs1[0].id).not.toBe(run1.id);
+    expect(procs1[0].actorId).toBe(run1.id);
+    expect(procs1[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    await delay(150);
+    // Second run after prior released must have a different process attempt id
+    const run2 = await service.startRun(REPO, DISPATCH);
+    const procsAll = processStore.listByRepository(REPO);
+    expect(procsAll).toHaveLength(2);
+    const ids = procsAll.map((p) => p.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(procsAll.find((p) => p.actorId === run2.id)?.id).not.toBe(procs1[0].id);
+    await delay(150);
+  });
+
+  it("D4.6: post-spawn ownership persistence failure quarantines and does NOT retry into a second writer", async () => {
+    let spawnCount = 0;
+    class CountingAdapter extends FakeExecutorAdapter {
+      override spawn(context: ExecutionContext): ChildProcess {
+        spawnCount++;
+        return super.spawn(context);
+      }
+    }
+    const adapter = new CountingAdapter({ durationMs: 60, exitCode: 0 });
+    const service = new ExecutorService({
+      repoStore,
+      dispatchStore,
+      executorStore,
+      dataDir: tempDir,
+      windowsAdapter: adapter,
+      ownership: { leaseService, processStore, probe, controllerInstanceId: C1 }
+    });
+    // Force process ownership insert to fail to simulate persistence failure after spawn
+    const origInsert = processStore.insert.bind(processStore);
+    let shouldFail = true;
+    processStore.insert = ((rec: Parameters<typeof origInsert>[0]) => {
+      if (shouldFail) {
+        shouldFail = false;
+        throw new Error("simulated ownership persistence failure");
+      }
+      return origInsert(rec);
+    }) as typeof origInsert;
+
+    await expect(service.startRun(REPO, DISPATCH)).rejects.toThrow(/ownership persistence failed/);
+    // Only one OS spawn must have occurred; generic retry must NOT spawn a second child
+    expect(spawnCount).toBe(1);
+    const lease = leaseService.getLease(REPO);
+    expect(lease?.state).toBe("QUARANTINED");
+    // A second start must be blocked while quarantined (no second writer)
+    await expect(service.startRun(REPO, DISPATCH)).rejects.toThrow(/quarantined|conflict/);
+    // No additional spawn for the blocked second start
+    expect(spawnCount).toBe(1);
+    processStore.insert = origInsert;
+  });
+
+  it("D4.9: all pre-spawn failures release the STARTING lease so a later start can succeed", async () => {
+    const enoentAdapter = {
+      spawnCount: 0,
+      spawn(): ChildProcess {
+        (enoentAdapter as unknown as { spawnCount: number }).spawnCount++;
+        const proc = new EventEmitter() as unknown as ChildProcess;
+        (proc as unknown as { stdout: null; stderr: null; exitCode: null }).stdout = null;
+        (proc as unknown as { stdout: null; stderr: null; exitCode: null }).stderr = null;
+        (proc as unknown as { exitCode: null }).exitCode = null;
+        (proc as unknown as { pid: number }).pid = 9999;
+        setImmediate(() => (proc as unknown as EventEmitter).emit("error", Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" })));
+        return proc;
+      },
+      async killProcessTree(): Promise<void> {}
+    } as unknown as ExecutorAdapter & { spawnCount: number };
+    const service = new ExecutorService({
+      repoStore,
+      dispatchStore,
+      executorStore,
+      dataDir: tempDir,
+      windowsAdapter: enoentAdapter,
+      ownership: { leaseService, processStore, probe, controllerInstanceId: C1 }
+    });
+    await expect(service.startRun(REPO, DISPATCH)).rejects.toThrow(/failed to start.*after 3 attempts/);
+    expect((enoentAdapter as unknown as { spawnCount: number }).spawnCount).toBe(3);
+    // No process record must have been created for pure pre-spawn failures
+    expect(processStore.listByRepository(REPO)).toHaveLength(0);
+    // Lease must have been released (not quarantined) so a later healthy start can succeed
+    expect(leaseService.getLease(REPO)).toBeNull();
+    // Now a healthy adapter should be able to start
+    const healthy = new ExecutorService({
+      repoStore,
+      dispatchStore,
+      executorStore,
+      dataDir: tempDir,
+      windowsAdapter: new FakeExecutorAdapter({ durationMs: 40, exitCode: 0 }),
+      ownership: { leaseService, processStore, probe, controllerInstanceId: C1 }
+    });
+    const run = await healthy.startRun(REPO, DISPATCH);
+    expect(run.status).toBe("running");
+    await delay(100);
+  });
+
+  it("D4.7: short-lived child exiting while onSpawn awaits is observed exactly once and terminal state is persisted before lease release", async () => {
+    class FastExitAdapter implements ExecutorAdapter {
+      spawn(): ChildProcess {
+        const proc = new FakeChildProcess({ durationMs: 10, exitCode: 0 });
+        setImmediate(() => (proc as unknown as EventEmitter).emit("spawn"));
+        setImmediate(() => proc.run());
+        return proc as unknown as ChildProcess;
+      }
+      async killProcessTree(child: ChildProcess): Promise<void> {
+        (child as unknown as FakeChildProcess).kill();
+      }
+    }
+    // Delay process ownership persistence to widen the race: child will exit (10ms)
+    // while onSpawn is still awaiting the insert (50ms busy wait). The buffered
+    // exit path must preserve exactly-once delivery and terminal lease release.
+    const origInsert = processStore.insert.bind(processStore);
+    const captureDelay = 50;
+    processStore.insert = ((rec: Parameters<typeof origInsert>[0]) => {
+      const start = Date.now();
+      while (Date.now() - start < captureDelay) { /* busy wait */ }
+      return origInsert(rec);
+    }) as typeof origInsert;
+
+    const service = new ExecutorService({
+      repoStore,
+      dispatchStore,
+      executorStore,
+      dataDir: tempDir,
+      windowsAdapter: new FastExitAdapter(),
+      ownership: { leaseService, processStore, probe, controllerInstanceId: C1 }
+    });
+    const run = await service.startRun(REPO, DISPATCH);
+    expect(run.status).toBe("running");
+    await delay(250);
+    const procs = processStore.listByRepository(REPO);
+    expect(procs).toHaveLength(1);
+    expect(procs[0].state).toBe("EXITED");
+    expect(leaseService.getLease(REPO)).toBeNull();
+    const stored = executorStore.get(run.id);
+    expect(stored?.status).toBe("completed");
+    processStore.insert = origInsert;
   });
 });

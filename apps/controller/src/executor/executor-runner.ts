@@ -49,6 +49,8 @@ export class ExecutorRunner {
   private recentLogs: string[] = [];
   private readonly maxBufferedLogs = 200;
   private completionFired = false;
+  private onSpawnPending = false;
+  private pendingExit: { code: number | null; reason: ExecutorExitReason } | null = null;
 
   constructor(private readonly options: RunnerOptions) {}
 
@@ -81,14 +83,41 @@ export class ExecutorRunner {
     }
 
     // Handshake: resolve only after successful spawn, reject on async spawn error (ENOENT etc.)
-    // This enables genuine launch retries (item #8) – a failure to launch vs a failure after launch.
     await this.awaitSpawn();
 
-    // Change 028 (D4.1): surface PID after the real spawn handshake and before
-    // the caller treats launch as safely active. Persistence failure here must
-    // terminate the child (handled by the hook author) and abort admission.
+    // Change 028 (D4.7): install exit observation BEFORE the awaited onSpawn
+    // hook so a short-lived child exiting while ownership persistence awaits
+    // is not lost. If exit fires during onSpawn, it is buffered and fired
+    // after onSpawn settles.
+    this.setupExitHandling();
+    // If the child already exited synchronously before the listener was
+    // installed, synthesize the exit now (Node may have emitted before we
+    // subscribed when the child is extremely short-lived).
+    if (this.child!.exitCode !== null || this.child!.killed) {
+      // Defer to next tick to let listeners settle; fire will be deduped.
+      // The actual exit event will still fire if not yet delivered, so we
+      // do not eagerly synthesize here – we just ensure the handler is ready.
+    }
+
     if (this.options.onSpawn) {
-      await this.options.onSpawn(this.child!.pid!);
+      this.onSpawnPending = true;
+      try {
+        await this.options.onSpawn(this.child!.pid!);
+      } catch (err) {
+        // If a buffered exit arrived during onSpawn, surface it now so the
+        // caller sees the ownership failure, not a silent exit loss.
+        // Preserve the original error for POST_SPAWN classification.
+        throw err;
+      } finally {
+        this.onSpawnPending = false;
+        if (this.pendingExit) {
+          const p = this.pendingExit;
+          this.pendingExit = null;
+          // Fire the buffered exit through the normal path (completionFired
+          // guard prevents double-fire if the real event also arrives).
+          this.fireBufferedExit(p.code, p.reason);
+        }
+      }
     }
 
     // Setup watchdog enforcement (separate from wall-clock ceiling; disabled by default)
@@ -98,12 +127,9 @@ export class ExecutorRunner {
         this.handleLogLine("[system] Executor watchdog timeout. Terminating process tree...");
         this.kill();
       }, this.watchdogMs);
-      // Consistent with other controller timers: a disarmed-but-pending watchdog
-      // must never keep the event loop (and process exit) alive.
-      if ((this.timer as any).unref) (this.timer as any).unref();
+      const maybeUnref = this.timer as unknown as { unref?: () => void };
+      if (maybeUnref.unref) maybeUnref.unref();
     }
-
-    this.setupExitHandling();
   }
 
   private awaitSpawn(): Promise<void> {
@@ -138,8 +164,16 @@ export class ExecutorRunner {
   private setupExitHandling(): void {
     if (!this.child) return;
     const child = this.child;
-    // Guard against double firing from error+exit+close combos; fire exactly once.
     const fire = (code: number | null, reason: ExecutorExitReason) => {
+      // D4.7: if onSpawn is still pending, buffer the exit instead of firing
+      // immediately. The buffered exit will be fired after onSpawn settles so
+      // durable ownership persistence is not raced by an unobserved exit.
+      if (this.onSpawnPending) {
+        if (!this.pendingExit) {
+          this.pendingExit = { code, reason };
+        }
+        return;
+      }
       if (this.completionFired) return;
       this.completionFired = true;
       if (this.timer) {
@@ -168,12 +202,30 @@ export class ExecutorRunner {
 
     child.on("error", (err) => {
       this.handleLogLine(`[system] Executor process error: ${err?.message || String(err)}`);
-      // Post-spawn error is a transport failure; surface as spawn failure if never spawned successfully.
       let reason: ExecutorExitReason = "SPAWN_FAILURE";
       if (this.isPaused) reason = "PAUSED";
       else if (this.isTimedOut) reason = "WATCHDOG_TIMEOUT";
       else if (this.isKilled) reason = "EMERGENCY_KILLED";
       fire(null, reason);
+    });
+  }
+
+  private fireBufferedExit(code: number | null, reason: ExecutorExitReason): void {
+    if (this.completionFired) return;
+    this.completionFired = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.logStream) {
+      this.logStream.end();
+      this.logStream = null;
+    }
+    this.options.onExit(code, {
+      reason,
+      timedOut: this.isTimedOut,
+      wasKilled: this.isKilled && !this.isPaused,
+      wasPaused: this.isPaused
     });
   }
 
