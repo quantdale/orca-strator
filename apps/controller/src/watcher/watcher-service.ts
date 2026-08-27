@@ -20,7 +20,7 @@ export interface WatcherServiceOptions {
   commitInspector: CommitInspector;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
   pollIntervalMs?: number;
-  onDispatchDetected?: (repositoryId: string, dispatchId: string) => void;
+  onDispatchDetected?: (repositoryId: string, dispatchId: string) => void | Promise<void>;
   onControlDetected?: (
     repositoryId: string,
     controlId: string,
@@ -28,7 +28,7 @@ export interface WatcherServiceOptions {
     runId: string,
     iteration: number,
     relatedDispatchId: string | null
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export class WatcherService {
@@ -39,7 +39,7 @@ export class WatcherService {
   private readonly commitInspector: CommitInspector;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private readonly pollIntervalMs: number;
-  private readonly onDispatchDetected?: (repositoryId: string, dispatchId: string) => void;
+  private readonly onDispatchDetected?: (repositoryId: string, dispatchId: string) => void | Promise<void>;
   private readonly onControlDetected?: (
     repositoryId: string,
     controlId: string,
@@ -47,8 +47,7 @@ export class WatcherService {
     runId: string,
     iteration: number,
     relatedDispatchId: string | null
-  ) => void;
-
+  ) => void | Promise<void>;
   private readonly activeTimers = new Map<string, NodeJS.Timeout>();
   private readonly inFlightPolls = new Set<string>();
   private isRunning = false;
@@ -338,7 +337,11 @@ export class WatcherService {
         });
 
         if (this.onDispatchDetected) {
-          this.onDispatchDetected(repo.id, inspection.dispatchId);
+          try {
+            await this.onDispatchDetected(repo.id, inspection.dispatchId);
+          } catch (err) {
+            console.warn("[WatcherService] onDispatchDetected failed (will be retried via next poll/transition replay):", err);
+          }
         }
       }
     } else if (inspection.type === "REJECTED_DISPATCH") {
@@ -401,14 +404,18 @@ export class WatcherService {
         });
 
         if (this.onControlDetected) {
-          this.onControlDetected(
-            repo.id,
-            inspection.controlId,
-            inspection.control.decision,
-            inspection.control.runId,
-            inspection.control.iteration,
-            inspection.control.relatedDispatchId
-          );
+          try {
+            await this.onControlDetected(
+              repo.id,
+              inspection.controlId,
+              inspection.control.decision,
+              inspection.control.runId,
+              inspection.control.iteration,
+              inspection.control.relatedDispatchId
+            );
+          } catch (err) {
+            console.warn("[WatcherService] onControlDetected failed (will be retried via next poll/transition replay):", err);
+          }
         }
       }
     } else if (inspection.type === "REJECTED_SOL_CONTROL") {

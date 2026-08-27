@@ -283,10 +283,10 @@ export async function buildApp(
     commitInspector,
     eventPublisher: (event) => eventBus.publish(event),
     pollIntervalMs: 5000,
-    onDispatchDetected: (repositoryId, dispatchId) => {
-      void loopService.onDispatchDetected(repositoryId, dispatchId);
+    onDispatchDetected: async (repositoryId, dispatchId) => {
+      await loopService.onDispatchDetected(repositoryId, dispatchId);
     },
-    onControlDetected: (
+    onControlDetected: async (
       repositoryId,
       controlId,
       decision,
@@ -294,7 +294,7 @@ export async function buildApp(
       iteration,
       relatedDispatchId,
     ) => {
-      void loopService.onControlDetected(
+      await loopService.onControlDetected(
         repositoryId,
         controlId,
         decision,
