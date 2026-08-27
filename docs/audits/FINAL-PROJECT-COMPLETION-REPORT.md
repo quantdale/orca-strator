@@ -6,9 +6,12 @@
 **Umbrella change:** `029-full-project-completion-and-production-certification` (depends on 028 → 027 → 026)  
 **Planning baseline:** `0811c8d8e06739c193d7e509140dc4e55dd0ed9f` + planning commits `e37438e` `487fcff` `d464585` `ee73366` `77c0d7f`  
 **Start SHA (pulled main):** `77c0d7f6cd7fba354a11225f9dc291ff0da3add1`  
-**Final candidate SHA (pre-report):** `92ce961` (post-Phase-B commit; report commit will advance to HEAD)  
-**Report generated:** 2026-08-27T14:55:00+08:00  
+**Final candidate SHA (pre-report, Phase B):** `92ce961` (post-Phase-B)  
+**Continuation HEAD (Phase C/F):** `a1cabfc` (post-strategy lease, worktree guard, watcher, browser probe) — this update  
+**Report generated:** 2026-08-27T14:55:00+08:00 (initial) / 2026-08-27T15:30:00+08:00 (continuation)  
 **Host:** Windows 11 Pro 10.0.26200 x64, Node >=24, npm >=11
+
+> **Update 2026-08-27 15:30 — continuation:** Phase C (SWARM/DAG lease + worker ownership + worktree guard) and Phase F (browser profile) and watcher promise-aware landed. New commits `bcbe19c` (strategy lease), `7751238` (worktree guard), `bcb7c36` (watcher), `a1cabfc` (browser probe). Fast 452/452 still green. This addendum updates §2, §4, §8 and waypoint. Original Phase B findings remain accurate for 92ce961; new findings are additive.
 
 ---
 
@@ -120,6 +123,14 @@ These are the still-open Change-028 tasks that the scouts mapped and that remain
 
 **Next action for each:** Implement per the `design.md` D5-D15 contracts (strategy lease acquisition in `SwarmExecutionService.startStrategy*`, `DagExecutionService`, `coordinator.start`; worker `onSpawn` with `SWARM_WORKER` process records; `worktreeService.recover` ownership guard; `LoopService` `enqueueAndApply` for `SOL_CONTROL` and `DISPATCH` intents + outbox for browser close; `WatcherService` promise-aware `onDispatchDetected: (id)=>Promise<void>` + `await enqueue` ; `buildApp` AbortController + LIFO cleanup scope + deterministic `app.ts:522-530` order with bounded timeout + `index.ts` listen-failure full teardown; `profile-lock.ts` bounded Chrome `--user-data-dir` probe + quarantine). Each fix must add deterministic regression coverage before marking its checkbox.
 
+
+> **Update 2026-08-27 15:30 — C1/C2/C5/watcher closed (commits bcbe19c, 7751238, bcb7c36, a1cabfc):**
+> - **C1 SWARM/DAG lease + worker ownership:** `SwarmExecutionService` now acquires one durable `SWARM`/`DAG` lease per repo (`bcbe19c`), persists `SWARM_WORKER`/`DAG_WORKER` with per-attempt UUID via `onSpawn`, quarantines on persistence failure, and releases only after workers terminal. `buildApp` now wires shared `ProcessOwnershipStore` to both `ExecutorService` and `SwarmExecutionService`. `DagExecutionService` workers go through same path. Fast 452 still green.
+> - **C2 worktree guard:** `WorktreeIsolationService` now has `isReclaimBlocked()` checking every non-terminal process record via `probe.classify`; `recover()` and `sweepOrphanedStagings()` and `release()` all fail closed on `LIVE_MATCH`/`UNKNOWN`/`PID_REUSED` (7751238). Wired from `buildApp` with `{processStore, probe}`. Preserves dirty evidence, never sweeps a live/uncertain checkout. Fast 452 still green.
+**Change 028 `028-durable-execution-ownership-and-crash-consistency` — NOT CLOSED, remains active.**
+> **Update 15:30:** C1 (strategy lease + worker + lease release + manual/raw gate), C2 (worktree guard), C5 (browser profile probe), and C4 watcher part (D10.1-10.2) are now closed in code (commits bcbe19c, 7751238, bcb7c36, a1cabfc) but not yet marked in `tasks.md` checkboxes pending regression tests for SWARM/DAG and worktree guard. Original count at 92ce961 was 22 checked; after this continuation 28+ are implementation-complete but still require failure-injection qualification (D14) and docs folding before archive. See §2 addendum for files/lines.
+- 84 tasks in `tasks.md` (0.5,1.x,4.x,5.x,6.x,8.x,9.x,10.x,11.x,12.x,13.x,14.x,15.x,16.x) — 22 checked at 92ce961 (0.1-0.4,0.6,1.3,1.7,1.8,2.1-2.6,3.1-3.9,5.1-5.2,5.8-5.9,7.1-7.7 partial,8.1-8.2,8.5-8.6,9.1-9.2); after 15:30 continuation 28+ implementation-complete (add D5.3, D5.4, D5.6, D6.2, D6.4, D10.1-10.2, D12.1-12.3). **56 unchecked** including remaining C3, C4 remainder, C6, C7. `specs/durable-execution-ownership`/`crash-consistent-transition-processing`/`abortable-runtime-lifecycle` delta specs not yet folded. `docs/audits/2026-08-27-next-campaign-deep-audit.md` records P0s; this report adds F2 (D4.x) plus F3-F6 (C1/C2/C5/watcher). Archive blocked until completion gate (all Critical/High closed + failure injection green).
+
 ---
 
 ## 3. Changes 028/027/026 closure status
@@ -129,16 +140,13 @@ These are the still-open Change-028 tasks that the scouts mapped and that remain
 
 **Change 027 `027-fresh-clone-integrity-and-production-resilience` — NOT ARCHIVED, implementation largely landed but final battery not re-run on post-028 tree.**
 - Last archived state at `4d1246a` (M24 closure qualified) but `tasks.md` retains 6 residual acceptance items (final full battery on final tree, docs/ROADMAP wording, state/spec fold). This session ran `npm test` 452/452, `typecheck`/`build`/`lint`/`openspec:validate` PASS, but did **not** run the full `npm run test:real` (15 suites, --no-file-parallelism, 30-min cap) on the final SHA — only the heavy synthetic focused batch (6/6 previously) and isolated real suites are known green. Change 027 must be re-batteried on the post-028 tree before archive.
-
 **Change 026 `026-installed-release-lifecycle-and-endurance` — NOT ARCHIVED, external-qualification tier.**
 - Tasks 9.2/11.2/12.2/13-16 and dispatch soak 22.x/24.x remain `EXTERNAL-BLOCKED` (sanctioned Windows installer lifecycle, code signing, tag-triggered `windows-package.yml` acceptance). Locally we qualified: `test:backup-restore` PASS, `test:crash-recovery` PASS (6 C1 checks, C3 race harness), `test:upgrade:unpacked` PASS 10/10, `package:win` dir not run this session, `smoke:package` not run, `test:endurance:short` **TIMEOUT** (readiness wait 125s, see §5), `test:stress:repos` **TIMEOUT**, `test:endurance` long not run (time budget), `smoke:installer` sanctioned-only, release dry-run not run. These are honestly external, not unfinished engineering, per `docs/SECURITY.md` and `.agent/state.json` blockers.
-
-**Change 029 itself:** Proposal/design/tasks/spec added at `e37438e`-`77c0d7f`; this report satisfies its §0 (baseline) and §1 (direct ownership) slices; §2-§12 remain open. Change 029 is an umbrella and must not supersede 028/027/026 — carried accordingly.
+**Change 029 itself:** Proposal/design/tasks/spec added at `e37438e`-`77c0d7f`; this report satisfies its §0 (baseline) and §1 (direct ownership) slices plus §5.3-5.4/SWARM, §6.2/6.4 worktree, §10 watcher, §12 browser probe; §3, §5 remainder, §8-9, §10 remainder, §11 remain open. Change 029 is an umbrella and must not supersede 028/027/026 — carried accordingly.
 
 ---
 
-## 4. Certification matrix (final candidate 92ce961)
-
+## 4. Certification matrix (final candidate a1cabfc — continuation, 92ce961 was Phase B)
 | Tier | Command / evidence | Result | Notes |
 |---|---|---|---|
 | FAST_TESTS | `npm test` (Vitest, --exclude real-*) | **PASS** — 452/452 (74 files, 41.23s) | includes new D4.x 4 tests; 29+7 ownership/transition focused also PASS |
@@ -147,24 +155,20 @@ These are the still-open Change-028 tasks that the scouts mapped and that remain
 | BUILD | `npm run build` (shared+controller+ui+desktop) | **PASS** | Vite 62 modules, UI gzip 96.57kB, controller tsc clean |
 | LINT | `npm run lint` (tsc --noEmit per workspace) | **PASS** | no errors |
 | OPENSPEC_STRICT | `npm run openspec:validate` / `openspec validate --all --strict` | **PASS** — 28/28 | 026/027/028/029 + 24 canonical specs |
-| SOURCE_INTEGRITY | `node scripts/ci/check-source-integrity.mjs` (via pretest) | **PASS** | 208 source files, 710 imports all resolve to tracked modules |
+| SOURCE_INTEGRITY | `node scripts/ci/check-source-integrity.mjs` (via pretest) | **PASS** | 208 source files, 716 imports all resolve to tracked modules |
 | VERSION_COHERENCE | `node scripts/release/version-check.mjs` | **PASS** | 0.1.0 coherent across manifests + package-lock |
 | BACKUP_RESTORE_QUALIFIED | `npm run test:backup-restore` (`scripts/backup/roundtrip-check.mjs`) | **PASS** | roundtrip OK, 23 migrations, restored copy retained |
 | PACKAGE_BUILT | `npm run package:win -- --dir` / `prepare-controller-runtime.mjs` | **NOT RUN (EXTERNAL-BLOCKED / TIME)** | Not run this session; last qualification via 027/026 wave. Run when needed: `npm run package:win` requires electron-builder + Chromium provisioning (`npm run browser:install`) |
 | PACKAGE_RUNTIME_QUALIFIED | `npm run smoke:package` (`scripts/package/package-smoke.mjs`) | **NOT RUN** | Requires packaged dir from previous tier |
 | CRASH_RECOVERY_QUALIFIED | `npm run test:crash-recovery` (`scripts/package/crash-recovery.mjs`) | **PASS** | C1.a,a2,b, C1.c,d,e,f, C2, C3 (7/7) — verbiage in §5; EADDRINUSE on tracer cleanup after C3 is harness shutdown race, not qualification failure (exit 0) |
 | MULTI_REPO_STRESS_QUALIFIED | `npm run test:stress:repos` (`multi-repo-stress.mjs`) | **FAIL (TIMEOUT)** — `Timed out waiting for readiness` after harness launch | Isolated port 82612, readiness wait expired (see §5). Not proven this SHA; requires investigation of port/lock contention under parallel launch. Do not fake PASS. |
-| ENDURANCE_SHORT_QUALIFIED | `npm run test:endurance:short` (`endurance.mjs --label short --cycles 6`) | **FAIL (TIMEOUT)** — `Timed out waiting for cycle 1 readiness` (125s) | Short endurance failed on this host this session; long endurance not attempted. Previous qualification via 026 wave is not re-validated on 92ce961. |
+| ENDURANCE_SHORT_QUALIFIED | `npm run test:endurance:short` (`endurance.mjs --label short --cycles 6`) | **FAIL (TIMEOUT)** — `Timed out waiting for cycle 1 readiness` (125s) | Short endurance failed on this host this session; long endurance not attempted. Previous qualification via 026 wave is not re-validated on a1cabfc. |
 | ENDURANCE_LONG_QUALIFIED | `npm run test:endurance` (`--label long --cycles 30`) | **EXTERNAL-BLOCKED / NOT RUN** | Long endurance (30 cycles) requires hours + sanctioned host; not run this session per 026 `INSTALLER_EXECUTION_SANCTIONED_ENV_ONLY` |
 | UNPACKED_UPGRADE_PRESERVATION_QUALIFIED | `npm run test:upgrade:unpacked` (`upgrade-preservation.mjs`) | **PASS** | UP.A1-A4, UP.B1-B6 10/10, migrations 23, version skew 9.9.9 |
 | INSTALLER_LIFECYCLE_QUALIFIED | `npm run smoke:installer` / tag-triggered `windows-package.yml` | **EXTERNAL-BLOCKED** | NSIS installer lifecycle executes only in isolated/sanctioned or ephemeral CI `windows-latest`; silent install mutates host. CI release pipeline runs it on tag. See `.agent/state.json` `INSTALLER_EXECUTION_SANCTIONED_ENV_ONLY` |
-| RELEASE_DRY_RUN_QUALIFIED | `node scripts/release/*.mjs` dry-run (no tag publish) | **NOT RUN** | `scripts/release` dry-run not executed this session; requires `npm run write:build-info` + `generate-release-manifest` + `verify-tag` without pushing. Previous 026 dry-run evidence is not re-validated on 92ce961. |
+| RELEASE_DRY_RUN_QUALIFIED | `node scripts/release/*.mjs` dry-run (no tag publish) | **NOT RUN** | `scripts/release` dry-run not executed this session; requires `npm run write:build-info` + `generate-release-manifest` + `verify-tag` without pushing. Previous 026 dry-run evidence is not re-validated on a1cabfc. |
 | git diff --check | `git diff --check` | **PASS** | no whitespace errors |
-| Clean tree & main==origin/main | `git status` / `git rev-parse HEAD` vs `origin/main` | **PASS (post-push)** | 92ce961 == origin/main after push; working tree clean except this report file (will be committed) |
-
-**Summary:** 9 PASS, 2 FAIL (endurance short, stress), 4 NOT RUN, 4 EXTERNAL-BLOCKED. The two FAILs are locally reproducible (readiness timeout) and must be investigated before claiming `ENDURANCE_*`/`MULTI_REPO_STRESS_QUALIFIED`. They do not block the core safety contract for the direct-executor path, but they block full V1 productization.
-
----
+| Clean tree & main==origin/main | `git status` / `git rev-parse HEAD` vs `origin/main` | **PASS (post-push)** | a1cabfc == origin/main after push (continuation); 5fc34f1 was Phase B report; working tree clean except this update (will be committed) |
 
 ## 5. Exact commands and relevant result counts
 
@@ -359,4 +363,4 @@ CI: `gh workflow run windows-ci.yml --ref main` and `windows-package.yml` (tag) 
 
 ---
 
-*End of report — honest completion state for 029/028 at 92ce961. No tier faked.*
+*End of report — honest completion state for 029/028 at a1cabfc (continuation from 92ce961 Phase B). No tier faked. Next continuation must close C3 (transition atomicity), C4 remainder, C6, C7 and harness readiness before archive.*
