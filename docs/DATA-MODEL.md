@@ -450,3 +450,132 @@ startup reconciliation marks orphaned active executor runs failed; both reuse
 the existing status vocabularies. Startup reconciliation then closes leftover
 `STALE_RECOVERABLE` rows as `RELEASED` with truthful reasons (Change 019),
 still within the same status vocabulary.
+## 19. Durable execution ownership and crash-consistent transitions (Change 028)
+
+Migration `024_durable_execution_ownership` adds four additive tables. No
+legacy protocol table is rebuilt; new persistence is the durable uniqueness and
+idempotency boundary for actor leases, child identity, and transition replay.
+
+### 19.1 `campaign_trace_events` referential contract (amends §8, §11, §17)
+
+Canonical DDL (migration 010):
+
+```sql
+repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+run_id        TEXT           REFERENCES runs(id) ON DELETE SET NULL,
+dispatch_id   TEXT           REFERENCES dispatches(id) ON DELETE SET NULL,
+control_id    TEXT           REFERENCES sol_controls(id) ON DELETE SET NULL,
+result_id     TEXT           -- intentionally no FK
+-- data_json TEXT NOT NULL DEFAULT '{}'
+```
+
+* `repository_id` CASCADE — deleting a repository hard-deletes the row and
+  cascades away `runs`, `dispatches`, and `campaign_trace_events` (§8). The
+  terminal `repository.deleted` event is therefore broadcast to WebSocket/UI
+  listeners but intentionally **not persisted** into `campaign_trace_events`
+  (`CampaignLedgerService.recordEvent` returns `null` for
+  `type === "repository.deleted"`; otherwise every deletion would violate the
+  FK). Pinned by `campaign-ledger-integrity.test.ts`.
+* `run_id` SET NULL — only durable campaigns are attributed. A sentinel
+  `runId="unknown"` persisted for rejected dispatches/controls without a
+  campaign (the unconstrained `dispatches.run_id TEXT NOT NULL` allows it) is
+  filtered via `UNKNOWN_RUN_SENTINEL` and the `LEFT JOIN runs` attribution
+  (`CASE WHEN r.id IS NULL THEN NULL ELSE d.run_id END`), so it never
+  violates the FK nor is silently re-attributed to an unrelated latest run.
+  An explicitly carried but non-durable `runId` that fails
+  `runStore.get()` sets `explicitReferenceUnresolved=true` and blocks
+  fallback; a `dispatchRow !== undefined` with no durable run likewise sets
+  `attributionResolved=true`.
+* Lazy latest-run fallback — `runStore.getLatestRun(repositoryId)` (sorted
+  SELECT) fires only when `!attributionResolved && !runId &&
+  !event.type.startsWith("repository.")`. Nearly every production event
+  already carries an explicit `runId`/`dispatchId`/`controlId`, so the hot
+  path avoids the extra read.
+* `dispatch_id` / `control_id` SET NULL — strategy-control IDs live only in
+  `data_json`; `control_id` is populated only for
+  `watcher.control_detected`/`watcher.control_rejected` Sol controls.
+* `result_id` has no FK by design.
+
+### 19.2 Ownership / transition / outbox tables (migration 024)
+
+All four tables are FK-immune for `run_id` — `run_id TEXT` with **no FK or
+constraint** — so terminal, quarantined, or cascaded runs do not violate
+ownership persistence. Only `repository_id` cascades; run lifecycle never
+orphans these rows into a warning.
+
+```sql
+CREATE TABLE repository_actor_leases (
+  repository_id          TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+  lease_id               TEXT NOT NULL,
+  controller_instance_id TEXT NOT NULL,
+  run_id                 TEXT,            -- TEXT, no FK (see above)
+  iteration              INTEGER,
+  actor_kind             TEXT NOT NULL CHECK (actor_kind IN ('SINGLE_AGENT','SWARM','DAG')),
+  actor_id               TEXT,
+  state                  TEXT NOT NULL CHECK (state IN ('STARTING','ACTIVE','RELEASING','QUARANTINED')),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, released_at TEXT, last_error TEXT
+);
+
+CREATE TABLE process_ownership_records (
+  id TEXT PRIMARY KEY, controller_instance_id TEXT NOT NULL,
+  repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  run_id TEXT, iteration INTEGER, actor_id TEXT, packet_id TEXT,
+  process_kind TEXT NOT NULL CHECK (process_kind IN ('DIRECT_EXECUTOR','SWARM_WORKER','DAG_WORKER')),
+  host_pid INTEGER NOT NULL, executable_name TEXT, start_marker TEXT,
+  state TEXT NOT NULL CHECK (state IN ('STARTING','RUNNING','EXITED','KILL_CONFIRMED','UNKNOWN')),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_error TEXT
+);
+CREATE INDEX idx_process_ownership_repo  ON process_ownership_records(repository_id, state);
+CREATE INDEX idx_process_ownership_actor ON process_ownership_records(actor_id, state);
+
+CREATE TABLE orchestration_transition_intents (
+  intent_id TEXT PRIMARY KEY,
+  repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  run_id TEXT, -- TEXT, no FK
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('DISPATCH','SOL_CONTROL','EXECUTOR_COMPLETION','STRATEGY_COMPLETION')),
+  source_id TEXT NOT NULL, operation TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+  state TEXT NOT NULL CHECK (state IN ('PENDING','APPLYING','APPLIED','FAILED_RETRYABLE','FAILED_TERMINAL')),
+  attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  UNIQUE (source_kind, source_id, operation)
+);
+
+CREATE TABLE orchestration_outbox (
+  id TEXT PRIMARY KEY, effect_key TEXT NOT NULL UNIQUE,
+  repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  run_id TEXT, -- TEXT, no FK
+  effect_kind TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+  state TEXT NOT NULL CHECK (state IN ('PENDING','DELIVERING','DELIVERED','FAILED_RETRYABLE','FAILED_TERMINAL')),
+  attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+```
+
+### 19.3 Audit event types stored as trace events
+
+Change 028 audit events are regular `CampaignLedgerService.recordEvent` rows
+published through `EventBus.publish` (so `redactSecrets` applies) and bounded
+before that publish (`boundDataStrings` 2 KiB per payload) and again at
+`CampaignLedgerStore.record` / `CampaignLedgerService` `boundDataJson` to
+**4 KiB** for `data_json` (`JSON.stringify` capped, longest strings trimmed,
+suffixed `…[truncated]`). They occupy no new table.
+
+Implemented `event_type` values (all mapped in
+`CampaignLedgerService.mapPhase` / `mapStatus` — see runtime/observability
+docs):
+
+```text
+lease.acquired        lease.quarantined      lease.released      lease.conflict
+process.verdict                                                   (carries verdict= LIVE_MATCH/DEAD/PID_REUSED/UNKNOWN)
+transition.retry
+outbox.retry
+recovery.decision                                                (decision= quarantine | release)
+scheduler.lease_reconciled   (pre-existing, Change 019)
+```
+
+`lease.*` / `recovery.decision` / `process.verdict` map to phase `RECOVERY`
+(status `FAILED` for `quarantined`/`conflict`, `INFO` otherwise);
+`transition.retry` / `outbox.retry` map to `RETRYING`. Unknown types fall
+back to `CAMPAIGN`/`INFO` rather than violating an FK. Repeated
+`[CampaignLedger] Failed to persist event:` warnings would indicate an FK
+regression and are treated as unqualified
+(see docs/OBSERVABILITY-AND-FAILURES.md §24).
+

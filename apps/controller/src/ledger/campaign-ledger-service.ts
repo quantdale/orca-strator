@@ -17,6 +17,7 @@ import type { UsageTelemetryStore } from "../usage/usage-telemetry-store.js";
 import type { StrategyRunStore } from "../strategy/strategy-run-store.js";
 import type { DagNodeStore } from "../strategy/dag-node-store.js";
 import { preparedStatement } from "../db/statement-cache.js";
+import { boundDataJson } from "../events/event-bus.js";
 
 interface DispatchLike { id?: string; runId?: string; iteration?: number; }
 interface ControlLike { id?: string; controlId?: string; runId?: string; iteration?: number; relatedDispatchId?: string | null; }
@@ -39,7 +40,6 @@ export class CampaignLedgerService {
     private readonly strategyStore?: StrategyRunStore,
     private readonly dagNodeStore?: DagNodeStore
   ) {}
-
   /** EventBus already redacts secrets before this listener receives the event. */
   recordEvent(event: RepositoryMutationEvent): CampaignTraceEvent | null {
     try {
@@ -50,7 +50,7 @@ export class CampaignLedgerService {
       // deterministically violate the repositories FK on every deletion.
       if (event.type === "repository.deleted") return null;
 
-      const data = event.data ?? {};
+      const data = boundDataJson((event.data ?? {}) as Record<string, unknown>) as Record<string, unknown>;
       const dispatch = this.asObject(data.dispatch) as DispatchLike | null;
       const control = this.asObject(data.control) as ControlLike | null;
       const eventDispatchId = this.stringValue(data.dispatchId) ??
@@ -101,7 +101,11 @@ export class CampaignLedgerService {
       // production event already carries an explicit runId/dispatch/control
       // reference (executor log lines carry dispatchId; loop/strategy events
       // carry runId), so only pay for the lookup when nothing earlier resolved.
-      if (!attributionResolved && !runId && !event.type.startsWith("repository.")) {
+      // For audit/ownership events (lease.*, process.*, transition.*, outbox.*, recovery.*)
+      // we keep them as repository-only traces: runId nullable, no auto-attach to latest run
+      // to avoid FK mis-attribution and to keep quarantine evidence durable after run deletion.
+      const isAuditTrace = event.type.startsWith("lease.") || event.type.startsWith("process.") || event.type.startsWith("transition.") || event.type.startsWith("outbox.") || event.type.startsWith("recovery.");
+      if (!attributionResolved && !runId && !event.type.startsWith("repository.") && !isAuditTrace) {
         runId = this.runStore.getLatestRun(event.repositoryId)?.id ?? null;
       }
       const iteration = this.numberValue(data.iteration) ?? dispatch?.iteration ?? control?.iteration ?? dispatchRow?.iteration ?? null;
@@ -266,6 +270,12 @@ export class CampaignLedgerService {
     if (event.type === "strategy.worker_started" || event.type === "strategy.worker_completed" || event.type === "strategy.worker_queued") return "EXECUTOR_ACTIVITY";
     if (event.type === "strategy.started") return "EXECUTOR_LAUNCH";
     if (event.type === "strategy.completed") return "RESULT";
+    if (event.type.startsWith("lease.")) return "RECOVERY";
+    if (event.type === "process.verdict") return "RECOVERY";
+    if (event.type === "transition.retry") return "RECOVERY";
+    if (event.type === "outbox.retry") return "RECOVERY";
+    if (event.type === "recovery.decision") return "RECOVERY";
+    if (event.type === "scheduler.lease_reconciled") return "RECOVERY";
     if (event.type === "loop.state_changed") {
       const state = this.stringValue(data.loopState);
       if (state === "SOL_PENDING") return "SOL_WAKE";
@@ -277,7 +287,6 @@ export class CampaignLedgerService {
     }
     return "CAMPAIGN";
   }
-
   private mapStatus(event: RepositoryMutationEvent, data: Record<string, unknown>): TraceStatus {
     if (event.type === "permission.decision") {
       if (data.outcome === "ASK") return "BLOCKED";
@@ -285,6 +294,16 @@ export class CampaignLedgerService {
       return "SUCCEEDED";
     }
     if (event.type === "strategy.permission_required") return "BLOCKED";
+    if (event.type.startsWith("lease.")) {
+      if (event.type === "lease.quarantined" || event.type === "lease.conflict") return "FAILED";
+      if (event.type === "lease.acquired") return "INFO";
+      if (event.type === "lease.released") return "INFO";
+      return "INFO";
+    }
+    if (event.type === "process.verdict") return "INFO";
+    if (event.type === "transition.retry") return "RETRYING";
+    if (event.type === "outbox.retry") return "RETRYING";
+    if (event.type === "recovery.decision") return data.decision === "quarantine" ? "FAILED" : "INFO";
     if (event.type === "watcher.dispatch_rejected" || data.failureReason || data.reason) return "FAILED";
     if (event.type === "watcher.dispatch_detected" || event.type === "watcher.control_detected") return "SUCCEEDED";
     if (event.type === "executor.started") return "STARTED";

@@ -33,7 +33,15 @@ export type EventType =
   | "strategy.integration_completed"
   | "strategy.completed"
   | "strategy.recovery"
-  | "scheduler.lease_reconciled";
+  | "scheduler.lease_reconciled"
+  | "lease.acquired"
+  | "lease.quarantined"
+  | "lease.released"
+  | "lease.conflict"
+  | "process.verdict"
+  | "transition.retry"
+  | "outbox.retry"
+  | "recovery.decision";
 
 export interface RepositoryMutationEvent {
   type: EventType;

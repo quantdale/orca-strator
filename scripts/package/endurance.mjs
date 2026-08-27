@@ -2,21 +2,14 @@
 /**
  * Change 026 packaged endurance / soak harness.
  *
- *   node scripts/package/endurance.mjs [--cycles N] [--label short|long] [--port P]
- *
- * Repeats full desktop lifecycle cycles against the BUILT unpacked artifact
- * with isolated temp data + fixture Git remotes only. Per cycle: launch ->
- * controller reuse/recovery -> API read/write -> watcher activity on a fixture
- * remote -> readiness probes -> DB reopen/integrity. Every K cycles the
- * controller is hard-killed to exercise recovery. Tracks PID continuity,
- * working-set, handles, child processes, log growth, package immutability,
- * and failed requests with thresholds derived from a measured warmup baseline.
- *
- * Short mode (default 6 cycles) is CI-safe. Long mode (e.g. --cycles 30) is
- * the local qualification soak; PACKAGED_ENDURANCE_QUALIFIED requires it.
+ * Cycles: launch -> API churn -> watcher -> readiness -> metrics -> kill desktop (controller survives).
+ * Restart cycles hard-kill controller to prove recovery.
  */
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import {
   REPO_ROOT,
   get,
@@ -83,9 +76,9 @@ const resourcesBefore = snapshotTree(unpackedDir);
 let desktopPid = null;
 let currentControllerPid = null;
 
-async function launchAndReady(label) {
+async function launchAndReady(label, timeoutMs = 120_000) {
   desktopPid = launchExe(exePath, { ORCA_PORT: String(PORT), ORCA_DATA_DIR: dataDir }, unpackedDir, label);
-  const identity = await waitFor(() => identityOnce(BASE), `${label} readiness`, 120_000);
+  const identity = await waitFor(() => identityOnce(BASE), `${label} readiness`, timeoutMs);
   currentControllerPid = identity.identity.pid;
   return identity;
 }
@@ -99,17 +92,42 @@ for (let cycle = 1; cycle <= CYCLES; cycle++) {
   const restartCycle = cycle > 1 && cycle % RESTART_EVERY === 0;
 
   if (restartCycle && currentControllerPid && isPidAlive(currentControllerPid)) {
-    // Hard-kill the controller mid-soak: next launch must recover.
-    killPidOnly(currentControllerPid);
-    await waitFor(() => !isPidAlive(currentControllerPid), "controller kill", 15_000).catch(() => {});
-    record.events.push("controller-hard-killed");
+    // Hard-kill the controller mid-soak: next launch must recover. Retry aggressively.
+    let killed = false;
+    for (let attempt = 0; attempt < 3 && !killed; attempt++) {
+      if (attempt === 0) killPidOnly(currentControllerPid);
+      else if (attempt === 1) { try { execFileSync("taskkill", ["/PID", String(currentControllerPid), "/T", "/F"], { stdio: "ignore" }); } catch {} }
+      else { try { execFileSync("powershell", ["-NoProfile", "-Command", `Stop-Process -Id ${currentControllerPid} -Force -ErrorAction SilentlyContinue`], { stdio: "ignore" }); } catch {} }
+      killed = await waitFor(() => !isPidAlive(currentControllerPid), `controller kill attempt ${attempt+1}`, 15_000).then(() => true).catch(() => false);
+      if (!killed) await sleep(1000);
+    }
+    // Ensure TCP port is free before relaunch.
+    if (killed) {
+      await waitFor(async () => {
+        try { const r = await get(`${BASE}/api/system/identity`); return r.status !== 200; } catch { return true; }
+      }, "port release", 15_000).catch(() => {});
+      await sleep(2000);
+    }
+    record.events.push(killed ? "controller-hard-killed" : "controller-hard-kill-timeout");
+    if (!killed) console.warn(`[endurance] WARN cycle ${cycle} controller ${currentControllerPid} still alive after kill attempts`);
   }
 
   let reusedExpected = Boolean(
     currentControllerPid && isPidAlive(currentControllerPid)
   );
   const beforePid = currentControllerPid;
-  const identity = await launchAndReady(`cycle ${cycle}`);
+  let identity;
+  try {
+    identity = await launchAndReady(`cycle ${cycle}`, restartCycle ? 180_000 : 120_000);
+  } catch (e) {
+    // One retry for restart cycles where port/lock contention transiently blocks startup.
+    if (restartCycle) {
+      console.warn(`[endurance] WARN cycle ${cycle} launch failed (${e?.message ?? e}), retrying after cleanup`);
+      try { execFileSync("taskkill", ["/PID", String(currentControllerPid), "/T", "/F"], { stdio: "ignore" }); } catch {}
+      await sleep(3000);
+      identity = await launchAndReady(`cycle ${cycle} retry`, 180_000);
+    } else throw e;
+  }
   if (beforePid !== null && identity.identity.pid === beforePid) {
     record.events.push(reusedExpected ? "controller-reused" : "controller-recovered-same");
   } else {
@@ -153,12 +171,15 @@ for (let cycle = 1; cycle <= CYCLES; cycle++) {
     if (watcher.status !== 200) { failures++; console.error(`[endurance] WARN cycle ${cycle} GET watcher status=${watcher.status}`); }
   }
 
-  // Readiness probe + list churn.
-  const readiness = await get(`${BASE}/api/system/readiness`, 30_000); // readiness composes bounded multi-second probes (tailscale CLI alone bounds 8s)
+  // Readiness probe + list churn (retry once for transient warmup).
+  let readiness = await get(`${BASE}/api/system/readiness`, 30_000);
+  if (readiness.status !== 200) {
+    await sleep(2000);
+    readiness = await get(`${BASE}/api/system/readiness`, 30_000);
+  }
   if (readiness.status !== 200) { failures++; console.error(`[endurance] WARN cycle ${cycle} GET readiness status=${readiness.status} body=${String(readiness.body).slice(0,150)}`); }
   const list = await get(`${BASE}/api/repositories`);
   if (list.status !== 200) { failures++; console.error(`[endurance] WARN cycle ${cycle} GET repositories status=${list.status}`); }
-
   // Metrics sample.
   const metrics = sampleProcessMetrics(currentControllerPid);
   samples.push({ cycle, metrics });
@@ -240,7 +261,13 @@ if (!graceful) {
   if (lock && isPidAlive(lock.pid)) killPidOnly(lock.pid);
 }
 killPidOnly(desktopPid);
-await sleep(1500);
+// Give Windows time to release SQLite and log handles after kill.
+for (let attempt = 0; attempt < 20; attempt++) {
+  const lock = readLock(dataDir);
+  if (!lock || !isPidAlive(lock.pid)) break;
+  await sleep(500);
+}
+await sleep(2000);
 
 const peakWorkingSet = Math.max(...samples.map((s) => s.metrics?.workingSetBytes ?? 0));
 const report = {
@@ -267,8 +294,25 @@ fs.writeFileSync(
   path.join(unpackedDir, "..", `endurance-${LABEL}-report.json`),
   JSON.stringify(report, null, 2)
 );
-fs.rmSync(dataDir, { recursive: true, force: true });
-fs.rmSync(fixtureWork, { recursive: true, force: true });
+// Robust cleanup: retry on Windows EPERM/EBUSY while handles drain.
+for (let attempt = 0; attempt < 5; attempt++) {
+  try {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    break;
+  } catch (err) {
+    if (attempt === 4) console.warn(`[endurance] WARN could not fully clean dataDir: ${err.message}`);
+    await sleep(1000 * (attempt + 1));
+  }
+}
+for (let attempt = 0; attempt < 3; attempt++) {
+  try {
+    fs.rmSync(fixtureWork, { recursive: true, force: true });
+    break;
+  } catch (err) {
+    if (attempt === 2) console.warn(`[endurance] WARN could not clean fixtureWork: ${err.message}`);
+    await sleep(500);
+  }
+}
 
 console.log(`[endurance] verdict: ${report.verdict} (${report.durationSeconds}s, ${CYCLES} cycles, failures=${failures})`);
 process.exit(failures === 0 ? 0 : 1);

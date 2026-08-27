@@ -462,3 +462,67 @@ integration report, or usage metric is rendered as not recorded/UNKNOWN. The
 projection preserves partial successes, dependency waits, permission attention,
 recovery, cancellation, and integration conflict so a strategy cannot appear
 green merely because one child succeeded.
+
+## 24. Bounded secret-redacted audit trail (Change 028)
+
+Change 028 audit events are **regular `campaign_trace_events` rows** emitted
+through the single chokepoint `EventBus.publish` and stored via
+`CampaignLedgerService.recordEvent` → `CampaignLedgerStore.record`. No new
+SQLite table is introduced.
+
+### 24.1 Secret redaction and bounds
+
+* Every `RepositoryMutationEvent` is deep-redacted by
+  `EventBus.redactSecrets` before any listener receives it
+  (`URL_CREDENTIAL_RE` for `https://user:token@host` → `***:***@`,
+  `SECRET_KEY_RE` for `token|secret|password|passwd|apikey|api_key|
+  privatekey` values → `***redacted***`). The ledger, WebSocket fanout,
+  and diagnostics all see the redacted envelope; original secrets never reach
+  persistent trace storage.
+* Bounded audit payload — `boundDataStrings` caps each string field to
+  **2 KiB** and `reason`/`detail` to **512 chars** at `EventBus` publish
+  time, and `boundDataJson` / `CampaignLedgerStore.record` caps the final
+  `data_json` to **4 KiB** (longest strings trimmed, `…[truncated]`). Retry
+  loops therefore cannot flood `campaign_trace_events` even under repeated
+  delivery.
+* The packaged controller's live `console.*` stream remains separately bounded
+  at **5 MiB** by `createBoundedLogSink` (`controller.log →
+  controller.prev.log` rotation via SYNCHRONOUS fd lifecycle, Windows-safe;
+  total on-disk ≤ ~2× bound; used for `installBoundedPackagedLogging`). A
+  broken sink never blocks the controller.
+### 24.2 New trace-mapped audit types
+
+All new event types are mapped in `CampaignLedgerService.mapPhase` /
+`mapStatus` (otherwise they would render as `CAMPAIGN`/`INFO` and lose signal):
+
+```text
+lease.acquired / lease.released               → phase RECOVERY, status INFO
+lease.quarantined / lease.conflict            → phase RECOVERY, status FAILED
+process.verdict (verdict= LIVE_MATCH/DEAD/PID_REUSED/UNKNOWN)
+                                              → phase RECOVERY, status INFO
+transition.retry                              → phase RECOVERY, status RETRYING
+outbox.retry                                  → phase RECOVERY, status RETRYING
+recovery.decision (quarantine vs release)     → phase RECOVERY, status FAILED/INFO
+scheduler.lease_reconciled                    → phase RECOVERY (Change 019)
+```
+
+Quarantine verdicts (`UNKNOWN`, `PID_REUSED`, ambiguous zero-process
+`STARTING` → `QUARANTINED`) are `FAILED`; live-match outcomes that verify
+identity are `INFO`. Retry counters (`attempt_count>1`) surface as
+`RETRYING` so the read model exposes the crash/restart path without log
+scraping.
+
+### 24.3 FK warnings as unqualified signal
+
+`CampaignLedgerService.recordEvent` wraps the INSERT in a `try/catch` that
+logs `console.warn("[CampaignLedger] Failed to persist event:", error)` and
+returns `null` so the production event graph never crashes. **A successful
+test run accompanied by repeated FK warnings is NOT clean qualification.**
+The ledger's FK contract (DATA-MODEL §19) guarantees no deterministic
+`FOREIGN KEY constraint` violation for `repository.deleted`,
+`unknown`-sentinel, `TEXT run_id` ownership rows, or `SET NULL` deletes; a
+warning therefore signals a regression (e.g., bogus `dispatchId` persisted
+without the guard) and the suite `campaign-ledger-integrity.test.ts` pins
+these rules. Repeated warnings during qualification indicate a blocked
+release — fix the attribution guard, not the catch.
+

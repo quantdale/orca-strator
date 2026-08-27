@@ -19,6 +19,9 @@ export type ProcessIdentityVerdict =
   | "UNKNOWN";
 
 import { execFileSync } from "node:child_process";
+import type { EventBus } from "../events/event-bus.js";
+import { redactSecrets, boundDataStrings } from "../events/event-bus.js";
+import type { RepositoryMutationEvent } from "@orca/shared";
 
 export type ProcessKind = "DIRECT_EXECUTOR" | "SWARM_WORKER" | "DAG_WORKER";
 
@@ -47,6 +50,33 @@ export interface ProcessProbe {
   killVerifiedTree(record: ProcessOwnershipRecordLike): void;
 }
 
+export function emitProcessVerdictAudit(
+  eventBus: EventBus | undefined,
+  repositoryId: string,
+  recordId: string,
+  hostPid: number,
+  verdict: ProcessIdentityVerdict
+): void {
+  if (!eventBus) return;
+  try {
+    const data = boundDataStrings(
+      redactSecrets({
+        recordId,
+        hostPid,
+        verdict
+      } as unknown as Record<string, unknown>) as Record<string, unknown>
+    );
+    const event = {
+      type: "process.verdict",
+      at: new Date().toISOString(),
+      repositoryId,
+      data
+    } satisfies { type: string; at: string; repositoryId: string; data: Record<string, unknown> };
+    eventBus.publish(event as unknown as RepositoryMutationEvent);
+  } catch {
+    /* audit must not break probe */
+  }
+}
 /** True when the verdict allows automatic lease reconciliation (release). */
 export function isProcessReleasable(verdict: ProcessIdentityVerdict): boolean {
   return verdict === "DEAD";

@@ -196,3 +196,62 @@ then writes `release/package-smoke-report.json`. CI workflows live under
 diff-check) and `windows-package.yml` (tag/manual packaging with artifact upload;
 hosted results are labeled PACKAGE_BUILT, never runtime-qualified). Operator
 rollback procedure: docs/RELEASE-AND-ROLLBACK.md.
+
+## 15. Change 028 failure-injection harnesses: endurance and multi-repo stress
+
+Both harnesses are **Change 026 pack** qualification (Windows, against the
+built `apps/desktop/release/win-unpacked/Orca-Strator.exe` with isolated
+`ORCA_DATA_DIR` + fixture Git remotes only; no inference, no real user
+profile). Exact commands are committed in `package.json`:
+
+```bash
+npm run test:endurance:short   # short soak: 6 cycles, restart every 3
+npm run test:endurance         # long soak: cycles 30 (alias --cycles 30 --label long)
+npm run test:stress:repos      # multi-repo stress: 4 repos
+```
+
+Flags: `node scripts/package/endurance.mjs [--cycles N] [--label short|long]
+[--restart-every 3] [--port P]` (default short: `CYCLES=6`,
+`RESTART_EVERY=3`, `PORT=47241`). `stress` honors `ORCA_STRESS_PORT` with
+randomized ephemeral fallback `47251+rand(600)` to avoid cross-run port
+collision.
+
+### 15.1 Endurance (`scripts/package/endurance.mjs`)
+
+Per cycle: `launchExe` → controller reuse/recovery probe (identity PID
+continuity) → API read/write churn (`/api/repositories` CRUD) → watcher
+activity on fixture remote (`advanceRemote`) → `GET /api/system/readiness` +
+`GET /api/repositories` churn → `sampleProcessMetrics` (working-set, handles)
+→ `kill desktopPid` (controller survives). Every third cycle the controller
+itself is hard-killed: `killPidOnly(pid)` → `taskkill /T /F` → PowerShell
+`Stop-Process` retries, `waitFor(!isPidAlive, 15s)`, port-release probe, `2s`
+drain, then relaunch with `180s` readiness (vs `120s` ordinary). One retry on
+transient `launchAndReady` failure for restart cycles.
+
+Thresholds (derived from warmup baseline, not arbitrary tiny numbers):
+`MEMORY_GROWTH_FACTOR_MAX=2.5`, `HANDLES_GROWTH_FACTOR_MAX=3.0`,
+`LOG_BYTES_MAX=50MiB`, package immutability (`snapshotTree` before/after),
+`PRAGMA integrity_check`, `verifyDbIntegrity` + migration count. Output:
+`release/endurance-<label>-report.json` with verdict
+`ENDURANCE_QUALIFIED`/`FAILED`. Teardown: `gracefulControllerShutdown` →
+`killPidOnly` → 20×500 ms lock-drain loop → 2 s sleep → retrying `rmSync`
+(5× dataDir, 3× fixtures) for Windows `EBUSY`/`EPERM`.
+
+### 15.2 Multi-repo stress (`scripts/package/multi-repo-stress.mjs`)
+
+Proves 4 repositories stay independent against one packaged controller:
+
+1. `M0` register 4 fixture clones concurrently;
+2. `M1` `advanceRemote("stress wave 1")` on all 4 → `sleep 12s` (≥2 watcher
+   cycles) → every repo observes its own HEAD vs initial SHA;
+3. `M2` staggered second wave (`wave2`) → no cross-routed watcher SHAs;
+4. `M3` make repo-1 local path invalid (`rm -rf clonePath`) while advancing
+   repos 2/3 → sibling failure containment (only doomed repo stalls);
+5. `M4.a`/`.b`/`.c` desktop close → `identityOnce` proves controller PID
+   unchanged → relaunch desktop → `waitFor(reopen readiness,60s)` reuses same
+   controller → `GET /api/repositories` count `===4`;
+6. `M5` final SQLite + FK integrity (`verifyDbIntegrity`).
+
+Teardown: `gracefulControllerShutdown` → `readLock`/`killPidOnly` → `rmSync`
+both temps. Verdict `MULTI_REPO_PACKAGED_STRESS_QUALIFIED`.
+

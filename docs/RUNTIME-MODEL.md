@@ -653,3 +653,114 @@ synchronously before its first `await`, refuses an overlapping concurrent
 start with a structured validation error instead of spawning a second runner,
 and releases the intent on every exit path so failures never wedge later
 authorized starts.
+## 24. Durable execution ownership and crash consistency (Change 028)
+
+Controller death is an **uncertainty boundary**, not proof of actor death.
+Change 028 makes ownership, worktree, transition, and lifecycle crash-durable
+without holding SQLite transactions across external I/O.
+
+### 24.1 Process-attempt ownership
+
+* Every real `spawn` creates a distinct durable attempt identity (one
+  `process_ownership_records.id` per `ExecutorRunner` attempt, even for retries
+  of the same executor `run_id`; registered in `ExecutorRunner.onSpawn`).
+* Evidence captured immediately after `spawn`: `host_pid` + `start_marker`
+  (`Get-CimInstance Win32_Process CreationDate` on Windows,
+  `/proc/<pid>/stat` start time on Linux) + `executable_name` (never secrets
+  or full `argv`). Missing required identity → verdict `UNKNOWN` (never
+  wildcard `LIVE_MATCH`). `PID-not-found` vs `query-failed` are distinct
+  (`DEAD` vs `UNKNOWN`).
+* **PRE_SPAWN vs POST_SPAWN failure typing.** Generic launch retry is allowed
+  only while no attempt has crossed `spawn`. Once a child has emitted `spawn`,
+  ownership persistence / capture failure is not an ordinary launch failure:
+  a replacement spawn is allowed only after the prior child is verified
+  terminated and its attempt is durably terminal (`EXITED`/`KILL_CONFIRMED`);
+  `UNKNOWN`/`PID_REUSED` quarantines the repository and aborts the retry
+  sequence.
+* **Exit observation covers the `onSpawn` handshake.** The runner installs its
+  `exit`/`error` listener before the awaitable ownership hook can yield, or
+  explicitly reconciles `exitCode` after it, so a short-lived child that exits
+  while persistence is in flight still produces exactly-once terminal evidence
+  (process `EXITED` before lease release).
+* **Lease release is gated.** `RepositoryActorLeaseService.release` waits until
+  all associated `process_ownership_records` are `EXITED`/`KILL_CONFIRMED` or
+  proven `DEAD` and the actor has reached a durable boundary; otherwise the
+  lease remains `ACTIVE`/`QUARANTINED`. If every attempt fails **before**
+  proven spawn, the current controller's `STARTING` lease is terminalized and
+  released; any ambiguous POST_SPAWN failure instead quarantines.
+
+### 24.2 One repository actor, SWARM/DAG workers beneath it
+
+* `repository_actor_leases` (`repository_id` PRIMARY KEY) is the durable
+  single-writer gate: at most one `SINGLE_AGENT` direct executor **or** one
+  `SWARM`/`DAG` strategy lease may be `STARTING`/`ACTIVE` for a repository.
+  ADMITTED scheduler leases are separate; they never gate repository mutation.
+* SWARM/DAG workers are `SWARM_WORKER`/`DAG_WORKER` process rows **beneath**
+  the one strategy actor; a worker sweep never needs a per-worker repository
+  lease. The coordinator persists each worker before admission and records
+  `strategyRunId → actor_id` linkage.
+* Startup `reconcileOnStartup` classifies every prior lease by probing all
+  owned processes (`LIVE_MATCH`/`DEAD`/`PID_REUSED`/`UNKNOWN`). Any
+  `LIVE_MATCH` → `QUARANTINED` + `last_error` with blocking verdict; any
+  `UNKNOWN`/`PID_REUSED` → `QUARANTINED` (never auto-killed); empty
+  `STARTING`/`ACTIVE` with zero process rows → ambiguous
+  spawn-to-persistence window → `QUARANTINED`. Only all-`DEAD` is released
+  and allowed to move to truthful `RECOVERY_REQUIRED` evidence. `QUARANTINED`
+  start/resume/retry endpoints return `409`.
+
+### 24.3 Worktree protection
+
+* `SwarmExecutionService.recoverAll` / `DagExecutionService` and
+  `WorktreeIsolationService` reorder so `reconcileOnStartup` precedes
+  worktree/staging sweeps. Worktrees whose owning process is
+  `LIVE_MATCH` or `UNKNOWN` are never auto-released; `DEAD` workers are
+  reconciled to `RECOVERY_REQUIRED` evidence with preserved dirty files.
+* Orphan DAG staging checkouts are swept only after the owning strategy actor
+  is proven dead. Provenance branches are retained.
+
+### 24.4 Crash-consistent transitions
+
+* `OrchestrationTransitionService.enqueueAndApply` is the durable
+  inbox/outbox boundary: for `DISPATCH` / `SOL_CONTROL` /
+  `EXECUTOR_COMPLETION` / `STRATEGY_COMPLETION`, source consumption
+  (`dispatches`/`sol_controls` `consumed`), required `runs` mutation
+  (CAS `updateStatus` where `changes===0`→stale), and the replayable
+  `orchestration_outbox` rows commit in one `BEGIN IMMEDIATE` transaction.
+  No browser, Git-network, `spawn`, or other awaited I/O occurs inside the
+  transaction; violation would be observable because post-commit delivery is
+  the only path that touches those systems.
+* Outbox delivery is deterministic `effect_key` + `PENDING → DELIVERING →
+  DELIVERED/FAILED_RETRYABLE` with idempotent replay (`replayOutbox` after
+  commit and on startup after `reconcileOnStartup`). `SUBMIT_SOL_WAKE` reuses
+  the existing durable Sol-operation intent; `COMPLETE_SOL_OPERATION`
+  (browser page close) and `START_EXECUTION_ACTOR` are post-commit effects
+  harmless if already closed/owned. Duplicate dispatch/control delivery
+  resolves via `UNIQUE(source_kind,source_id,operation)` → already
+  `APPLIED`/terminal.
+* Atomic paths in production: watcher `dispatch_detected` / drain,
+  `applyIterationCompletion` (`COMPLETED`/`DRAIN`/`FAIL_*`),
+  `onControlDetected` (run + control `consumed` + browser close), and
+  SWARM/DAG/postflight completion all route through the same transition
+  boundary; legacy inline fallback remains for test harnesses without wiring.
+
+### 24.5 Promise-aware callbacks and abortable lifecycle
+
+* Watcher `onDispatchDetected`/`onControlDetected` are `Promise<void>`;
+  `ExecutorService.onExecutorCompleted` returns `void|Promise<void>` and is
+  `await`ed through `LoopService.reportCompletionFailure` → no detached
+  `void` orchestration mutation. A process-level `unhandledRejection` hook
+  is last-resort diagnostics only.
+* `buildApp({ signal?: AbortSignal })` registers an `AbortController` at
+  `index.ts` construction; every resource constructor pushes a LIFO cleanup
+  closure as soon as it can own work. SIGINT/SIGTERM during
+  `buildApp` latches shutdown, prevents new watcher/browser/process
+  admissions (the reconciler and `BrowserManager` rehydrate check the latch),
+  settles partial cleanup, then releases the runtime singleton lock.
+  `Fastify.listen` failure (`EADDRINUSE`) tears down the fully assembled
+  graph (`watcher → loop timers → coordinators/executors → BrowserManager →
+  Fastify → DB → lock`) rather than releasing the lock first.
+* Deterministic teardown order (highest to lowest level): scheduler/executor
+  admissions stopped → worker `terminate`/`watchdog` → child `exit` settled
+  → completion callbacks drained → worktrees preserved → `fastify.close()`
+  → `db.close()` → singleton lock released.
+

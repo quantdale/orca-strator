@@ -6,6 +6,9 @@ import {
   type TransitionSourceKind,
   type OutboxItem
 } from "./ownership-store.js";
+import type { EventBus } from "../events/event-bus.js";
+import type { RepositoryMutationEvent } from "@orca/shared";
+import { redactSecrets, boundDataStrings } from "../events/event-bus.js";
 
 /**
  * Change 028 (D7/D8/D9): durable, crash-consistent orchestration transition
@@ -61,14 +64,50 @@ export type OutboxDeliverer = (
 export class OrchestrationTransitionService {
   private readonly intentStore: TransitionIntentStore;
   private readonly outboxStore: OutboxStore;
+  private readonly eventBus?: EventBus;
 
   constructor(
     private readonly db: DatabaseSync,
     intentStore?: TransitionIntentStore,
-    outboxStore?: OutboxStore
+    outboxStore?: OutboxStore,
+    eventBus?: EventBus
   ) {
+    // Support positional overload where EventBus is passed as second arg for ergonomic injection
+    const isEventBus = (v: unknown): boolean =>
+      Boolean(v && typeof v === "object" && "publish" in (v as Record<string, unknown>) && typeof (v as Record<string, unknown>).publish === "function" && !("enqueue" in (v as Record<string, unknown>)));
+    if (intentStore && isEventBus(intentStore)) {
+      this.eventBus = intentStore as unknown as EventBus;
+      this.intentStore = new TransitionIntentStore(db);
+      this.outboxStore = outboxStore ?? new OutboxStore(db);
+      return;
+    }
+    if (outboxStore && isEventBus(outboxStore)) {
+      this.eventBus = outboxStore as unknown as EventBus;
+      this.intentStore = intentStore ?? new TransitionIntentStore(db);
+      this.outboxStore = new OutboxStore(db);
+      return;
+    }
     this.intentStore = intentStore ?? new TransitionIntentStore(db);
     this.outboxStore = outboxStore ?? new OutboxStore(db);
+    this.eventBus = eventBus;
+  }
+
+  private emitAudit(type: string, repositoryId: string, runId: string | null, data: Record<string, unknown>): void {
+    if (!this.eventBus) return;
+    try {
+      const payload: Record<string, unknown> = runId ? { ...data, runId } : { ...data };
+      const redacted = redactSecrets(payload);
+      const bounded = boundDataStrings(redacted as Record<string, unknown>);
+      const event = {
+        type,
+        at: new Date().toISOString(),
+        repositoryId,
+        data: bounded
+      } satisfies { type: string; at: string; repositoryId: string; data: Record<string, unknown> };
+      this.eventBus.publish(event as unknown as RepositoryMutationEvent);
+    } catch {
+      /* audit emission must not break transition */
+    }
   }
 
   /** Wrap a unit of work in a single SQLite transaction. */
@@ -110,9 +149,30 @@ export class OrchestrationTransitionService {
       payloadJson: opts.payloadJson ?? "{}"
     });
     if (!inserted) {
+      const existing = this.intentStore.getBySource(opts.sourceKind, opts.sourceId, opts.operation);
+      this.emitAudit("transition.retry", opts.repositoryId, opts.runId ?? null, {
+        sourceKind: opts.sourceKind,
+        sourceId: opts.sourceId,
+        operation: opts.operation,
+        intentId,
+        attempt_count: existing?.attemptCount ?? 0,
+        applied: false,
+        reason: "duplicate intent"
+      });
       return { applied: false, intentId, outbox: [] };
     }
-    if (!this.intentStore.markApplying(intentId)) {
+    const applying = this.intentStore.markApplying(intentId);
+    const afterMark = this.intentStore.getBySource(opts.sourceKind, opts.sourceId, opts.operation);
+    const attemptCount = afterMark?.attemptCount ?? 1;
+    this.emitAudit("transition.retry", opts.repositoryId, opts.runId ?? null, {
+      sourceKind: opts.sourceKind,
+      sourceId: opts.sourceId,
+      operation: opts.operation,
+      intentId,
+      attempt_count: attemptCount,
+      phase: "markApplying"
+    });
+    if (!applying) {
       return { applied: false, intentId, outbox: [] };
     }
 
@@ -129,15 +189,18 @@ export class OrchestrationTransitionService {
       this.intentStore.setState(intentId, "APPLIED");
     });
 
+    this.emitAudit("transition.retry", opts.repositoryId, opts.runId ?? null, {
+      sourceKind: opts.sourceKind,
+      sourceId: opts.sourceId,
+      operation: opts.operation,
+      intentId,
+      attempt_count: attemptCount,
+      applied: true,
+      outboxCount: outboxSpecs.length
+    });
     return { applied: true, intentId, outbox: outboxSpecs };
   }
 
-  /**
-   * Deliver (or re-deliver after a crash) all pending/delivering outbox
-   * effects. Called after commit and during startup replay. Delivery is
-   * idempotent: an already-DELIVERED effect is skipped, and the deterministic
-   * effect key prevents duplicate side effects.
-   */
   async replayOutbox(deliver: OutboxDeliverer): Promise<void> {
     const pending = [
       ...this.outboxStore.listByState("PENDING"),
@@ -147,17 +210,37 @@ export class OrchestrationTransitionService {
       if (item.state === "DELIVERED" || item.state === "FAILED_TERMINAL") {
         continue;
       }
-      if (!this.outboxStore.markDelivering(item.id)) {
+      const claimed = this.outboxStore.markDelivering(item.id);
+      // For DELIVERING items, markDelivering returns false (already claimed), but we still treat as claimed for retry audit
+      const current = this.outboxStore.get(item.id);
+      const attemptCount = current?.attemptCount ?? item.attemptCount;
+      if (!claimed && item.state !== "DELIVERING") {
         continue; // another worker claimed it
       }
       try {
         await deliver(item);
         this.outboxStore.setState(item.id, "DELIVERED");
+        this.emitAudit("outbox.retry", item.repositoryId, item.runId ?? null, {
+          effectKey: item.effectKey,
+          effectKind: item.effectKind,
+          outboxId: item.id,
+          attempt_count: attemptCount + (claimed ? 0 : 1),
+          result: "delivered"
+        });
       } catch (err) {
         const message = (err as Error | null)?.message ?? String(err);
         // Retryable by default; terminal outbox failures require an explicit
         // policy decision elsewhere and are not swallowed here.
         this.outboxStore.setState(item.id, "FAILED_RETRYABLE", message);
+        const after = this.outboxStore.get(item.id);
+        this.emitAudit("outbox.retry", item.repositoryId, item.runId ?? null, {
+          effectKey: item.effectKey,
+          effectKind: item.effectKind,
+          outboxId: item.id,
+          attempt_count: after?.attemptCount ?? attemptCount,
+          result: "retryable",
+          reason: message
+        });
       }
     }
   }

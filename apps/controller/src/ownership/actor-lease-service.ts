@@ -12,6 +12,9 @@ import {
   type ProcessIdentityVerdict,
   isProcessReleasable
 } from "./process-probe.js";
+import type { EventBus } from "../events/event-bus.js";
+import type { RepositoryMutationEvent } from "@orca/shared";
+import { redactSecrets, boundDataStrings } from "../events/event-bus.js";
 
 export interface AcquireOptions {
   runId?: string | null;
@@ -56,10 +59,28 @@ export class RepositoryActorLeaseService {
 
   constructor(
     private readonly db: DatabaseSync,
-    private readonly probe: ProcessProbe
+    private readonly probe: ProcessProbe,
+    private readonly eventBus?: EventBus
   ) {
     this.leaseStore = new RepositoryActorLeaseStore(db);
     this.processStore = new ProcessOwnershipStore(db);
+  }
+  private emitAudit(type: string, repositoryId: string, runId: string | null, data: Record<string, unknown>): void {
+    if (!this.eventBus) return;
+    try {
+      const payload: Record<string, unknown> = runId ? { ...data, runId } : { ...data };
+      const redacted = redactSecrets(payload);
+      const bounded = boundDataStrings(redacted as Record<string, unknown>);
+      const event: RepositoryMutationEvent = {
+        type: type as RepositoryMutationEvent["type"],
+        at: new Date().toISOString(),
+        repositoryId,
+        data: bounded
+      };
+      this.eventBus.publish(event);
+    } catch {
+      /* audit emission must never break lease operation */
+    }
   }
 
   getLease(repositoryId: string): RepositoryActorLease | null {
@@ -80,22 +101,41 @@ export class RepositoryActorLeaseService {
     const existing = this.leaseStore.get(repositoryId);
     if (existing) {
       if (existing.state === "QUARANTINED") {
-        return {
+        const result: AcquireResult = {
           outcome: "quarantined",
           lease: existing,
           reason: "repository actor is quarantined; manual reconciliation required"
         };
+        this.emitAudit("lease.quarantined", repositoryId, existing.runId ?? opts.runId ?? null, {
+          outcome: result.outcome,
+          actorKind,
+          controllerInstanceId,
+          existingState: existing.state,
+          reason: result.reason ?? "",
+          leaseId: existing.leaseId
+        });
+        return result;
       }
       if (
         existing.controllerInstanceId !== controllerInstanceId ||
         existing.state === "ACTIVE" ||
         existing.state === "STARTING"
       ) {
-        return {
+        const result: AcquireResult = {
           outcome: "conflict",
           lease: existing,
           reason: `repository already has a ${existing.state} actor lease owned by controller instance ${existing.controllerInstanceId}`
         };
+        this.emitAudit("lease.conflict", repositoryId, existing.runId ?? opts.runId ?? null, {
+          outcome: result.outcome,
+          actorKind,
+          controllerInstanceId,
+          existingState: existing.state,
+          existingControllerInstanceId: existing.controllerInstanceId,
+          reason: result.reason ?? "",
+          leaseId: existing.leaseId
+        });
+        return result;
       }
     }
 
@@ -113,15 +153,39 @@ export class RepositoryActorLeaseService {
     if (!inserted) {
       const after = this.leaseStore.get(repositoryId);
       if (after && after.state === "QUARANTINED") {
-        return { outcome: "quarantined", lease: after, reason: "lease became quarantined" };
+        const result: AcquireResult = { outcome: "quarantined", lease: after, reason: "lease became quarantined" };
+        this.emitAudit("lease.quarantined", repositoryId, after.runId ?? opts.runId ?? null, {
+          outcome: result.outcome,
+          actorKind,
+          controllerInstanceId,
+          reason: result.reason ?? "",
+          leaseId: after.leaseId
+        });
+        return result;
       }
-      return {
+      const result: AcquireResult = {
         outcome: "conflict",
         lease: after,
         reason: "another actor lease already owns this repository (PK boundary)"
       };
+      this.emitAudit("lease.conflict", repositoryId, after?.runId ?? opts.runId ?? null, {
+        outcome: result.outcome,
+        actorKind,
+        controllerInstanceId,
+        reason: result.reason ?? "",
+        leaseId: after?.leaseId ?? leaseId
+      });
+      return result;
     }
-    return { outcome: "acquired", lease: this.leaseStore.get(repositoryId)! };
+    const lease = this.leaseStore.get(repositoryId)!;
+    this.emitAudit("lease.acquired", repositoryId, lease.runId ?? opts.runId ?? null, {
+      outcome: "acquired",
+      actorKind,
+      controllerInstanceId,
+      leaseId: lease.leaseId,
+      actorId: opts.actorId ?? null
+    });
+    return { outcome: "acquired", lease };
   }
 
   bindActor(repositoryId: string, actorId: string, extra?: { runId?: string | null }): void {
@@ -138,6 +202,12 @@ export class RepositoryActorLeaseService {
    */
   quarantine(repositoryId: string, reason: string): void {
     this.leaseStore.updateState(repositoryId, "QUARANTINED", { lastError: reason });
+    const lease = this.leaseStore.get(repositoryId);
+    this.emitAudit("lease.quarantined", repositoryId, lease?.runId ?? null, {
+      reason,
+      leaseId: lease?.leaseId ?? null,
+      state: "QUARANTINED"
+    });
   }
 
   /**
@@ -154,6 +224,14 @@ export class RepositoryActorLeaseService {
       this.leaseStore.updateState(repositoryId, "QUARANTINED", {
         lastError: "release attempted by non-owning controller instance"
       });
+      const updated = this.leaseStore.get(repositoryId);
+      this.emitAudit("lease.quarantined", repositoryId, lease.runId ?? null, {
+        reason: "release attempted by non-owning controller instance",
+        leaseId: lease.leaseId,
+        controllerInstanceId,
+        ownerControllerInstanceId: lease.controllerInstanceId,
+        state: updated?.state ?? "QUARANTINED"
+      });
       return;
     }
     const processes = this.processStore.listByRepository(repositoryId);
@@ -163,10 +241,21 @@ export class RepositoryActorLeaseService {
         this.leaseStore.updateState(repositoryId, "QUARANTINED", {
           lastError: `cannot release: process ${rec.id} still in state ${rec.state}`
         });
+        this.emitAudit("lease.quarantined", repositoryId, lease.runId ?? null, {
+          reason: `cannot release: process ${rec.id} still in state ${rec.state}`,
+          leaseId: lease.leaseId,
+          processId: rec.id,
+          processState: rec.state
+        });
         return;
       }
     }
     this.leaseStore.release(repositoryId);
+    this.emitAudit("lease.released", repositoryId, lease.runId ?? null, {
+      leaseId: lease.leaseId,
+      controllerInstanceId,
+      actorKind: lease.actorKind
+    });
   }
 
   /**
@@ -189,8 +278,6 @@ export class RepositoryActorLeaseService {
        // Change 028 P0 (5.8/5.9): a prior STARTING/ACTIVE lease with zero
        // process ownership records means admission happened but we cannot prove
        // whether a child was actually spawned or persisted. The spawn-to-
-       // persistence window is ambiguous after a restart; never auto-release it
-       // and never assume the writer is dead. Fail closed to QUARANTINED.
        if (
          processes.length === 0 &&
          (lease.state === "STARTING" || lease.state === "ACTIVE")
@@ -198,6 +285,18 @@ export class RepositoryActorLeaseService {
          const reason =
            "prior lease has no process ownership record; spawn/persistence window is ambiguous after restart";
          this.leaseStore.updateState(lease.repositoryId, "QUARANTINED", { lastError: reason });
+         this.emitAudit("lease.quarantined", lease.repositoryId, lease.runId ?? null, {
+           reason,
+           leaseId: lease.leaseId,
+           state: lease.state,
+           processesCount: 0,
+           outcome: "quarantined"
+         });
+         this.emitAudit("recovery.decision", lease.repositoryId, lease.runId ?? null, {
+           reason,
+           decision: "quarantine",
+           processesCount: 0
+         });
          results.push({
            repositoryId: lease.repositoryId,
            priorLease: lease,
@@ -213,6 +312,14 @@ export class RepositoryActorLeaseService {
          hostPid: rec.hostPid,
          verdict: this.classifyRecord(rec)
        }));
+       for (const c of classified) {
+         this.emitAudit("process.verdict", lease.repositoryId, lease.runId ?? null, {
+           recordId: c.recordId,
+           hostPid: c.hostPid,
+           verdict: c.verdict,
+           leaseId: lease.leaseId
+         });
+       }
 
       const blocking = classified.find((c) => !isProcessReleasable(c.verdict));
       if (blocking) {
@@ -221,6 +328,18 @@ export class RepositoryActorLeaseService {
             ? `process ${blocking.recordId} liveness unverifiable after restart; refusing to assume death`
             : `process ${blocking.recordId} verdict=${blocking.verdict}; prior writer may still be alive`;
         this.leaseStore.updateState(lease.repositoryId, "QUARANTINED", { lastError: reason });
+        this.emitAudit("lease.quarantined", lease.repositoryId, lease.runId ?? null, {
+          reason,
+          leaseId: lease.leaseId,
+          blockingRecordId: blocking.recordId,
+          blockingVerdict: blocking.verdict,
+          outcome: "quarantined"
+        });
+        this.emitAudit("recovery.decision", lease.repositoryId, lease.runId ?? null, {
+          reason,
+          decision: "quarantine",
+          blockingVerdict: blocking.verdict
+        });
         results.push({
           repositoryId: lease.repositoryId,
           priorLease: lease,
@@ -231,6 +350,16 @@ export class RepositoryActorLeaseService {
       } else {
         // All dead/terminal: release the durable lease so recovery can proceed.
         this.leaseStore.release(lease.repositoryId);
+        this.emitAudit("lease.released", lease.repositoryId, lease.runId ?? null, {
+          reason: "all owned processes confirmed dead; lease released for recovery",
+          leaseId: lease.leaseId,
+          outcome: "released"
+        });
+        this.emitAudit("recovery.decision", lease.repositoryId, lease.runId ?? null, {
+          reason: "all owned processes confirmed dead; lease released for recovery",
+          decision: "release",
+          processesCount: classified.length
+        });
         results.push({
           repositoryId: lease.repositoryId,
           priorLease: lease,

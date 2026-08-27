@@ -160,12 +160,12 @@ export async function buildApp(
   // shared by the lease service and the executor ownership hooks so a captured
   // child pid is known to restart reconciliation.
   const processProbe = createProcessProbe();
-  const leaseService = new RepositoryActorLeaseService(dbContext.db, processProbe);
+  const leaseService = new RepositoryActorLeaseService(dbContext.db, processProbe, eventBus);
   const processOwnershipStore = new ProcessOwnershipStore(dbContext.db);
   // Change 028 (D7/D8/D9): one durable transition processor per controller
   // process. Shares the controller DB so dispatch/control/completion source
   // consumption + run transition + outbox rows commit in one transaction.
-  const transitionService = new OrchestrationTransitionService(dbContext.db);
+  const transitionService = new OrchestrationTransitionService(dbContext.db, undefined, undefined, eventBus);
   const capabilityStore = new CapabilityStore(dbContext.db);
   const runPolicyStore = new RunPolicyStore(dbContext.db);
   const campaignLedgerStore = new CampaignLedgerStore(dbContext.db);

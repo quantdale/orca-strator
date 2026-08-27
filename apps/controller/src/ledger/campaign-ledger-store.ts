@@ -40,6 +40,27 @@ export class CampaignLedgerStore {
   constructor(private readonly db: DatabaseSync) {}
 
   record(input: RecordTraceEventInput): CampaignTraceEvent {
+    // Bounded audit payload: data_json is capped to 4 KiB. EventBus already
+    // redacted secrets and bounded strings to 2 KiB; this is the final
+    // persistent cap so retry loops cannot flood the trace table.
+    let dataJson = JSON.stringify(input.data ?? {});
+    if (dataJson.length > 4096) {
+      // Truncate longest string fields first; fallback to slicing JSON.
+      const data = { ...(input.data ?? {}) } as Record<string, unknown>;
+      const keys = Object.keys(data).filter((k) => typeof data[k] === "string") as string[];
+      keys.sort((a, b) => (data[b] as string).length - (data[a] as string).length);
+      for (const k of keys) {
+        if (dataJson.length <= 4096) break;
+        const s = data[k] as string;
+        const over = dataJson.length - 4096;
+        const newLen = Math.max(64, s.length - over - 20);
+        data[k] = s.slice(0, newLen) + "…[truncated]";
+        dataJson = JSON.stringify(data);
+      }
+      if (dataJson.length > 4096) dataJson = dataJson.slice(0, 4096 - 20) + "…[truncated]";
+      // Rebuild event data from truncated json for return value.
+      try { input.data = JSON.parse(dataJson) as Record<string, unknown>; } catch { /* keep original truncated string */ }
+    }
     const event: CampaignTraceEvent = {
       id: crypto.randomUUID(),
       repositoryId: input.repositoryId,
@@ -76,7 +97,7 @@ export class CampaignLedgerStore {
       event.durationMs,
       event.status,
       event.failureReason,
-      JSON.stringify(event.data)
+      dataJson
     );
     return event;
   }
