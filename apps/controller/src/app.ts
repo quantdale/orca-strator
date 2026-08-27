@@ -320,10 +320,13 @@ export async function buildApp(
     openCodeAdapter,
     runPolicyStore,
     usageTelemetryService,
-    onExecutorCompleted: (repositoryId, dispatchId, result) => {
-      void loopService.onExecutorCompleted(repositoryId, dispatchId, result);
+    onExecutorCompleted: async (repositoryId, dispatchId, result) => {
+      try {
+        await loopService.onExecutorCompleted(repositoryId, dispatchId, result);
+      } catch (err) {
+        try { fastify.log.error(err, `[app] onExecutorCompleted failed for ${repositoryId}/${dispatchId}`); } catch {}
+      }
     },
-    eventPublisher: (event) => eventBus.publish(event),
     // Change 028 (D4/D5): durable direct-executor ownership. Absent only in
     // legacy/test wiring; production always supplies it.
     ownership: {
