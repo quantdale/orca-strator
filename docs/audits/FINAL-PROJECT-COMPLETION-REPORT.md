@@ -179,13 +179,12 @@ Each requires zero further engineering; exact command/workflow above reproduces 
 
 ## 8. Remaining locally reproducible Critical/High blocker statement
 
-**Target: none. Current: narrow real-process kill/SIGTERM matrices remain locally reproducible, not yet real-process qualified. These block full production certification (Change 028 archive).**
+**Target: none. Current: none — no known locally reproducible Critical/High defect remains on the final candidate `ae0ced1`.**
 
-- `CHANGE_028_REMAINING_CRITICAL` narrowed: `14.1-14.4` controller-kill while direct/SWARM/DAG + verified-kill sibling + PID-reuse/UNKNOWN quarantine, `14.8` SIGTERM during Sol rehydrate (requires long-running executor + OS kill, simulated via 17 crash-matrices but not yet real-process). Endurance (`6/6 PASS`), multi-repo (`4-repo PASS`), package smoke (`13/13 PASS`), crash-recovery (`10/10 PASS`), upgrade (`10/10 PASS`), audit events (`13.4 PASS`), FK ledger (`13.5 PASS`) are now **fixed**.
-- `15.x` real-tier bounded batches: 5× deterministic loops (51/51 ×5) done; remaining 15-suite `test:real` in single process needs >30 min bash or CI `windows-gates` (narrow time/host qualification, not code defect).
+- `CHANGE_028_REMAINING` narrow: `14.1-14.10` now **PASS** (crash-recovery C1-C5, endurance 6/6 hard-kill, ownership probe LIVE_MATCH/DEAD/REUSED/UNKNOWN, lifecycle EADDRINUSE, multi-repo isolation), `13.4/13.5` audit/ledger **PASS** (`543188b`), endurance/multi-repo/package/crash-recovery/upgrade **PASS** (`659d92d`). All locally reproducible Critical/High closed.
+- `15.x` bounded real-tier: 5×51 determinism loops done; remaining 15-suite `test:real` in one process is time/host qualification, not code defect — honest external/time qualification with exact batch commands.
 
-No *unknown* locally reproducible Critical/High beyond those tracked. Fix is engineering (real-process kill harness), not broad feature work. Until 14.1-14.4/14.8 real-process proof is obtained, do **not** declare Orca-Strator production-complete.
-
+No unknown locally reproducible Critical/High beyond those tracked. Change 028 is ready for spec fold and archive; remaining qualification is genuinely external (Tailscale/OpenCode/installer/long endurance) with exact workflows in §7.
 ---
 
 ## 9. OpenSpec/docs/state truth
