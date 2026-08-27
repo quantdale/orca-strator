@@ -290,6 +290,112 @@ export class LoopService {
         return;
       }
     }
+    // D9.5: if a durable transition is wired, make dispatch consumption +
+    // run transition + Sol-close/actor-start outbox atomic. This is the
+    // production path; the legacy inline path below remains for tests
+    // without transition wiring.
+    if (this.transition && this.dispatchStore && preActive) {
+      // Draining branch: atomic dispatch consumed + drain state + outbox close
+      if (wasDraining) {
+        try {
+          const dispatchIter = this.dispatchStore.get(dispatchId)?.iteration;
+          const runIdForDrain = preActive.id;
+          const pendingStop = drainIsStop || preActive.drainReason === "USER_STOP";
+          const pendingCeiling = drainIsCeiling || preActive.drainReason === "WALL_CLOCK_CEILING" || preActive.drainReason === "ITERATION_CEILING";
+          await this.transition.enqueueAndApply({
+            sourceKind: "DISPATCH",
+            sourceId: dispatchId,
+            operation: "DISPATCH_DRAIN",
+            repositoryId,
+            runId: runIdForDrain,
+            payloadJson: JSON.stringify({ dispatchIter, pendingStop, pendingCeiling }),
+            apply: ({ enqueueOutbox }) => {
+              try {
+                const d = this.dispatchStore!.get(dispatchId);
+                if (d && (d.status === "detected" || (d.status as string) === "pending")) (this.dispatchStore as any).updateStatus(dispatchId, "consumed");
+              } catch {}
+              const dr = this.runStore.get(runIdForDrain) ?? this.runStore.getActiveRun(repositoryId);
+              if (!dr) return;
+              if (pendingCeiling) {
+                this.ceilingPending.delete(repositoryId);
+                try { this.runStore.clearDrainReason(dr.id); } catch {}
+                this.cancelWallClockCeiling(repositoryId);
+                this.runStore.updateStatus(dr.id, "CEILING_REACHED", { lastError: "Wall-clock ceiling reached (drained at Sol boundary)", finishedAt: new Date().toISOString(), drainReason: null });
+              } else if (pendingStop) {
+                this.stopPending.delete(repositoryId);
+                try { this.runStore.clearDrainReason(dr.id); } catch {}
+                this.cancelWallClockCeiling(repositoryId);
+                this.runStore.updateStatus(dr.id, "STOPPED", { lastError: "Stopped by user (drained at Sol boundary)", finishedAt: new Date().toISOString(), drainReason: null });
+              } else {
+                this.ceilingPending.delete(repositoryId);
+                this.stopPending.delete(repositoryId);
+                try { this.runStore.clearDrainReason(dr.id); } catch {}
+                this.cancelWallClockCeiling(repositoryId);
+                this.runStore.updateStatus(dr.id, "CEILING_REACHED", { lastError: "Drained at Sol boundary", finishedAt: new Date().toISOString(), drainReason: null });
+              }
+              enqueueOutbox({ effectKey: `close-sol-${runIdForDrain}-${dispatchId}`, effectKind: "COMPLETE_SOL_OPERATION", repositoryId, runId: runIdForDrain, payloadJson: JSON.stringify({ runId: runIdForDrain, dispatchIter }) });
+            },
+          });
+          await this.transition.replayOutbox((item) => this.deliverOutboxEffect(item));
+          try {
+            const after = this.runStore.get(runIdForDrain) ?? this.runStore.getActiveRun(repositoryId);
+            if (after) this.publishStateChange(repositoryId, after.id, after.status as any);
+            this.publishEvent({ type: "loop.drain_completed", at: new Date().toISOString(), repositoryId, data: { dispatchId, drainIsStop, drainIsCeiling } } as any);
+          } catch {}
+          return;
+        } catch {}
+      } else {
+        // Non-draining: validate iteration + ownership before enqueueing (outside tx)
+        const activeForCheck = this.runStore.getActiveRun(repositoryId);
+        if (activeForCheck && DISPATCH_RECEPTIVE_STATES.includes(activeForCheck.status)) {
+          try {
+            const d2 = this.dispatchStore.get(dispatchId);
+            if (d2 && d2.runId === activeForCheck.id && d2.iteration === activeForCheck.currentIteration + 1) {
+              const dispatchSnap = d2;
+              const nextIteration = dispatchSnap.iteration;
+              const strategy = this.coordinator?.resolveStrategy(dispatchSnap) ?? "SINGLE_AGENT";
+              let ownershipOk = true;
+              try {
+                this.coordinator?.assertCampaignIterationOwnership(repositoryId, activeForCheck, { requestedStrategy: strategy, allowSolBoundary: true, authorizedDispatchId: dispatchId, authorizedStrategy: strategy });
+              } catch (err: any) {
+                this.publishEvent({ type: "loop.strategy_conflict", at: new Date().toISOString(), repositoryId, data: { dispatchId, strategy, reason: err?.message ?? String(err) } } as any);
+                ownershipOk = false;
+              }
+              if (ownershipOk) {
+                try {
+                  const dispatchIter = dispatchSnap.iteration;
+                  const runIdToTransit = activeForCheck.id;
+                  const executionPlan = (dispatchSnap as unknown as { executionPlan?: unknown }).executionPlan as Record<string, unknown> | undefined;
+                  await this.transition.enqueueAndApply({
+                    sourceKind: "DISPATCH",
+                    sourceId: dispatchId,
+                    operation: "DISPATCH_START",
+                    repositoryId,
+                    runId: runIdToTransit,
+                    payloadJson: JSON.stringify({ dispatchIter, nextIteration, strategy }),
+                    apply: ({ enqueueOutbox }) => {
+                      try {
+                        const d = this.dispatchStore!.get(dispatchId);
+                        if (d && (d.status === "detected" || (d.status as string) === "pending")) (this.dispatchStore as any).updateStatus(dispatchId, "consumed");
+                      } catch {}
+                      const cur = this.runStore.get(runIdToTransit);
+                      if (!cur || cur.id !== activeForCheck.id) return;
+                      if (!DISPATCH_RECEPTIVE_STATES.includes(cur.status as any)) return;
+                      this.runStore.updateStatus(cur.id, "EXECUTOR_PENDING", { activeDispatchId: dispatchId, currentIteration: nextIteration });
+                      enqueueOutbox({ effectKey: `close-sol-${cur.id}-${dispatchId}`, effectKind: "COMPLETE_SOL_OPERATION", repositoryId, runId: cur.id, payloadJson: JSON.stringify({ runId: cur.id, dispatchIter }) });
+                      enqueueOutbox({ effectKey: `start-actor-${cur.id}-${dispatchId}`, effectKind: "START_EXECUTION_ACTOR", repositoryId, runId: cur.id, payloadJson: JSON.stringify({ dispatchId, strategy, executionPlan }) });
+                    },
+                  });
+                  await this.transition.replayOutbox((item) => this.deliverOutboxEffect(item));
+                  try { this.publishStateChange(repositoryId, runIdToTransit, "EXECUTOR_PENDING"); } catch {}
+                  return;
+                } catch {}
+              }
+            }
+          } catch {}
+        }
+      }
+    }
 
     // Draining: a valid dispatch IS the actor boundary for Sol. Complete the boundary without launching executor.
     if (wasDraining) {
@@ -812,6 +918,50 @@ export class LoopService {
     hasResult: boolean,
     failureDetail?: string,
   ): Promise<void> {
+    // D9.5: drain-boundary strategy completion — make dispatch + run transition atomic when wired
+    if (activeRun.status === "DRAINING" && this.transition && this.dispatchStore) {
+      try {
+        const isCeiling = this.isCeilingPendingEffective(repositoryId, activeRun);
+        const isStop = this.isStopPendingEffective(repositoryId, activeRun);
+        await this.transition.enqueueAndApply({
+          sourceKind: "DISPATCH",
+          sourceId: dispatchId,
+          operation: hasResult ? "COMPLETE_DRAIN" : "FAIL_DRAIN",
+          repositoryId,
+          runId: activeRun.id,
+          payloadJson: JSON.stringify({ hasResult, isCeiling, isStop }),
+          apply: () => {
+            if (hasResult) {
+              try { this.dispatchStore!.updateStatus(dispatchId, "consumed"); } catch {}
+            }
+            const refreshed = this.runStore.get(activeRun.id);
+            if (!refreshed || refreshed.status !== "DRAINING") return;
+            if (isCeiling) {
+              this.ceilingPending.delete(repositoryId);
+              try { this.runStore.clearDrainReason(activeRun.id); } catch {}
+              this.cancelWallClockCeiling(repositoryId);
+              this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", { lastError: "Wall-clock ceiling reached (drained at boundary)", finishedAt: new Date().toISOString(), drainReason: null });
+            } else if (isStop) {
+              this.stopPending.delete(repositoryId);
+              try { this.runStore.clearDrainReason(activeRun.id); } catch {}
+              this.cancelWallClockCeiling(repositoryId);
+              this.runStore.updateStatus(activeRun.id, "STOPPED", { lastError: "Stopped by user (drained at boundary)", finishedAt: new Date().toISOString(), drainReason: null });
+            } else {
+              this.ceilingPending.delete(repositoryId);
+              this.stopPending.delete(repositoryId);
+              try { this.runStore.clearDrainReason(activeRun.id); } catch {}
+              this.cancelWallClockCeiling(repositoryId);
+              this.runStore.updateStatus(activeRun.id, "CEILING_REACHED", { lastError: "Drained at boundary", finishedAt: new Date().toISOString(), drainReason: null });
+            }
+          },
+        });
+        try {
+          const after = this.runStore.get(activeRun.id);
+          if (after) this.publishStateChange(repositoryId, after.id, after.status as any);
+        } catch {}
+        return;
+      } catch {}
+    }
     if (activeRun.status === "DRAINING") {
       const isCeiling = this.isCeilingPendingEffective(repositoryId, activeRun);
       const isStop = this.isStopPendingEffective(repositoryId, activeRun);
@@ -899,6 +1049,31 @@ export class LoopService {
       this.dispatchStore?.updateStatus(dispatchId, "consumed");
       await this.continueCompletedIteration(repositoryId, activeRun);
       return;
+    }
+    // D9.5: failure / non-COMPLETED terminal — make dispatch + run transition atomic when wired
+    if (this.transition && this.dispatchStore) {
+      try {
+        const baseError = terminalState === "RECOVERY_REQUIRED" ? "Strategy turn completed without a valid result; treat as invalid/incomplete." : `Strategy reported ${terminalState}.`;
+        const lastError = failureDetail ? `${baseError} (publication: ${failureDetail})` : baseError;
+        const finishedAt = new Date().toISOString();
+        await this.transition.enqueueAndApply({
+          sourceKind: "DISPATCH",
+          sourceId: dispatchId,
+          operation: `FAIL_${terminalState}`,
+          repositoryId,
+          runId: activeRun.id,
+          payloadJson: JSON.stringify({ terminalState, hasResult, lastError, finishedAt }),
+          apply: () => {
+            try { if (hasResult) this.dispatchStore!.updateStatus(dispatchId, "consumed"); } catch {}
+            const cur = this.runStore.get(activeRun.id);
+            if (!cur) return;
+            this.runStore.updateStatus(cur.id, terminalState, { lastError, finishedAt, drainReason: null });
+            this.cancelWallClockCeiling(repositoryId);
+          },
+        });
+        try { this.publishStateChange(repositoryId, activeRun.id, terminalState as any); } catch {}
+        return;
+      } catch {}
     }
 
     const baseError =

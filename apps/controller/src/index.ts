@@ -102,6 +102,7 @@ async function main() {
   // init), so nothing is orphaned by the exit.
   let initialized: AppRuntime | null = null;
   let exiting = false;
+  const initController = new AbortController();
 
   const shutdown = async (signal: string) => {
     if (exiting) return;
@@ -109,8 +110,10 @@ async function main() {
 
     const app = initialized;
     if (!app) {
-      console.warn(`[controller] ${signal} received before initialization completed; exiting cleanly.`);
-      lock.release();
+      console.warn(`[controller] ${signal} received before initialization completed; aborting startup.`);
+      try { initController.abort(new Error(signal)); } catch {}
+      await new Promise<void>((r) => setTimeout(r, 200));
+      try { lock.release(); } catch {}
       process.exit(0);
     }
 
@@ -128,11 +131,12 @@ async function main() {
   try {
     app = await buildApp(config, {
       controllerInstanceId,
+      signal: initController.signal,
       lifecycle: {
         controlToken: lock.currentControlToken,
         requestShutdown: () => void shutdown("CONTROL_SHUTDOWN")
       }
-    });
+    } as any);
   } catch (err) {
     if (err instanceof DatabaseTooNewError) {
       console.error(
@@ -164,8 +168,14 @@ async function main() {
     } else {
       fastify.log.error(err, "Failed to start controller");
     }
-    dbContext.close();
-    lock.release();
+    // Full teardown on listen failure: watcher, loop, coordinator, browser, fastify, db, lock
+    try { app.watcherService.stop(); } catch {}
+    try { app.loopService.shutdown(); } catch {}
+    try { await app.iterationExecutionCoordinator.shutdown(); } catch {}
+    try { await app.browserManager.close(); } catch {}
+    try { await fastify.close(); } catch {}
+    try { dbContext.close(); } catch {}
+    try { lock.release(); } catch {}
     process.exit(code === "EADDRINUSE" ? EXIT_PORT_CONFLICT : EXIT_INIT_FAILED);
   }
 }

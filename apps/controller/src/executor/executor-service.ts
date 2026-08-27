@@ -51,12 +51,12 @@ export interface ExecutorServiceOptions {
   executorWatchdogMs?: number;
   runPolicyStore?: RunPolicyStore;
   usageTelemetryService?: UsageTelemetryService;
-  /** Production wiring: called when an executor turn finishes (valid result or null). */
+  /** Production wiring: called when an executor turn finishes (valid result or null). Promise-aware: may be async. */
   onExecutorCompleted?: (
     repositoryId: string,
     dispatchId: string,
     result: ExecutorResult | null
-  ) => void;
+  ) => void | Promise<void>;
   eventPublisher?: (event: RepositoryMutationEvent) => void;
   /**
    * Change 028 (D4/D5): durable execution-ownership wiring. When present, the
@@ -125,7 +125,7 @@ export class ExecutorService {
     repositoryId: string,
     dispatchId: string,
     result: ExecutorResult | null
-  ) => void;
+  ) => void | Promise<void>;
   private readonly eventPublisher?: (event: RepositoryMutationEvent) => void;
   private readonly ownership?: ExecutorOwnershipDeps;
   private readonly transition?: OrchestrationTransitionService;
@@ -664,7 +664,11 @@ export class ExecutorService {
     }
 
     if (this.onExecutorCompleted) {
-      this.onExecutorCompleted(repositoryId, dispatchId, result);
+      try {
+        await this.onExecutorCompleted(repositoryId, dispatchId, result);
+      } catch (err) {
+        this.reportCompletionFailure(repositoryId, dispatchId, "COMPLETED", err);
+      }
     }
   }
 

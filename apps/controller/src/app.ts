@@ -127,8 +127,14 @@ export async function buildApp(
     lifecycle?: LifecycleControl;
     /** Change 028 (D1): per-process startup epoch; generated if absent. */
     controllerInstanceId?: string;
+    /** AbortSignal for startup cancellation (SIGTERM during init). */
+    signal?: AbortSignal;
   } = {},
 ): Promise<AppInstance> {
+  const throwIfAborted = () => {
+    if (overrides.signal?.aborted) throw new Error(`startup aborted: ${String(overrides.signal.reason ?? "SIGTERM")}`);
+  };
+  throwIfAborted();
   const fastify = Fastify({
     logger: {
       level: config.logLevel,
