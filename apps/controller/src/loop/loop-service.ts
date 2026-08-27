@@ -1098,7 +1098,142 @@ export class LoopService {
       }
     }
 
-    // 5. Only now: close the Sol operation and mark the control consumed.
+    // 5. Atomically consume the Sol control, transition the run, and enqueue
+    // the browser close as a replayable outbox effect (D9.4). External I/O
+    // (browser) is never inside the transaction. If a durable transition
+    // processor is wired (production), the control and run are committed
+    // together; otherwise fall back to the legacy inline path (tests).
+    if (this.transition && control && targetRun) {
+      // Determine the target run state for each branch, mirroring the legacy
+      // logic below but without performing any external I/O inside the
+      // transaction. The actual state mutation happens inside enqueueAndApply.
+      let atomicTargetState: LoopState | null = null;
+      let atomicIsStalled = targetIsStalled;
+      let atomicIsDrain = false;
+      let atomicDrainKind: "CEILING" | "STOP" | null = null;
+      let atomicNeedsPause = false;
+
+      if (targetIsStalled) {
+        const cur = this.runStore.get(targetRun.id);
+        if (!cur || cur.status !== "SOL_STALLED") return;
+        atomicTargetState = decision === "GOAL_COMPLETE" ? "GOAL_COMPLETE" : decision === "BLOCKED" ? "BLOCKED" : "NEEDS_HUMAN";
+      } else if (this.isDrainPending(repositoryId, targetRun) || targetRun.status === "DRAINING") {
+        const isCeiling = this.isCeilingPendingEffective(repositoryId, targetRun);
+        const isStop = this.isStopPendingEffective(repositoryId, targetRun);
+        if (isCeiling) {
+          atomicTargetState = "CEILING_REACHED";
+          atomicIsDrain = true;
+          atomicDrainKind = "CEILING";
+        } else if (isStop) {
+          atomicTargetState = "STOPPED";
+          atomicIsDrain = true;
+          atomicDrainKind = "STOP";
+        } else if (targetRun.status === "DRAINING") {
+          return;
+        }
+      } else {
+        atomicTargetState = decision === "GOAL_COMPLETE" ? "GOAL_COMPLETE" : decision === "BLOCKED" ? "BLOCKED" : decision === "NEEDS_HUMAN" ? "NEEDS_HUMAN" : "PAUSED";
+        if (decision === "PAUSED") {
+          atomicNeedsPause = true;
+        }
+      }
+
+      if (!atomicTargetState) return;
+
+      if (atomicNeedsPause) {
+        try {
+          await this.executorService.pauseRun(repositoryId);
+        } catch {}
+      }
+
+      const controlIdToConsume = control.controlId;
+      const runIdToTransition = targetRun.id;
+      const repoId = repositoryId;
+      const decisionCopy = decision;
+      const targetStateCopy = atomicTargetState;
+      const isStalledCopy = atomicIsStalled;
+      const isDrainCopy = atomicIsDrain;
+      const drainKindCopy = atomicDrainKind;
+
+      await this.transition.enqueueAndApply({
+        sourceKind: "SOL_CONTROL",
+        sourceId: controlIdToConsume,
+        operation: "APPLY_SOL_CONTROL",
+        repositoryId: repoId,
+        runId: runIdToTransition,
+        payloadJson: JSON.stringify({ decision: decisionCopy, targetState: targetStateCopy }),
+        apply: ({ enqueueOutbox }) => {
+          if (!this.solControlStore) return;
+          this.solControlStore.updateStatus(controlIdToConsume, "consumed");
+          if (isStalledCopy) {
+            const cur = this.runStore.get(runIdToTransition);
+            if (!cur || cur.status !== "SOL_STALLED") return;
+            this.releaseTerminalTimers(repoId);
+            this.runStore.updateStatus(cur!.id, targetStateCopy, {
+              finishedAt: targetStateCopy === "GOAL_COMPLETE" ? new Date().toISOString() : cur!.finishedAt,
+              drainReason: null,
+            });
+          } else if (isDrainCopy) {
+            if (drainKindCopy === "CEILING") {
+              this.ceilingPending.delete(repoId);
+              this.runStore.clearDrainReason(runIdToTransition);
+              this.cancelWallClockCeiling(repoId);
+              this.runStore.updateStatus(runIdToTransition, targetStateCopy, {
+                lastError: "Wall-clock ceiling reached (drained at Sol boundary)",
+                finishedAt: new Date().toISOString(),
+                drainReason: null,
+              });
+            } else if (drainKindCopy === "STOP") {
+              this.stopPending.delete(repoId);
+              this.runStore.clearDrainReason(runIdToTransition);
+              this.cancelWallClockCeiling(repoId);
+              this.runStore.updateStatus(runIdToTransition, "STOPPED", {
+                lastError: "Stopped by user (drained at Sol boundary)",
+                finishedAt: new Date().toISOString(),
+                drainReason: null,
+              });
+            }
+          } else {
+            const cur = this.runStore.get(runIdToTransition);
+            this.runStore.updateStatus(runIdToTransition, targetStateCopy, {
+              finishedAt: targetStateCopy === "GOAL_COMPLETE" ? new Date().toISOString() : cur?.finishedAt ?? null,
+            });
+            if (["GOAL_COMPLETE", "BLOCKED", "NEEDS_HUMAN", "PAUSED"].includes(targetStateCopy as string)) {
+              this.cancelWallClockCeiling(repoId);
+            }
+          }
+          enqueueOutbox({
+            effectKey: `close-sol-${controlIdToConsume}`,
+            repositoryId: repoId,
+            runId: runIdToTransition,
+            effectKind: "COMPLETE_SOL_OPERATION",
+            payloadJson: JSON.stringify({ repositoryId: repoId, runId: runIdToTransition }),
+          });
+        },
+      });
+      await this.transition.replayOutbox((item) => this.deliverOutboxEffect(item));
+
+      // Publish state change events after commit (outside transaction).
+      const curAfter = this.runStore.get(runIdToTransition);
+      if (curAfter) {
+        if (isStalledCopy) {
+          this.publishStateChange(repoId, curAfter.id, targetStateCopy);
+          this.publishEvent({
+            type: "loop.control_applied",
+            at: new Date().toISOString(),
+            repositoryId: repoId,
+            data: { controlId: controlIdToConsume, runId: runIdToTransition, decision: decisionCopy, iteration: control?.iteration, targetWasStalled: true },
+          } as unknown as RepositoryMutationEvent);
+        } else if (isDrainCopy) {
+          this.publishStateChange(repoId, curAfter.id, targetStateCopy);
+        } else {
+          this.publishStateChange(repoId, curAfter.id, targetStateCopy);
+        }
+      }
+      return;
+    }
+
+    // Fallback: legacy non-atomic path for tests without transition wiring.
     try {
       await this.browserManager.completeSolOperation(repositoryId, runId);
     } catch {}
@@ -1110,11 +1245,6 @@ export class LoopService {
 
     if (!targetRun) return;
 
-    // Change 024: closed-over stalled campaign. No drain boundary exists for a
-    // stalled run, PAUSED can never survive validation on this path, and no
-    // actor may be resurrected: apply the terminal decision directly from
-    // SOL_STALLED with no wake submission, executor/strategy start, scheduler
-    // ownership, wall-clock re-arm, or intermediate active state.
     if (targetIsStalled) {
       const cur = this.runStore.get(targetRun.id);
       if (!cur || cur.status !== "SOL_STALLED") return;
@@ -1144,13 +1274,12 @@ export class LoopService {
           iteration: control?.iteration,
           targetWasStalled: true,
         },
-      } as any); // custom event type: follows the existing cast pattern
+      } as unknown as RepositoryMutationEvent);
       return;
     }
 
     const activeRun = targetRun;
 
-    // If draining due to ceiling/stop while Sol active, honor drain at Sol boundary.
     if (
       this.isDrainPending(repositoryId, activeRun) ||
       activeRun.status === "DRAINING"
@@ -1445,6 +1574,29 @@ export class LoopService {
         /* default COMPLETED */
       }
       await this.submitSolWakeForRun(item.repositoryId, run, resultStatus);
+    } else if (item.effectKind === "COMPLETE_SOL_OPERATION") {
+      // Change 028 (D9.4): Sol control browser close is now an outbox effect
+      // delivered after the control consumption + run transition commit.
+      // Idempotent: completeSolOperation is safe to call when already closed.
+      try {
+        const payload = JSON.parse(item.payloadJson || "{}");
+        const runId = (payload.runId as string) ?? item.runId ?? "";
+        if (runId) {
+          await this.browserManager.completeSolOperation(item.repositoryId, runId);
+        } else {
+          await this.browserManager.completeSolOperation(item.repositoryId, item.runId ?? "");
+        }
+      } catch {
+        // best-effort: browser close is idempotent and will be retried via replay
+      }
+    } else if (item.effectKind === "CLOSE_REPOSITORY_PAGE") {
+      try {
+        const payload = JSON.parse(item.payloadJson || "{}");
+        const repoId = (payload.repositoryId as string) ?? item.repositoryId;
+        await this.browserManager.closeRepositoryPage?.(repoId);
+      } catch {
+        // idempotent close
+      }
     }
   }
 
