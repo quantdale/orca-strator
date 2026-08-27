@@ -104,6 +104,9 @@ Rules:
 - `LIVE_MATCH` may be killed only through an explicit recovery/kill/shutdown policy that owns that exact actor.
 - capture evidence immediately after the child emits `spawn`.
 - if capture fails after spawn, persist `UNKNOWN` ownership before returning control; do not erase the lease.
+- **Missing identity fields are never wildcards for `LIVE_MATCH` on the supported Windows tier.** A record that lacks the creation/start marker required to distinguish PID reuse is `UNKNOWN`, not a verified match.
+- the Windows probe MUST distinguish “the PID does not exist” (`DEAD`) from “the OS query failed / access was unavailable / output was undecidable” (`UNKNOWN`). A single null/error sentinel for both cases is insufficient.
+- capture and classify MUST use compatible authoritative evidence. If Windows classification compares creation time + executable name, capture must persist those same values from the spawned process before admission is reported.
 
 On Windows, use stable process creation evidence available without admin rights (for example CIM/PowerShell process creation time plus executable/process ID, carefully bounded). On non-Windows test hosts, provide a portable probe adequate for deterministic tests. WSL execution should conservatively identify the host `wsl.exe` process Orca spawned; do not assume knowledge of arbitrary Linux descendants when it is unavailable.
 
@@ -115,8 +118,10 @@ Requirements:
 
 - process ownership persistence must happen before start APIs report successful admission;
 - an ownership-persistence failure after child spawn must trigger verified termination if identity was captured; otherwise quarantine;
+- **post-spawn ownership failure is not an ordinary launch failure.** Generic launch retry MUST NOT spawn another child after a real spawn unless the prior child is verified terminated and its attempt is durably terminal; uncertain termination quarantines and aborts the launch sequence;
 - `onExit` marks the process record terminal before actor lease release;
-- launch retry must not create multiple ownership records that are later mistaken for one process; each real spawn attempt is uniquely traceable.
+- child exit/error observation MUST be installed before any awaitable ownership hook can yield, or the runner must explicitly reconcile `exitCode`/terminal state after that hook; a short-lived child cannot be allowed to exit in an unobserved window;
+- launch retry must not create multiple ownership records that are later mistaken for one process; each real spawn attempt is uniquely traceable with a distinct durable attempt identity, even when all attempts belong to one executor run.
 
 ## D5 — Repository actor lease service
 
@@ -140,10 +145,11 @@ On abnormal restart:
 
 1. find leases owned by a prior controller instance;
 2. classify all associated processes;
-3. if all are `DEAD`, convert interrupted run/strategy to truthful recovery state and release the lease;
-4. if any are `LIVE_MATCH`, preserve the lease as `QUARANTINED` and expose actionable recovery; optionally support an explicit verified kill;
-5. if any are `PID_REUSED` or `UNKNOWN`, quarantine and never auto-kill;
-6. only after lease release may a new campaign actor start.
+3. **a prior `STARTING`/`ACTIVE` lease with zero process records is ambiguous, not proof that no child exists.** Quarantine it unless durable attempt/admission evidence proves the controller died before any OS spawn;
+4. if one or more owned process records exist and all are `DEAD`, convert interrupted run/strategy to truthful recovery state and release the lease;
+5. if any are `LIVE_MATCH`, preserve the lease as `QUARANTINED` and expose actionable recovery; optionally support an explicit verified kill;
+6. if any are `PID_REUSED` or `UNKNOWN`, quarantine and never auto-kill;
+7. only after lease release may a new campaign actor start.
 
 ## D6 — Worktree recovery ordering
 
@@ -315,10 +321,10 @@ Avoid polling process probes continuously. Probe on startup reconciliation, expl
 
 ## D18 — Implementation order
 
-1. failure tests for current defects;
+1. failure tests for current defects, including the 2026-08-27 re-audit regressions (Windows identity wildcard, zero-record lease, post-spawn retry, exit-during-handshake);
 2. migration + stores + controller instance ID;
-3. process probe + actor lease service;
-4. ExecutorRunner/direct executor integration;
+3. process probe + actor lease service, with authoritative Windows capture/classification;
+4. ExecutorRunner/direct executor integration, closing the spawn-to-persistence/retry gap before expanding strategy wiring;
 5. SWARM/DAG worker/worktree integration;
 6. transition inbox/outbox + transaction service;
 7. dispatch/control/completion migration;

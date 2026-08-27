@@ -116,3 +116,71 @@ Recovery MAY offer a verified kill/reconcile path, but SHALL NOT offer a force-c
 - Then the request returns a structured conflict
 - And Orca explains the blocking actor/evidence without exposing secrets
 - And it does not clear the lease merely to satisfy the request.
+
+
+### Requirement: identity evidence is authoritative, not a wildcard
+
+A process SHALL be classified as `LIVE_MATCH` only when the supported host probe has enough durable identity evidence to distinguish that process from PID reuse.
+
+Missing creation/start identity or an undecidable OS query MUST NOT be treated as a successful match.
+
+#### Scenario: Windows record lacks creation identity
+
+- Given an Orca ownership record contains a PID but lacks the creation/start marker required by the Windows classifier
+- And a process currently exists at that PID
+- When Orca classifies the record
+- Then the verdict is UNKNOWN rather than LIVE_MATCH
+- And verified kill is refused.
+
+#### Scenario: Windows PID is absent versus probe failure
+
+- Given one historical PID no longer exists
+- And a second process query fails because the OS query is unavailable or undecidable
+- When Orca classifies both records
+- Then the absent PID may be classified DEAD
+- And the failed query is classified UNKNOWN
+- And the two conditions are never collapsed into one permissive verdict.
+
+### Requirement: ambiguous spawn-to-persistence ownership remains blocking
+
+A prior repository actor lease in STARTING or ACTIVE state SHALL NOT be released solely because zero child-process rows are present.
+
+Zero rows MAY represent controller death after OS spawn but before durable process insertion. Automatic release requires separate durable evidence proving that no child crossed the spawn boundary.
+
+#### Scenario: controller dies between spawn and process-row insertion
+
+- Given controller X owns a STARTING repository actor lease
+- And an executor child has emitted spawn
+- And controller X dies before the child ownership row is committed
+- When controller Y reconciles the lease and finds zero process rows
+- Then controller Y preserves a blocking quarantine/uncertain state
+- And it does not admit a second writer.
+
+### Requirement: post-spawn ownership failure does not blindly retry
+
+Once a real child has crossed the OS spawn boundary, a failure in ownership capture/persistence SHALL NOT be handled as an ordinary pre-spawn launch failure.
+
+A replacement spawn is allowed only after the prior child is verified terminated and its attempt is durably terminal. If that proof is unavailable, the repository remains quarantined.
+
+#### Scenario: ownership write fails and termination is uncertain
+
+- Given attempt A has spawned
+- And its ownership persistence fails
+- And Orca cannot verify termination of attempt A
+- When the generic launch policy has remaining retry budget
+- Then Orca does not create attempt B
+- And the actor lease remains quarantined.
+
+### Requirement: child exit is observable during the ownership handshake
+
+Executor lifecycle observation SHALL cover the interval in which post-spawn ownership persistence is awaiting completion.
+
+A short-lived child that exits during that interval MUST still produce exactly-once completion/terminal ownership evidence.
+
+#### Scenario: child exits while onSpawn persistence awaits
+
+- Given the runner has received the child spawn event
+- And the ownership hook is awaiting durable persistence
+- When the child exits before that hook returns
+- Then Orca still observes and persists the terminal child outcome exactly once
+- And lease release/quarantine follows the durable ownership rules rather than losing the exit event.

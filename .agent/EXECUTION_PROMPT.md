@@ -1,275 +1,309 @@
-# Change 028 execution prompt — durable execution ownership and crash consistency
+# Change 028 continuation prompt — 12-hour crash-safety hardening campaign
 
-**Status:** READY_TO_IMPLEMENT  
-**Planned-From:** `4d1246aa2b9d5fbdd455d17d72b3259896f80432`  
-**Target branch:** `main` (repository policy: commit/push directly; never force-push)  
+**Status:** IMPLEMENTING / CONTINUE FROM LATEST MAIN  
+**Deep-audit base:** `a1de7ab072907baa09d8bdf21e1860125d8323ff`  
+**Target branch:** `main` — direct commits/pushes per repository policy; NEVER force-push  
 **Campaign:** `028-durable-execution-ownership-and-crash-consistency`  
-**Execution mode:** long autonomous hardening campaign. Use up to the user's requested ~12-hour session budget when useful, but do not pad runtime or wait artificially. If required work finishes earlier, spend remaining useful budget on fault injection, repeated crash/restart qualification, regression repair, and evidence—not new features.
+**Session budget:** use the requested **~12 hours** for useful implementation, fault injection, regression repair, and qualification. Do not idle, sleep, or invent unrelated features to fill time.
 
 ## Mission
 
-Implement Change 028 completely enough that Orca's unattended-execution safety is true across **controller process death**, not merely while one Node process remains alive.
+Finish Change 028 so Orca remains safe when the controller dies at the worst possible instruction boundary.
 
-The two non-negotiable outcomes are:
+The campaign has two primary invariants:
 
-1. **No second writer after controller crash.** A lost ChildProcess handle is not proof the child died. Persist actor/process ownership, reconcile it conservatively, and block a replacement actor until prior ownership is proven dead or explicitly/verifiedly terminated.
-2. **No consumed-without-applied transition.** Dispatch/control/completion protocol sources and their required run transitions must be crash-atomic; external effects happen from a durable idempotent outbox/replay path.
+1. **No second repository writer while prior ownership is live or uncertain.**
+2. **No protocol source may be durably consumed without its required run transition being durably applied.**
 
-This is hardening of existing Milestone 6/17/23/24 promises. Do not invent another product feature.
+The 2026-08-27 deep re-audit found that the first ownership slice is not yet safe enough to copy into SWARM/DAG. Fix the direct/Windows ownership regressions first.
 
-## Read first — authoritative order
+## Read first
+
+In order:
 
 1. `AGENTS.md`
 2. `.agent/state.json`
 3. `.agent/PLANNER_HANDOFF.md`
-4. `docs/audits/2026-08-26-next-campaign-crash-consistency.md`
-5. `openspec/changes/028-durable-execution-ownership-and-crash-consistency/proposal.md`
-6. all three delta specs under the change
-7. `design.md`
-8. `tasks.md`
-9. relevant canonical specs / `docs/RUNTIME-MODEL.md`, `ARCHITECTURE.md`, `DATA-MODEL.md`, `OBSERVABILITY.md`
+4. `docs/audits/2026-08-27-next-campaign-deep-audit.md`
+5. `docs/audits/2026-08-26-next-campaign-crash-consistency.md`
+6. Change 028 `proposal.md`
+7. all three Change 028 delta specs
+8. Change 028 `design.md`
+9. Change 028 `tasks.md`
+10. relevant canonical docs: `docs/RUNTIME-MODEL.md`, `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/OBSERVABILITY-AND-FAILURES.md`, `docs/TEST-STRATEGY.md`
 
-Then reconcile against current `main`. If newer commits already satisfy a requirement, prove it with tests and mark only the genuinely satisfied task; do not redo landed work.
+Then reconcile against pulled `main`. Do not reset to the audit base and do not redo landed work without evidence.
 
-## Planning findings you must close
+## Current implementation truth
 
-### P0/critical class A — orphan writer uncertainty
+Preserve these landed pieces unless a failing regression requires repair:
 
-Current startup reconciliation marks persisted active executors failed while explicitly having no safe proof the previous process is gone. Executor/worker PID identity is not durable. `RECOVERY_REQUIRED` falls outside active-run ownership, so a later campaign can start while an old process may still write.
+- SQLite migration 24 ownership/process/transition/outbox tables;
+- controller instance ID and runtime-lock diagnostics;
+- ownership stores and actor-lease service;
+- direct repository lease acquisition;
+- `ExecutorRunner.onSpawn` hook;
+- direct process ownership insertion;
+- startup lease reconciliation before strategy recovery.
 
-Affected seams include at least:
+However, do **not** assume commit messages prove task completion. The deep re-audit re-opened Windows identity/kill acceptance and identified spawn/retry gaps.
 
-- `apps/controller/src/loop/startup-reconciler.ts`
-- `apps/controller/src/executor/executor-runner.ts`
-- `apps/controller/src/executor/executor-service.ts`
-- `apps/controller/src/executor/executor-store.ts`
-- `apps/controller/src/strategy/swarm-execution-service.ts`
-- `apps/controller/src/strategy/dag-execution-service.ts`
-- `apps/controller/src/packets/worktree-isolation-service.ts`
-- `apps/controller/src/loop/iteration-execution-coordinator.ts`
-- `apps/controller/src/db/migrate.ts`
+## P0 work that comes first
 
-### P0/critical class B — split durable transition writes
+### P0-A — Windows identity wildcard / unsafe verified-kill basis
 
-Examples on planning base:
+Current `WindowsProcessProbe.capture()` records no creation marker/name. Current `classify()` treats missing identity as a wildcard match.
 
-- valid executor completion can mark a dispatch consumed in ExecutorService before LoopService applies run continuation;
-- LoopService also consumes dispatch before awaited continuation;
-- Sol control flow closes Sol operation + consumes control before run transition;
-- watcher durable observation and marker insertion are not equivalent to durable application; callback delivery is one-time/in-memory.
+Fix this before any more kill/recovery wiring:
 
-Close the defect class, not just one callsite.
+- capture creation/start marker + executable identity from the actual spawned PID;
+- persist it before admission;
+- missing required identity => UNKNOWN, never LIVE_MATCH;
+- distinguish PID NOT_FOUND => DEAD from CIM/query failure => UNKNOWN;
+- verified kill refuses incomplete/PID_REUSED/UNKNOWN evidence;
+- add deterministic Windows-semantics tests through an injectable query seam plus supported-host real evidence where practical.
 
-### High class C — unowned asynchronous state callbacks
+### P0-B — zero-process prior lease must fail closed
 
-Production build wiring fires key loop mutation promises without local ownership. Convert to await/track/durable enqueue semantics and audit adjacent detached promises capable of state mutation/resource launch.
+A prior STARTING/ACTIVE lease with zero process rows is not proof no child exists: the controller may have died after OS spawn but before insertion.
 
-### High class D — unsafe init/listen failure teardown
+Reconcile this state to quarantine unless separate durable evidence proves the spawn boundary was never crossed.
 
-`index.ts` assumes no browser/executor can exist before `buildApp` returns, but startup reconciliation can retry Sol/browser work and watcher starts before return. Signal/listen failure must run bounded cleanup before lock/DB release.
+### P0-C — post-spawn ownership failure must not generic-retry
 
-### High class E — automated profile stale lock
+After a real child spawns, an `onSpawn` persistence failure currently bubbles into `launchWithRetry()`.
 
-Automated profile lock uses controller PID as owner; a surviving Chrome can outlive that PID. Reclaim only after authoritative profile-process proof; otherwise quarantine.
+Required behavior:
 
-## Required architecture
+- explicitly distinguish PRE_SPAWN failure vs POST_SPAWN admission/ownership failure;
+- post-spawn failure may retry only after verified termination + durable terminal attempt evidence;
+- unknown/unverified termination => quarantine + abort, no second spawn;
+- every real OS spawn gets a distinct durable process attempt ID;
+- if all failures are genuinely pre-spawn, safely release/terminalize the current instance's STARTING lease.
 
-You may rename classes/tables if repository conventions justify it, but the following semantics are mandatory.
+### P0-D — no unobserved short-lived exit during ownership handshake
 
-### 1. Controller instance epoch
+Install exit/error observation before an awaitable `onSpawn` hook can yield, or explicitly reconcile an already-exited child after the hook. Preserve exactly-once completion.
 
-Generate one random controller instance ID per process. It is diagnostic ownership identity, not an auth secret. Persist it with actor/process ownership.
+### P0-E — split transition writes remain open
 
-### 2. Durable repository actor lease
+Migration 24 tables exist, but semantics are not wired. Current source-consumption crash windows still include:
 
-Use SQLite uniqueness to enforce one repository execution actor. SINGLE_AGENT owns one lease; SWARM/DAG each own one strategy lease while their workers get subordinate process records.
+- ExecutorService valid-result dispatch consumption before loop continuation;
+- LoopService dispatch consumption before awaited Sol continuation;
+- postflight retry dispatch consumption before continuation;
+- Sol browser operation close + control consumed before run transition;
+- watcher one-shot callbacks after durable marker creation.
 
-In-memory maps remain optimizations only.
+Implement the transition processor; do not patch one callsite and leave the defect class.
 
-### 3. Durable process ownership + conservative probe
+## Ordered execution workstreams
 
-Capture child PID and stable, non-secret process identity immediately after real spawn. Reconciliation verdicts must distinguish live match, dead, PID reused, and unknown/unprovable.
+### Workstream 1 — failing tests before repair
 
-Never kill on PID alone. Never auto-clear UNKNOWN. A live/unknown prior actor blocks a second writer.
+Start with Change 028 Tasks **1.7-1.11** plus the original crash tests:
 
-### 4. Transition inbox + transaction application
+- Windows capture/classify round-trip and no-wildcard LIVE_MATCH;
+- DEAD vs UNKNOWN Windows query behavior;
+- zero-process prior lease restart;
+- post-spawn ownership-write failure no-double-spawn;
+- short child exits while ownership hook awaits;
+- all-pre-spawn failures do not strand a lease;
+- direct controller-death + surviving child second-start refusal.
 
-Persist an idempotent transition intent for protocol events. Source consume + required run mutation + required outbox rows happen in one SQLite transaction with expected-state/CAS predicates.
+Do not weaken assertions to fit current code.
 
-No external I/O inside that transaction.
+### Workstream 2 — close direct ownership safety
 
-### 5. Side-effect outbox/replay
+Finish/re-qualify Tasks 3.4-3.9, 4.2-4.10, and 5.8-5.9.
 
-After commit, deliver browser/process/network side effects from durable idempotent intent. Reuse existing durable Sol-operation semantics rather than creating a second wake truth source.
+Key design rule: **spawn is an irreversible epistemic boundary**. After it occurs, the system must either durably know/verify the child or quarantine.
 
-If actor start is outboxed, actor lease/process ownership is the logical exactly-once spawn boundary.
+Preserve pause, kill, watchdog, launch retry, OpenCode adapter behavior, WSL behavior, and once-only completion.
 
-### 6. Abortable construction + unified teardown
+### Workstream 3 — strategy + worktree ownership
 
-Shutdown can latch while `buildApp` is in flight. Partial construction must clean itself. Listen failure must call the assembled runtime teardown, not close DB first. Runtime singleton release is last after owned resources settle/bounded recovery is persisted.
+Only after Workstream 2 is green:
 
-### 7. Browser profile quarantine
+- acquire exactly one SWARM/DAG repository actor lease per strategy run;
+- persist every worker process beneath it with unique process attempt identity;
+- block manual HTTP strategy starts through the same durable gate;
+- reconcile process ownership before worker/worktree/staging recovery;
+- protect LIVE_MATCH/UNKNOWN/PID_REUSED-owned worktrees;
+- never serialize legitimate worker concurrency merely to simplify ownership.
 
-Dead controller PID != dead Chrome. Check exact dedicated profile ownership. If uncertain, refuse acquisition and expose actionable quarantine.
+Use existing `real-strategy-*`, `real-swarm`, `real-dag`, and worktree fixtures instead of building a parallel test universe.
 
-## Ordered implementation workstreams
+### Workstream 4 — transition inbox + CAS + outbox
 
-Follow `tasks.md`; this section is an execution emphasis, not a second checklist.
+Implement a focused transition service over migration-24 tables:
 
-### Workstream A — reproduce before repair
+- per-repository application serialization for contention only;
+- SQLite transaction is correctness boundary;
+- expected-state/CAS run mutations with explicit `changes === 0` stale failure;
+- source consume + run mutation + outbox enqueue in one transaction;
+- no browser/Git/process/network await inside transaction;
+- replay PENDING/APPLYING/FAILED_RETRYABLE after ownership reconciliation;
+- terminalize stale/rejected sources durably;
+- deterministic outbox effect keys and idempotent replay.
 
-Create deterministic failing tests for:
+Reuse existing durable Sol-operation intent; do not create a second competing Sol wake truth source.
 
-- direct executor alive across controller restart + second-start attempt;
-- SWARM/DAG worker ownership across restart;
-- dispatch consumed before run continuation crash;
-- control consumed before run transition crash;
-- SIGTERM during startup reconciliation;
-- PID reuse/unknown probe.
+### Workstream 5 — migrate all transition producers
 
-Do this early so architecture is driven by observable failures.
+Move these through durable application:
 
-### Workstream B — persistence + ownership primitive
+- watcher dispatch detection/start authorization;
+- direct executor completion;
+- SWARM/DAG completion and postflight retry;
+- Sol controls;
+- any adjacent completion/control seam that can consume durable protocol truth.
 
-Add additive migration (current schema max is 23 at planning time), stores, controller instance ID, process probe, actor lease service. Update schema compatibility/backup tests.
+Remove premature consumption from `ExecutorService.handleTurnCompletion()`.
 
-Keep migration low-risk and additive.
+Preserve strict repository/run/iteration/dispatch correlation and the existing rule that strategy COMPLETED is not successful without confirmed remote publication.
 
-### Workstream C — direct executor integration
+### Workstream 6 — own async state mutation
 
-Add ExecutorRunner spawn hook, persist each actual spawned attempt, bind direct executor to actor lease, persist exit before release, preserve launch retry/pause/kill/watchdog behavior.
+Fix all controller-runtime detached promises capable of durable mutation or resource launch.
 
-Pay special attention to spawn-success / ownership-write-failure. That path must not create an untracked writer.
+At minimum:
 
-### Workstream D — strategy/worktree integration
+- watcher dispatch/control callback contracts become Promise-aware or durable-enqueue;
+- `app.ts` no longer uses naked `void loopService.onDispatchDetected/onControlDetected/onExecutorCompleted`;
+- direct completion promises are tracked through shutdown;
+- strategy completion tracking remains bounded and correct;
+- failure injection proves no unhandled rejection and leaves durable recovery evidence.
 
-Acquire one strategy actor lease. Persist every worker process below it. Reorder restart reconciliation: actor/process truth before worker/worktree/staging cleanup. Protect live/unknown-owned worktrees.
+Best-effort UI refresh/log-only promises are not the same risk; prioritize state/resource ownership.
 
-Do not serialize legitimate SWARM/DAG workers unnecessarily.
+### Workstream 7 — abortable initialization + unified teardown
 
-### Workstream E — transition processor
+Replace the stale `index.ts` assumption that nothing can exist before `buildApp` returns.
 
-Introduce idempotent transition intents, CAS run updates, one-transaction marker consume + run state + outbox creation, startup replay, terminal stale/rejected intents.
+Required:
 
-Remove premature dispatch consumption from ExecutorService.
+- construction AbortController / lifecycle latch;
+- partial-construction cleanup stack;
+- no resource admission after shutdown is latched;
+- startup Sol/browser rehydrate honors abort;
+- SIGTERM/SIGINT during initialization waits bounded cleanup before singleton release;
+- listen failure closes assembled runtime graph before DB/lock release;
+- deterministic order for watcher/timers/coordinator/executors/browser/Fastify/DB/lock.
 
-Migrate dispatch, control, direct completion, and strategy completion/postflight continuation carefully. Preserve postflight remote publication truth: COMPLETED is still not success unless remote publication is confirmed as current code requires.
+### Workstream 8 — browser profile quarantine + recovery surface
 
-### Workstream F — async ownership
+For automated profile stale recovery:
 
-Make watcher and direct executor completion paths awaitable/tracked. Every detached state mutation/resource-launch Promise must have a clear owner. Keep teardown-safe catches only where durable state has already made the operation recoverable.
+- query host Chrome processes for exact dedicated `--user-data-dir`;
+- matching live Chrome => quarantine;
+- authoritative absence => reclaim;
+- undecidable => quarantine;
+- preserve interactive external Chrome PID semantics.
 
-### Workstream G — lifecycle/profile
+Expose structured 409/status diagnostics for live/unknown/quarantined actor/profile ownership. Never add a force-clear action capable of creating a second writer.
 
-Implement abortable build cleanup; fix listen failure; prevent rehydrate/start after shutdown latch. Harden automated browser stale profile lock with exact-profile process probe/quarantine.
+### Workstream 9 — full qualification and 12-hour hardening
 
-### Workstream H — qualification
+After core implementation is green, keep using the session budget productively:
 
-Run exhaustive state tests plus real subprocess fault injection. Repair every Critical/High regression introduced or exposed by this change before declaring it review-ready.
+- repeated direct/SWARM/DAG controller-kill + restart loops;
+- PID-reuse/foreign sibling kill safety;
+- dispatch/control crash matrices around every transaction/outbox boundary;
+- actor-start replay no-double-spawn;
+- startup SIGTERM at multiple construction checkpoints;
+- EADDRINUSE/listen-failure cleanup;
+- two-repository independence;
+- copied-DB migration/restart loops;
+- process/worktree/profile leak checks;
+- scan logs for unhandled rejections, FK warnings, duplicate effects, stale leases.
 
-## Safety constraints
+Repair every reproducible Critical/High regression inside scope before review-ready.
 
-- NEVER `git reset --hard`, `git clean`, discard unknown dirty work, or force push.
-- NEVER kill an unverified/unknown/PID-reused process.
-- NEVER infer “dead” from “controller restarted.”
-- NEVER hold SQLite transaction across awaited browser/Git-network/process I/O.
-- NEVER mark a protocol marker consumed before its required run transition is atomically durable.
-- NEVER solve duplicate delivery by deleting audit evidence.
-- NEVER weaken dispatch/control correlation, remote publication verification, permission policy, scheduler isolation, or existing profile auth safety.
-- NEVER fake Tailscale/OpenCode/installer/soak evidence from Changes 026/027.
-- Keep secrets, auth cookie values, provider tokens, and sensitive command/env data out of new process/transition records and logs.
-- Maintain Windows-first behavior and WSL compatibility.
+## Gate requirements
 
-## Test/qualification requirements
+Before READY_FOR_REVIEW, run and record:
 
-Minimum required evidence before READY_FOR_REVIEW:
+1. focused ownership/process-probe/direct-runner tests;
+2. SWARM/DAG ownership/worktree restart tests;
+3. transition CAS/idempotency/outbox crash tests;
+4. lifecycle/profile failure tests;
+5. `npm test`;
+6. `npm run typecheck`;
+7. `npm run build`;
+8. `npm run lint`;
+9. `npm run openspec:validate`;
+10. `git diff --check`;
+11. source-integrity + version checks;
+12. supported real-process suites in bounded batches;
+13. current GitHub push CI after each major checkpoint when available.
 
-1. process probe + actor lease unit tests;
-2. DB migration/store/idempotency/CAS tests;
-3. real child process survives controller-loss fixture and duplicate-start refusal;
-4. SWARM and DAG restart ownership tests;
-5. verified kill keeps unrelated foreign/sibling process alive;
-6. dispatch crash matrix at each transaction/outbox boundary;
-7. control crash matrix at each transaction/outbox boundary;
-8. actor-start replay double-spawn test;
-9. startup SIGTERM and listen-failure teardown tests;
-10. automated profile surviving-Chrome/unknown/reclaim tests;
-11. two-repository independence test;
-12. existing focused loop/strategy/postflight/runtime-controls/productization tests;
-13. full fast tier;
-14. typecheck/build/lint;
-15. strict OpenSpec validation;
-16. source-integrity/version/diff checks;
-17. supported real-process suites in bounded batches.
+External Change 026/027 assertions remain external-unqualified unless the required sanctioned/authorized resource genuinely exists. Never fake them.
 
-If a real external dependency is unavailable, mark only that specific external assertion unqualified. Do not substitute a mock and call it real-qualified.
+## Git/checkpoint discipline
 
-## Long-session policy (~12-hour requested budget)
+Work directly on `main` per repository policy:
 
-Do not stop after the first green patch if useful hardening work remains. Once core requirements are implemented:
+- pull/reconcile before each coherent slice;
+- preserve unknown dirty work;
+- never reset hard / clean / force-push;
+- implement + focused tests;
+- update OpenSpec task truth immediately;
+- commit detailed coherent slices;
+- push;
+- update `.agent/state.json` at meaningful waypoints.
 
-- repeat crash/restart matrices many times to catch race windows;
-- run competing-start loops across two repositories;
-- run kill/shutdown while workers are at different launch/completion phases;
-- run migration/restart loops on copied fixture DBs;
-- inspect logs for unhandled rejections, FK warnings, duplicate events, stale leases, orphan worktrees, or leaked child PIDs;
-- profile control-plane overhead if the new stores introduce obvious hot-path regressions;
-- fix reproducible Critical/High findings inside scope.
+A future agent must be able to resume from the first genuinely incomplete task without this chat.
 
-Do not burn time by sleeping, rerunning identical green tests without purpose, polishing UI, or inventing new features merely to occupy the requested duration.
+## 12-hour cadence
 
-## Git and checkpoint discipline
+Use this as an indicative schedule, not a reason to skip dependencies:
 
-Repository policy is direct `main` integration.
+- **0-2h:** R1-R7 failing tests + Windows/direct ownership closure;
+- **2-4h:** SWARM/DAG lease/worker/worktree ownership;
+- **4-7h:** transition processor/outbox + producer migration;
+- **7-9h:** async ownership + abortable lifecycle + browser quarantine;
+- **9-12h:** crash matrices, repeated race loops, full gates, regression repair, docs/state/final report.
 
-For each coherent slice:
+If a workstream finishes early, advance to the next one or deepen fault injection. Do not stop after one green patch while useful Change 028 work remains.
 
-1. reconcile `git status` / latest remote main;
-2. preserve unrelated dirty work;
-3. implement + focused tests;
-4. update OpenSpec task truth;
-5. commit with a meaningful message;
-6. push to `main`;
-7. periodically update `.agent/state.json` so a fresh agent can resume without this conversation.
+## Completion rules
 
-Never make a false “clean” claim if uncommitted work exists.
+### READY_FOR_REVIEW
 
-## Completion / stop rules
+Only when all Change 028 semantic requirements are implemented and qualified, including real-process no-second-writer/no-foreign-kill evidence on the supported host tier.
 
-Continue until one of these is true:
+### Genuine safety blocker
 
-### A. READY_FOR_REVIEW
+If the OS cannot provide the evidence needed for safe ownership:
 
-All Change 028 semantic requirements are implemented, required internal gates are green, real-process no-second-writer/no-foreign-kill evidence exists, docs/state are updated, useful work is committed/pushed.
+- fail closed;
+- do not invent a permissive fallback;
+- commit/push safe progress;
+- record exact blocker/evidence/task IDs in state.
 
-### B. Genuine blocker
+### Tool/session boundary
 
-A blocker prevents safe continuation (for example an OS API cannot provide safe identity evidence). In that case:
+If the harness ends before completion, push a coherent checkpoint and exact waypoint. Do not leave crucial truth only in terminal output.
 
-- do NOT guess around the safety constraint;
-- commit/push all safe progress;
-- record exact blocker, attempted approaches, evidence, affected task IDs, and safest next action in `.agent/state.json`;
-- leave the system fail-closed.
+## Final session report
 
-### C. Session/tool boundary
+The final commit/report must include:
 
-If the harness ends before completion, leave a detailed waypoint and pushed coherent checkpoint. The next agent must be able to resume from the first incomplete checkbox without redoing the audit.
-
-## Final report requirements
-
-The final commit/session report must include:
-
-- start SHA and final SHA;
-- files/systems changed;
-- exact ownership/transition architecture landed;
-- migration version and compatibility notes;
-- crash/failure-injection matrix with pass/fail counts;
-- real child-process evidence and process-leak check;
-- fast/typecheck/build/lint/OpenSpec results;
-- real-suite results and explicit external skips;
-- Critical/High defects found and fixed during campaign;
-- remaining Medium/Low debt intentionally deferred;
-- Changes 026/027 residual blockers unchanged unless genuinely qualified;
+- starting and final SHA;
+- implementation slices and files;
+- exact actor/process ownership model;
+- Windows identity evidence semantics;
+- process-attempt/retry semantics;
+- migration/CAS/outbox architecture;
+- crash matrix counts/outcomes;
+- direct + SWARM + DAG real-process evidence;
+- process/worktree/profile leak checks;
+- fast/typecheck/build/lint/OpenSpec/source-integrity results;
+- CI result(s);
+- Critical/High defects found/fixed;
+- remaining Medium/Low debt;
+- unchanged external blockers from 026/027;
 - exact next action.
 
-Execute the campaign now. Do not return to planning unless implementation evidence invalidates the design; if it does, update the OpenSpec artifacts in the same branch and continue.
+**Execute the campaign. Do not create Change 029 while Change 028 safety invariants remain open.**

@@ -9,6 +9,7 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 0.3 Preserve Changes 026/027 and their external acceptance blockers unchanged; do not archive or fake them.
 - [x] 0.4 Run the cheapest useful pre-change gates available on the execution host (`npm run version:check`, `npm run openspec:validate`, targeted fast tests). Record any pre-existing failures separately.
 - [ ] 0.5 Add a short implementation ledger to the session report mapping F1–F7 in `docs/audits/2026-08-26-next-campaign-crash-consistency.md` to concrete tests/files.
+- [x] 0.6 Re-audit pushed `main@a1de7ab072907baa09d8bdf21e1860125d8323ff` after the first Change 028 implementation slices: inventory/content-scan all 453 tracked files, inspect current ownership/transition/lifecycle call sites, confirm no open issues/PRs, confirm push CI `windows-gates` success, and record newly exposed P0 regressions in `docs/audits/2026-08-27-next-campaign-deep-audit.md`.
 
 ## 1. Write failing crash-boundary tests first
 
@@ -18,6 +19,11 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [ ] 1.4 Add a Sol-control crash-window test: control consumption must not outrun the corresponding run transition.
 - [ ] 1.5 Add startup interruption/listen-failure tests that assert teardown ordering and no resource admission after shutdown is latched.
 - [ ] 1.6 Add PID-reuse/unknown-process tests before any kill/reconciliation implementation.
+- [ ] 1.7 Add a Windows-process-probe regression: capture + classify must round-trip creation identity; incomplete evidence cannot yield LIVE_MATCH; missing PID and probe failure must produce different verdicts.
+- [ ] 1.8 Add a restart regression for a prior STARTING lease with zero process rows; it must remain blocking/quarantined rather than auto-release.
+- [ ] 1.9 Add a post-spawn ownership-persistence failure regression proving the generic launch retry loop cannot spawn a second child while the first is live/unknown.
+- [ ] 1.10 Add a short-lived-child regression that exits while `onSpawn` persistence is awaiting; completion/terminal ownership must still be observed exactly once.
+- [ ] 1.11 Add an all-pre-spawn-launch-failures regression proving the current controller does not strand a reusable STARTING lease.
 
 ## 2. Add additive ownership/transition persistence
 
@@ -33,17 +39,25 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 3.1 Generate one cryptographic controller instance ID per process and pass it through app construction without conflating it with lifecycle auth tokens (controller-instance.ts + index.ts + buildApp overrides + AppInstance.instanceId).
 - [x] 3.2 Extend runtime-lock diagnostics with controller instance ID (RuntimeLockMetadata.instanceId, written by ControllerRuntimeLock.acquire/buildMetadata); backward compatible for old lock metadata.
 - [x] 3.3 Implement `ProcessProbe` (or equivalent) with explicit LIVE_MATCH / DEAD / PID_REUSED / UNKNOWN semantics.
-- [x] 3.4 Implement bounded Windows process identity capture/classification without admin-only assumptions; keep Linux/test implementation deterministic (PortableProcessProbe + WindowsProcessProbe via Get-CimInstance).
-- [x] 3.5 Implement verified process-tree kill that refuses PID_REUSED/UNKNOWN records.
-- [x] 3.6 Add unit tests for evidence capture, dead process, live match, PID reuse, unknown probe failure, and no-foreign-kill behavior (test/ownership.test.ts).
+- [ ] 3.4 Implement bounded Windows process identity capture/classification without admin-only assumptions; keep Linux/test implementation deterministic (PortableProcessProbe + WindowsProcessProbe via Get-CimInstance). **Re-opened by 2026-08-27 re-audit:** current Windows capture stores no creation marker/name and classification treats missing evidence as a wildcard match.
+- [ ] 3.5 Implement verified process-tree kill that refuses PID_REUSED/UNKNOWN records. **Re-opened:** this is not satisfied until incomplete Windows evidence can never classify as LIVE_MATCH.
+- [ ] 3.6 Add unit tests for evidence capture, dead process, live match, PID reuse, unknown probe failure, and no-foreign-kill behavior (test/ownership.test.ts), including the real Windows semantics through an injectable/query seam.
+- [ ] 3.7 Make Windows capture persist the same authoritative creation/start marker + executable identity that classify compares; missing required identity evidence MUST classify UNKNOWN, never wildcard LIVE_MATCH.
+- [ ] 3.8 Make the Windows OS query distinguish PID-not-found (DEAD) from query/access/parse failure (UNKNOWN), and regression-lock both outcomes.
+- [ ] 3.9 Add a no-foreign-kill regression proving a historical/incomplete record cannot authorize taskkill against a same-PID foreign process.
 
 ## 4. Make ExecutorRunner durably own spawned processes
 
-- [ ] 4.1 Add a spawn hook/handshake that surfaces PID after real spawn and before the caller treats launch as safely active.
+- [x] 4.1 Add a spawn hook/handshake that surfaces PID after real spawn and before the caller treats launch as safely active. Landed at `a1de7ab`; remaining D4 acceptance is tracked below.
 - [ ] 4.2 Persist each actual spawn attempt's process ownership; launch retries must remain distinguishable and once-only.
 - [ ] 4.3 On ownership persistence failure after spawn, terminate only if identity is verified; otherwise quarantine the actor.
 - [ ] 4.4 On process exit, persist terminal process state before releasing repository actor ownership.
 - [ ] 4.5 Preserve existing once-only exit callback, watchdog, pause, emergency-kill, and launch-retry behavior.
+- [ ] 4.6 Separate PRE_SPAWN launch failure from POST_SPAWN ownership/admission failure. A post-spawn failure MUST NOT enter generic launch retry unless the prior child is verified terminated and its durable attempt is terminal; UNKNOWN/PID_REUSED termination state quarantines and aborts.
+- [ ] 4.7 Install exit/error completion observation before the awaited `onSpawn` ownership hook (or equivalently reconcile an already-exited child after the hook) so a short-lived child cannot exit unnoticed while persistence is in flight.
+- [ ] 4.8 Give every real OS spawn attempt a distinct durable process-attempt identity correlated to the parent executor run; never reuse one process-row ID across retries.
+- [ ] 4.9 If all attempts fail before any real child is admitted, release/terminalize the current controller's STARTING lease. If any attempt crossed real spawn without proven termination, quarantine instead of releasing.
+- [ ] 4.10 Add deterministic tests for ownership-write failure after spawn, verified-kill success, unverified-kill refusal, no-double-spawn retry, short-lived exit during ownership handshake, and all-pre-spawn-attempts-failed lease cleanup.
 
 ## 5. Enforce one durable repository actor
 
@@ -54,6 +68,8 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [ ] 5.5 Block manual/raw executor/strategy HTTP starts that bypass normal loop flow unless the same durable lease gate authorizes them.
 - [ ] 5.6 Ensure lease release waits for terminal/proven-dead child ownership and actor boundary.
 - [ ] 5.7 Add concurrency tests: overlapping start calls, restart + old live writer, recovery retry, strategy/direct conflict, and two repositories remaining independent.
+- [ ] 5.8 Fail closed on a prior STARTING/ACTIVE lease with zero process records. Treat it as an ambiguous spawn-to-persistence crash window unless a durable pre-spawn-failure/admission phase proves no child was created.
+- [ ] 5.9 Add restart coverage for the zero-process lease case and prove a second writer is refused until safe reconciliation evidence exists.
 
 ## 6. Reconcile ownership before worktrees
 
@@ -155,7 +171,7 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [ ] 16.1 Update `docs/ARCHITECTURE.md` with durable actor/process ownership and transition inbox/outbox boundaries.
 - [ ] 16.2 Update `docs/DATA-MODEL.md` with new tables, idempotency keys, ownership states, and retention semantics.
 - [ ] 16.3 Update `docs/RUNTIME-MODEL.md` with crash/quarantine/replay transitions and “uncertain != dead” rule.
-- [ ] 16.4 Update `docs/OBSERVABILITY.md` with new recovery/quarantine events/diagnostics.
+- [ ] 16.4 Update `docs/OBSERVABILITY-AND-FAILURES.md` with new recovery/quarantine events/diagnostics.
 - [ ] 16.5 Update `docs/DEVELOPMENT.md` with failure-injection commands and safe process-test requirements.
 - [ ] 16.6 Fold accepted delta specs into canonical specs only after implementation + qualification are green.
 - [ ] 16.7 Reconcile Changes 026/027 task truth without changing external evidence.
