@@ -31,14 +31,14 @@
     22,
     23
   ],
-  "planningBaseSha": "a1de7ab072907baa09d8bdf21e1860125d8323ff",
+  "planningBaseSha": "77c0d7f6cd7fba354a11225f9dc291ff0da3add1",
   "checkpoint": {
-    "summary": "Change 028 progress through 2026-08-27: foundation slices landed in e39ea83/c2aaef4/a1de7ab. F2 durable transition processor (OrchestrationTransitionService) landed in 04f0797 and wired into the direct-executor COMPLETED completion path (dispatch consume + Sol wake now crash-atomic); 5 transition tests green. Remote re-audit 275154f recorded new P0 foundation regressions; this session CLOSED the process-identity + zero-process-lease subset: WindowsProcessProbe.capture now persists CreationDate+Name and classify returns UNKNOWN (never LIVE_MATCH) on incomplete evidence; queryProcess distinguishes PID-not-found (DEAD) from probe failure (UNKNOWN); a prior STARTING/ACTIVE lease with zero process rows fails closed to QUARANTINED (5.8/5.9). Tasks 1.7,1.8,3.4-3.9,5.8,5.9 marked complete with regression tests. Remaining P0: ExecutorRunner no-double-spawn / exit-observation / per-attempt identity / STARTING-lease cleanup (4.2-4.10). F2 control/strategy paths (9.3/9.4, 1.4) and SWARM/DAG lease (5.3-5.7) still open.",
-    "updatedAt": "2026-08-27T10:05:00+08:00",
-    "lastCompletedTask": "Hardened WindowsProcessProbe/PortableProcessProbe (capture real identity; classify fail-closed on missing evidence; notfound vs error distinguished) and made prior zero-process STARTING/ACTIVE lease fail closed to QUARANTINED in actor-lease-service.reconcileOnStartup. Added regression tests in test/ownership.test.ts (Windows win32-guarded + portable). Targeted fast batch 73/73 green; tsc clean; openspec strict 27/0.",
-    "lastVerification": "controller tsc --noEmit clean; targeted fast batch (loop/executor/ownership/transition/startup/run-store) 73/73 green; openspec validate --all --strict 27/0. Full fast tier not run this session due to 30-min bash cap; prior commit a1de7ab reported 342/342."
+    "summary": "Change 029 umbrella: Phase B (direct executor durability) landed in 92ce961. Fixed D4.7 exit-before-onSpawn buffering, D4.8 per-attempt UUID correlated to runAttemptId, D4.6 pre/post separation with no retry after post-spawn quarantine, D4.9 STARTING lease release vs quarantine, D4.3 verified-kill-only and D4.4 terminal-before-release. Added 4 regression tests (D4.6-4.9 matrix). Fast tier 452/452, ownership 29+7, typecheck/build/lint/openspec 28/28, source-integrity 208/710, backup-restore PASS, crash-recovery PASS (7), upgrade-unpacked 10/10. Remaining Critical: C1 strategy lease (SWARM/DAG), C2 worktree ownership guard, C3 transition atomicity (Sol control/dispatch detection), C4 async lifecycle/abortable init, C5 browser profile probe, C6 observability, C7 failure injection; plus harness FAILs: endurance short and stress readiness timeout.",
+    "updatedAt": "2026-08-27T14:55:00+08:00",
+    "lastCompletedTask": "Closed direct-executor D4.6-4.9 (ExecutorRunner buffered exit, per-attempt UUID, post-spawn no-retry quarantine, STARTING lease release) with 4 regression tests in test/executor-ownership.test.ts (7/7). Commit 92ce961 pushed; fast 452/452 green.",
+    "lastVerification": "controller tsc --noEmit clean; npm test 452/452; npm run openspec:validate 28/28; version:check OK; source-integrity OK; test:backup-restore PASS; test:crash-recovery PASS (C1.a/b/c/d/e/f + C2 + C3); test:upgrade:unpacked 10/10 PASS; test:endurance:short FAIL timeout readiness; test:stress:repos FAIL timeout readiness; build PASS; lint PASS; git diff --check clean"
   },
-  "nextAction": "Continue Change 028 with the remaining ExecutorRunner P0s (4.2-4.10): separate PRE_SPAWN launch failure (retry OK) from POST_SPAWN ownership/admission failure (must NOT re-enter generic launch retry or double-spawn; verify-kill/quarantine), install exit/error observation before the awaited onSpawn hook (4.7), give each real spawn attempt a distinct durable process-attempt identity (4.8), and release/terminalize the STARTING lease when all pre-spawn attempts fail (4.9). Then finish F2 control/strategy wiring (9.3/9.4, 1.4), SWARM/DAG strategy lease (5.3-5.7), worktree reconciliation ordering (6), async callback ownership (10), abortable init/listen teardown (11), browser profile quarantine (12), and failure-injection qualification (14). Preserve Changes 026/027 external blockers exactly.",
+  "nextAction": "Continue Change 028: implement C1 strategy actor lease (one per repo, worker process records, HTTP gate, terminal wait), C2 worktree ownership guard (LIVE/UNKNOWN protects sweep, dead preserves dirty), C3 transition atomicity (Sol control + dispatch detection via OrchestrationTransitionService + outbox for browser close), C4 watcher promise-aware + abortable buildApp + listen-failure full teardown, C5 browser --user-data-dir probe + quarantine, C6 observability APIs, C7 failure-injection matrices. Fix endurance/stress harness readiness timeout (port/lock). Then re-run full fast/real battery, reconcile ARCHITECTURE/DATA-MODEL/RUNTIME-MODEL/OBSERVABILITY/DEVELOPMENT, fold specs, and re-certify until no locally reproducible Critical remains.",
   "blockers": [
     {
       "code": "TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED",
@@ -69,6 +69,24 @@
       "summary": "Changes 026/027 retain production-acceptance tasks (026: real-repo battery 9.2/11.2/12.2/13-16, dispatch soak 22.x/24.x; 027: PACKAGE_RUNTIME_QUALIFIED partial) requiring authorized external resources.",
       "evidence": "Task files reconciled to evidence; these items explicitly remain unmarked as pending battery/dispatch.",
       "nextAction": "Execute residual acceptance in a sanctioned environment with authorized resources; do not archive the changes until then."
+    },
+    {
+      "code": "CHANGE_028_REMAINING_CRITICAL_C1_C7",
+      "summary": "Change 028 retains locally reproducible Critical defects C1-C7: SWARM/DAG strategy lease + worker ownership (C1), worktree isolation guard (C2), transition atomicity for Sol control/dispatch/strategy completion (C3), async lifecycle + abortable init + listen-failure teardown (C4), browser profile --user-data-dir probe + quarantine (C5), observability/recovery API (C6), failure-injection matrices (C7).",
+      "evidence": "Scout + CodeScout audit at 77c0d7f plus post-92ce961 verification: only direct-executor D4.x is now closed; swarm-service, worktree-service, loop-service onControl/onDispatch, watcher void callbacks, profile-lock PID-only reclaim, and startup SIGTERM handling remain unfixed. Final report docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md §2 enumerates files/lines.",
+      "nextAction": "Implement per openspec/changes/028-durable-execution-ownership-and-crash-consistency/design.md D5-D15 with regression tests for each crash window; do not archive 028 until all D-package acceptance true."
+    },
+    {
+      "code": "ENDURANCE_SHORT_FAIL_LOCALLY_REPRODUCIBLE",
+      "summary": "test:endurance:short fails locally with 'Timed out waiting for cycle 1 readiness' (harness-lib.mjs:90) — not external qualification.",
+      "evidence": "2026-08-27 run on 92ce961: mode=short cycles=6 port=47241 timed out after 125s at cycle 1 readiness; EXIT 0 but harness threw. Locally reproducible.",
+      "nextAction": "Investigate harness readiness port/lock contention and controller startup on this host; fix controller startup or harness timeout tuning; re-run `npm run test:endurance:short` until 6 cycles PASS."
+    },
+    {
+      "code": "MULTI_REPO_STRESS_FAIL_LOCALLY_REPRODUCIBLE",
+      "summary": "test:stress:repos fails locally with 'Timed out waiting for readiness' (harness launch pid=82612) — not external.",
+      "evidence": "2026-08-27 run on 92ce961: multi-repo-stress harness timed out at readiness wait; locally reproducible.",
+      "nextAction": "Investigate multi-repo harness readiness (port 82xxx) and parallel repo creation; fix isolation or timeout; re-run `npm run test:stress:repos` until PASS."
     }
   ],
   "developmentPolicies": {
