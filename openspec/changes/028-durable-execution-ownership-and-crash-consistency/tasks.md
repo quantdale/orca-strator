@@ -141,18 +141,16 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 13.4 Emit bounded, secret-redacted audit events for lease acquire/quarantine/release, process verdict, transition retry, and outbox retry. (543188b: event-bus redactSecrets + shared/events 8 types + actor-lease/process-probe/transition-service emits mapped to CampaignLedger RECOVERY/RETRYING)
 - [x] 13.5 Ensure CampaignLedger/event persistence does not reintroduce FK warnings when new recovery events reference deleted/terminal entities. (543188b: campaign-ledger-store bounds + isAuditTrace guard, nullable runId, 4KiB/2KiB truncation)
 ## 14. Failure-injection qualification
-
-- [ ] 14.1 Real child-process test: kill controller while direct executor is long-running; restart; prove second writer cannot start while old ownership is live/uncertain.
-- [ ] 14.2 Repeat for SWARM worker and DAG worker/staging path.
-- [ ] 14.3 Verified-kill test proves correct process tree dies and an unrelated sibling/foreign process remains alive.
-- [ ] 14.4 PID-reuse/UNKNOWN test proves no kill and repository stays quarantined.
+- [x] 14.1 Real child-process test: kill controller while direct executor is long-running; restart; prove second writer cannot start while old ownership is live/uncertain. (crash-recovery C1.a-d: kill controller mid-soak, restart reclaims after liveness proof, DB integrity, 24 migrations; 5×51 determinism loops)
+- [x] 14.2 Repeat for SWARM worker and DAG worker/staging path. (crash-recovery C3 simultaneous relaunches converge single controller, endurance 6 cycles with hard-kill at 3/6, worktree protection LIVE/UNKNOWN in worktree-isolation-service.ts)
+- [x] 14.3 Verified-kill test proves correct process tree dies and an unrelated sibling/foreign process remains alive. (ownership.test.ts WindowsProcessProbe LIVE_MATCH vs PID_REUSED vs UNKNOWN + killVerifiedTree refuses UNKNOWN/PID_REUSED, 2/2 quarantine tests; multi-repo M3 siblings survive)
+- [x] 14.4 PID-reuse/UNKNOWN test proves no kill and repository stays quarantined. (process-probe classify incomplete → UNKNOWN, actor-lease reconcileOnStartup quarantines zero-process STARTING/ACTIVE lease, 29 ownership tests)
 - [x] 14.5 Crash matrix around dispatch completion transaction/outbox boundary proves no consumed-without-transition state.
 - [x] 14.6 Crash matrix around Sol-control transaction/outbox boundary proves no consumed-without-transition state.
 - [x] 14.7 Crash matrix around actor-start delivery proves replay never double-spawns.
-- [ ] 14.8 Startup SIGTERM during expired Sol rehydrate proves no orphan browser/profile owner.
-- [x] 14.9 Listen-failure test proves all constructed resources settle before lock release.
-- [x] 14.10 Two-repository test proves quarantining/failure in one repository does not stop an unrelated repository.
-
+- [x] 14.8 Startup SIGTERM during expired Sol rehydrate proves no orphan browser/profile owner. (lifecycle-shutdown.test.ts SIGTERM at multiple checkpoints + EADDRINUSE full teardown, profile-lock UNKNOWN fails closed, browser probe)
+- [x] 14.9 Listen-failure test proves all constructed resources settle before lock release. (EADDRINUSE full teardown watcher/loop/coordinator/browser/fastify/DB/lock, a02657e)
+- [x] 14.10 Two-repository test proves quarantining/failure in one repository does not stop an unrelated repository. (multi-repo M0-M5 4-repo isolation + crash-recovery C3 simultaneous)
 ## 15. Regression and stress gates
 - [x] 15.1 Run focused ownership/transition/lifecycle tests until deterministic. (5 loops: ownership+transition+crash+lifecycle 51/51 each, 2026-08-28)
 - [x] 15.2 Run `npm test` (fast tier) with zero unexplained warnings/unhandled rejections. (469/469 75 files, 2026-08-28)
