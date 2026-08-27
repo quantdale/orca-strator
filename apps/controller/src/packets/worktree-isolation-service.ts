@@ -11,7 +11,8 @@ import {
 } from "@orca/shared";
 import { toWslPath } from "../wsl-path.js";
 import type { WorkPacketStore } from "./work-packet-store.js";
-
+import type { ProcessOwnershipStore } from "../ownership/ownership-store.js";
+import type { ProcessProbe } from "../ownership/process-probe.js";
 const execFileAsync = promisify(execFile);
 
 /**
@@ -42,15 +43,41 @@ export type GitMutationResult =
 function isEmptyCherryPickError(message: string): boolean {
   return /previous cherry-pick is (now )?empty/i.test(message);
 }
-
 export class WorktreeIsolationService {
   private readonly dataDir: string;
+  private readonly store: WorkPacketStore;
+  private readonly ownership?: { processStore: ProcessOwnershipStore; probe: ProcessProbe };
 
   constructor(
-    private readonly store: WorkPacketStore,
+    store: WorkPacketStore,
     dataDir: string,
+    ownership?: { processStore: ProcessOwnershipStore; probe: ProcessProbe }
   ) {
+    this.store = store;
     this.dataDir = path.resolve(dataDir);
+    this.ownership = ownership;
+  }
+
+  private isReclaimBlocked(repositoryId: string): boolean {
+    if (!this.ownership) return false;
+    try {
+      const procs = this.ownership.processStore.listByRepository(repositoryId);
+      for (const rec of procs) {
+        if (rec.state === "EXITED" || rec.state === "KILL_CONFIRMED") continue;
+        const verdict = this.ownership.probe.classify({
+          hostPid: rec.hostPid,
+          executableName: rec.executableName ?? undefined,
+          startMarker: rec.startMarker ?? undefined
+        });
+        if (verdict === "LIVE_MATCH" || verdict === "UNKNOWN" || verdict === "PID_REUSED") {
+          return true;
+        }
+      }
+    } catch {
+      // fail closed: if we cannot determine, block reclaim
+      return true;
+    }
+    return false;
   }
 
   async allocate(
@@ -176,6 +203,10 @@ export class WorktreeIsolationService {
     repository: RepositoryRecord,
     worktreeId: string,
   ): Promise<IsolatedWorktreeRecord | null> {
+    // Change 028 (D6.2): protect live/unknown worktrees from automatic release.
+    if (this.isReclaimBlocked(repository.id)) {
+      return this.store.getWorktree(worktreeId);
+    }
     const record = this.store.getWorktree(worktreeId);
     if (!record || record.repositoryId !== repository.id) return null;
     if (record.status === "RELEASED") return record;
@@ -240,6 +271,11 @@ export class WorktreeIsolationService {
   async recover(
     repository: RepositoryRecord,
   ): Promise<IsolatedWorktreeRecord[]> {
+    // Change 028 (D6.2): LIVE/UNKNOWN worker ownership protects worktrees
+    // from automatic release/sweep. Dirty evidence is preserved, not trashed.
+    if (this.isReclaimBlocked(repository.id)) {
+      return [];
+    }
     const records = this.store.listWorktrees(repository.id, [
       "ALLOCATED",
       "ACTIVE",
@@ -298,8 +334,12 @@ export class WorktreeIsolationService {
   private async sweepOrphanedStagings(
     repository: RepositoryRecord,
   ): Promise<void> {
+    // Change 028 (D6.4): orphan DAG staging sweep cannot remove a checkout
+    // still owned by a live/uncertain worker process.
+    if (this.isReclaimBlocked(repository.id)) {
+      return;
+    }
     const stagingRoot = path.join(
-      this.dataDir,
       "staging",
       this.safePart(repository.id),
     );

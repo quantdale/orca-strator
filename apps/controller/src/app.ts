@@ -206,6 +206,7 @@ export async function buildApp(
   const worktreeIsolationService = new WorktreeIsolationService(
     workPacketStore,
     config.dataDir,
+    { processStore: processOwnershipStore, probe: processProbe }
   );
   const integrationService = new IntegrationService(workPacketStore);
   const permissionPolicyService = new PermissionPolicyService({
