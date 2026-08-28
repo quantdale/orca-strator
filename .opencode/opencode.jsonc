@@ -1,0 +1,19 @@
+{
+  // Repository-local OpenCode-native MCP declarations for orca-strator.
+  // Mirror of .mcp.json (universal standard). Keep the two in sync; run
+  // `node scripts/mcp-preflight.mjs` to detect drift between them.
+  // Both servers are DEV-ONLY and must never become Orca's production
+  // automation channel. Additive only: no existing integration is modified.
+  "mcp": {
+    "chrome-devtools": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@1.8.0", "--no-usage-statistics"]
+    },
+    "context7": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@4.0.3"]
+    }
+  }
+}

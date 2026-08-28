@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@1.8.0", "--no-usage-statistics"],
+      "comment": "Dev-only. Chrome DevTools MCP (ChromeDevTools/chrome-devtools-mcp, Apache-2.0). Loopback UI/Electron renderer diagnostics, performance and browser-side debugging during orchestrator development. MUST NOT become Orca's production Sol automation channel. Opts out of Google usage telemetry. Requires Node >=23 and a Chrome/Chrome-for-Testing install."
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@4.0.3"],
+      "comment": "Dev-only. Context7 MCP (upstash/context7, MIT). Current Electron/Fastify/React/Vite/Node API docs. Env var CONTEXT7_API_KEY (optional) raises rate limits; never committed. Docs-only; no write/network authority beyond the Context7 docs endpoint."
+    }
+  }
+}

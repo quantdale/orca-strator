@@ -33,12 +33,12 @@
   ],
   "planningBaseSha": "77c0d7f6cd7fba354a11225f9dc291ff0da3add1",
   "checkpoint": {
-    "summary": "Final 029 certification at ae0ced1: Change 028 14.1-14.10 now PASS (crash-recovery C1-C5, endurance 6/6, multi-repo 4-repo, ownership probe, lifecycle), 13.4/13.5 audit/FK PASS (543188b), harness fixes 659d92d. Fast 469/469 ×2 + 5×51 determinism, typecheck/build/lint/openspec clean, backup PASS, package 13/13, upgrade 10/10, manifest UNSIGNED. No locally reproducible Critical/High remains; remaining is external Tailscale/OpenCode/installer/long + 15.x time/host batches.",
-    "updatedAt": "2026-08-28T06:00:00+08:00",
+    "summary": "Final 029 certification at ae0ced1: Change 028 14.1-14.10 now PASS (crash-recovery C1-C5, endurance 6/6, multi-repo 4-repo, ownership probe, lifecycle), 13.4/13.5 audit/FK PASS (543188b), harness fixes 659d92d. Fast 469/469 ×2 + 5×51 determinism, typecheck/build/lint/openspec clean, backup PASS, package 13/13, upgrade 10/10, manifest UNSIGNED. No locally reproducible Critical/High remains; remaining is external Tailscale/OpenCode/installer/long + 15.x time/host batches. Add-on master plan implemented 2026-08-28: repo-local dev-only MCPs chrome-devtools-mcp@1.8.0 + @upstash/context7-mcp@4.0.3 via .mcp.json + .opencode/opencode.jsonc, scripts/mcp-preflight.mjs (pin/secret/drift guard); preflight + openspec 28/28 + integrity PASS.",
+    "updatedAt": "2026-08-28T07:30:00+08:00",
     "lastCompletedTask": "Tick 14.1-14.10 qualified (ae0ced1) + report §8 to none Critical/High; endurance/multi-repo/package/upgrade/manifest already PASS at 659d92d",
     "lastVerification": "npm test 469/469 PASS + 5×51 loops, typecheck 82s PASS, build 129s PASS, lint 81s PASS, openspec 28/28 PASS, integrity 209/722 PASS, version PASS, diff-check clean, backup-restore PASS, crash-recovery 10/10 PASS, endurance 6/6 PASS, multi-repo 4-repo PASS, package 13/13 PASS, upgrade 10/10 PASS, manifest e14b10dc PASS; main == origin/main at ae0ced1"
   },
-  "nextAction": "Fold 16.6 delta specs (durable-execution-ownership, crash-consistent-transition-processing, abortable-runtime-lifecycle) into canonical specs and archive Change 028, then reconcile 027/026 per §7 external workflows (Tailscale/OpenCode/installer/long endurance) and finalize 029 umbrella; no further local engineering required beyond spec fold.",
+  "nextAction": "Add-on master plan (repo-local dev-only MCPs) implemented and committed; see docs/agent-integrations/REPOSITORY_LOCAL_ADDONS_HANDOFF.md for scope/preservation proof. Then: fold 16.6 delta specs (durable-execution-ownership, crash-consistent-transition-processing, abortable-runtime-lifecycle) into canonical specs and archive Change 028, then reconcile 027/026 per §7 external workflows (Tailscale/OpenCode/installer/long endurance) and finalize 029 umbrella; no further local engineering required beyond spec fold.",
   "blockers": [
     {
       "code": "TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED",
