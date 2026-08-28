@@ -261,6 +261,21 @@ export class OrchestrationTransitionService {
     ]);
   }
 
+  /**
+   * True when this dispatch's iteration was applied as a SUCCESSFUL completion
+   * (the ordinary COMPLETE transition, or a POSTFLIGHT_COMPLETE republish).
+   *
+   * Narrower than `hasCompletedIterationFor`, which also counts the FAIL_*
+   * terminal transitions: a BLOCKED/PARTIAL iteration is durably applied but was
+   * never consumed as a success.
+   */
+  hasSuccessfulCompletionFor(dispatchId: string): boolean {
+    return (
+      this.intentStore.getBySource("DISPATCH", dispatchId, "COMPLETE") !== null ||
+      this.intentStore.getBySource("DISPATCH", dispatchId, "POSTFLIGHT_COMPLETE") !== null
+    );
+  }
+
   listPendingOutbox(): OutboxItem[] {
     return [
       ...this.outboxStore.listByState("PENDING"),

@@ -668,6 +668,21 @@ export class LoopService {
     return dispatch?.status === "consumed";
   }
 
+  /**
+   * Was this dispatch's iteration applied as a SUCCESSFUL completion?
+   *
+   * Narrower than `iterationAlreadyCompleted`: a PARTIAL/BLOCKED iteration is
+   * durably terminal but was never consumed as a success, and a
+   * postflight-blocked iteration has no completion transition at all.
+   */
+  iterationCompletedSuccessfully(dispatchId: string): boolean {
+    if (this.transition) {
+      return this.transition.hasSuccessfulCompletionFor(dispatchId);
+    }
+    const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
+    return dispatch?.status === "consumed";
+  }
+
   async onStrategyCompleted(
     repositoryId: string,
     dispatchId: string,
@@ -903,8 +918,29 @@ export class LoopService {
       return "ALREADY_APPLIED";
     }
 
-    // The consumed-status check above proves the dispatch store is wired.
-    this.dispatchStore?.updateStatus(dispatchId, "consumed");
+    // Change 028: record the retry's application durably and atomically with
+    // the dispatch consumption. Without an intent the sweep would find this
+    // record again on every pass, because 028 consumes the dispatch at the
+    // START of a turn and consumption alone no longer proves the iteration was
+    // applied.
+    if (this.transition) {
+      await this.transition.enqueueAndApply({
+        sourceKind: "DISPATCH",
+        sourceId: dispatchId,
+        operation: "POSTFLIGHT_COMPLETE",
+        repositoryId,
+        runId: run.id,
+        payloadJson: JSON.stringify({
+          iteration: record.iteration,
+          strategyRunId: record.strategyRunId,
+        }),
+        apply: () => {
+          this.dispatchStore?.updateStatus(dispatchId, "consumed");
+        },
+      });
+    } else {
+      this.dispatchStore?.updateStatus(dispatchId, "consumed");
+    }
 
     if (
       [

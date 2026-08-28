@@ -692,8 +692,10 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
     const strategyWithEvidence = app.strategyRunStore.get(strategy.strategyRunId);
     expect(strategyWithEvidence?.lastError ?? "").toContain("POSTFLIGHT_BLOCKED:");
 
-    // The authorizing dispatch was NOT consumed as success; NO COMPLETED wake.
-    expect(app.dispatchStore.get(s.dispatchId)?.status).toBe("detected");
+    // The iteration was NOT applied as a successful completion; NO COMPLETED
+    // wake. (Change 028 consumes the dispatch when the turn STARTS, so the
+    // durable completion transition is what distinguishes success here.)
+    expect(app.loopService.iterationCompletedSuccessfully(s.dispatchId)).toBe(false);
     expect(completedWakeCount(s.repoId)).toBe(0);
     expect(storeCompletedWakeCount(s.repoId)).toBe(0);
 
@@ -807,7 +809,7 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
 
     // The authorizing dispatch was NOT consumed as success; NO COMPLETED wake
     // in either the browser history or the durable wake store.
-    expect(app.dispatchStore.get(s.dispatchId)?.status).toBe("detected");
+    expect(app.loopService.iterationCompletedSuccessfully(s.dispatchId)).toBe(false);
     expect(completedWakeCount(s.repoId)).toBe(0);
     expect(storeCompletedWakeCount(s.repoId)).toBe(0);
 
@@ -980,7 +982,7 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
     expect(app.runStore.get(s.runId)?.status).toBe("BLOCKED");
 
     // Never consumed-as-successful, never a COMPLETED wake.
-    expect(app.dispatchStore.get(s.dispatchId)?.status).toBe("detected");
+    expect(app.loopService.iterationCompletedSuccessfully(s.dispatchId)).toBe(false);
     expect(completedWakeCount(s.repoId)).toBe(0);
     expect(storeCompletedWakeCount(s.repoId)).toBe(0);
 
@@ -1025,7 +1027,7 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
     expect(summary.candidates).toHaveLength(0);
     expect(summary.republished).toBe(0);
     expect(summary.confirmed).toBe(0);
-    expect(app.dispatchStore.get(s.dispatchId)?.status).toBe("detected");
+    expect(app.loopService.iterationCompletedSuccessfully(s.dispatchId)).toBe(false);
     expect(app.runStore.get(s.runId)?.status).toBe("BLOCKED");
     expect(completedWakeCount(s.repoId)).toBe(0);
   }, 240000);
@@ -1067,7 +1069,7 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
     expect(run?.lastError ?? "").toContain("dirty");
 
     // No COMPLETED wake; dispatch not consumed.
-    expect(app.dispatchStore.get(s.dispatchId)?.status).toBe("detected");
+    expect(app.loopService.iterationCompletedSuccessfully(s.dispatchId)).toBe(false);
     expect(completedWakeCount(s.repoId)).toBe(0);
     expect(storeCompletedWakeCount(s.repoId)).toBe(0);
 
@@ -1090,7 +1092,7 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
     expect(summary.candidates).toHaveLength(0);
     expect(summary.republished).toBe(0);
     expect(summary.confirmed).toBe(0);
-    expect(app.dispatchStore.get(s.dispatchId)?.status).toBe("detected");
+    expect(app.loopService.iterationCompletedSuccessfully(s.dispatchId)).toBe(false);
     expect(app.runStore.get(s.runId)?.status).toBe("BLOCKED");
     expect(completedWakeCount(s.repoId)).toBe(0);
   }, 240000);
@@ -1115,7 +1117,10 @@ describe("Real Strategy Movement (Change 018 R7) — local/remote main movement 
     // Only advance the remote AFTER the watcher has detected the dispatch:
     // the first watcher sweep inspects just the observed tip, so earlier
     // advancements would hide the marker commit below them.
-    await waitForCondition(() => app.dispatchStore.get(s.dispatchId)?.status === "detected", 60000);
+    // The durable dispatch record existing IS watcher detection. Change 028
+    // consumes the dispatch in the same turn the loop picks it up, so waiting
+    // for the transient "detected" status can miss the window entirely.
+    await waitForCondition(() => app.dispatchStore.get(s.dispatchId) !== null, 60000);
     const advShas = advanceRemote([
       { file: "stale-1.txt", content: "stale base advancement 1\n", message: "chore(mover): stale base advancement 1" },
       { file: "stale-2.txt", content: "stale base advancement 2\n", message: "chore(mover): stale base advancement 2" },

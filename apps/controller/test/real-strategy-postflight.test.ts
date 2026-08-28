@@ -370,8 +370,10 @@ describe("Real Strategy Postflight (Change 018) — failed remote publication ne
     expect(strategyWithEvidence?.lastError ?? "").toContain("POSTFLIGHT_BLOCKED:");
     expect(strategyWithEvidence?.report).toEqual(strategy!.report);
 
-    // The authorizing dispatch was NOT consumed as success.
-    expect(app.dispatchStore.get(dispatchId)?.status).toBe("detected");
+    // The iteration was NOT applied as a successful completion. (Change 028
+    // consumes the dispatch when the turn STARTS, so the durable completion
+    // transition is what distinguishes success here.)
+    expect(app.loopService.iterationCompletedSuccessfully(dispatchId)).toBe(false);
 
     // ZERO COMPLETED wakes: neither browser history nor the durable wake store.
     expect(pageCompletedWakeCount(repoId)).toBe(0);
@@ -473,7 +475,7 @@ describe("Real Strategy Postflight (Change 018) — failed remote publication ne
 
     // Reproduce the blocked state first.
     await waitForCondition(() => app.runStore.get(runId)?.status === "RECOVERY_REQUIRED", 30000);
-    expect(app.dispatchStore.get(dispatchId)?.status).toBe("detected");
+    expect(app.loopService.iterationCompletedSuccessfully(dispatchId)).toBe(false);
 
     // Make the remote safe BEFORE the restart so the automatic replay can confirm.
     restoreSafeRemoteState();
@@ -542,7 +544,7 @@ describe("Real Strategy Postflight (Change 018) — failed remote publication ne
 
     // A PARTIAL outcome never consumes the dispatch and never wakes Sol with
     // COMPLETED — regardless of what publication did.
-    expect(app.dispatchStore.get(dispatchId)?.status).toBe("detected");
+    expect(app.loopService.iterationCompletedSuccessfully(dispatchId)).toBe(false);
     expect(pageCompletedWakeCount(repoId)).toBe(0);
     expect(storeCompletedWakeCount(repoId)).toBe(0);
 
