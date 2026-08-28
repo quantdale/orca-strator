@@ -99,8 +99,11 @@ const RUN_ATTEMPT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}
  */
 export function executorIdentityMatches(configuredCli: string, reportedCli: string): boolean {
   if (reportedCli === configuredCli) return true;
-  const configuredStem = path
-    .basename(configuredCli)
+  // Configured CLI values are user-authored Windows or WSL paths. `path.basename`
+  // follows the HOST flavour, so on a POSIX host it would return the whole
+  // `C:\...\kimi.exe` string and never match a reported harness name. Split on
+  // both separators so correlation is identical on every host.
+  const configuredStem = (configuredCli.split(/[\\/]/).pop() ?? "")
     .replace(/\.(exe|cmd|bat|ps1)$/i, "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
