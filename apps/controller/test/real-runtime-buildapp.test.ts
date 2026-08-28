@@ -150,8 +150,17 @@ describe("Real Runtime Q.APP.1 — buildApp production controller gate", () => {
     git(cloneDir, ["commit", "-m", `chore(sol): dispatch ${dispatchId}`]);
     git(cloneDir, ["push", "origin", "main"]);
 
-    // Wait for the production watcher->loop->real harness->result->loop without any manual transition call
-    await waitForCondition(() => app.dispatchStore.get(dispatchId)?.status === "consumed", 90000);
+    // Wait for the production watcher->loop->real harness->result->loop without any manual transition call.
+    // Change 028 moved dispatch consumption into the atomic DISPATCH_START transition, so "consumed"
+    // now marks the START of the turn. The end of the turn is the run handing back to Sol.
+    await waitForCondition(
+      () =>
+        app.executorStore.getByDispatch(dispatchId).some((r) => r.status === "completed") &&
+        app.wakeStore.getByRepository(repoId).length > 0 &&
+        app.runStore.get(runId)?.status === "SOL_REVIEWING",
+      90000
+    );
+    expect(app.dispatchStore.get(dispatchId)?.status).toBe("consumed");
 
     const execRuns = app.executorStore.getByRepository(repoId);
     expect(execRuns.length).toBeGreaterThan(0);
@@ -213,7 +222,13 @@ describe("Real Runtime Q.APP.1 — buildApp production controller gate", () => {
     fs.mkdirSync(path.join(cloneDir, ".orca", "dispatch"), { recursive: true });
     fs.writeFileSync(path.join(cloneDir, ".orca", "dispatch", `${dispatchId}.json`), JSON.stringify(marker, null, 2));
     git(cloneDir, ["add", "-A"]); git(cloneDir, ["commit", "-m", `chore(sol): dispatch ${dispatchId}`]); git(cloneDir, ["push", "origin", "main"]);
-    await waitForCondition(() => app.dispatchStore.get(dispatchId)?.status === "consumed", 90000);
+    await waitForCondition(
+      () =>
+        app.executorStore.getByDispatch(dispatchId).some((r) => r.status === "completed") &&
+        app.runStore.get(runId)?.status === "SOL_REVIEWING",
+      90000
+    );
+    expect(app.dispatchStore.get(dispatchId)?.status).toBe("consumed");
     expect(app.loopService.getStatus(repoId).state).toBe("SOL_REVIEWING");
 
     // Now push an isolated Sol-control marker for GOAL_COMPLETE correlated to same run/iteration
