@@ -2,10 +2,18 @@
 
 Status: **canonical design input for post-V1 work; not an OpenFlow compatibility contract**
 
-The historical exploration is preserved on the remote branch
-`exploration/openflow-inspired-orca-evolution`. It is documentation-only and
-non-binding. Current `main`, Change 009, and the focused OpenSpecs below remain
-authoritative.
+The historical exploration is preserved in-tree under
+`docs/explorations/openflow-inspired-orca-evolution/`. It is documentation-only
+and non-binding. Current `main`, Change 009, and the focused OpenSpecs below
+remain authoritative.
+
+It previously lived only on the remote branch
+`exploration/openflow-inspired-orca-evolution` (tip
+`19659ca529f27abfbf70bb85e1ec61a1f5a5ecb6`). That branch carried four
+documentation commits and no code. Its content was moved onto `main` verbatim
+apart from a preservation banner on that directory's `README.md`, and the branch
+was deleted, so this repository is single-branch again and the exploration no
+longer depends on a branch that could disappear.
 
 ## Already exists on current `main`
 

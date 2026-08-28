@@ -36,6 +36,8 @@ Then load focused documents only as the current task requires.
 | What must be tested/qualified? | `docs/TEST-STRATEGY.md` |
 | What is staged implementation order? | `docs/ROADMAP.md` |
 | How the historical OpenFlow exploration maps to current main? | `docs/OPENFLOW-EVOLUTION-DELTA.md` |
+| What did the original OpenFlow exploration actually propose? | `docs/explorations/openflow-inspired-orca-evolution/` (non-binding; superseded by the delta above) |
+| Why do the two dev-only MCP servers exist and what governs them? | `docs/agent-integrations/REPOSITORY_LOCAL_ADDONS_MASTER_PLAN.md` + `..._HANDOFF.md` |
 
 ## Current high-value invariants
 

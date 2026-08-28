@@ -1,7 +1,12 @@
 # Repository-Local Add-ons — Implementation Handoff
 
-Implements `docs/agent-integrations/REPOSITORY_LOCAL_ADDONS_MASTER_PLAN.md`
-(planning branch `plan/repo-local-addons-2026-08-28`).
+Implements `docs/agent-integrations/REPOSITORY_LOCAL_ADDONS_MASTER_PLAN.md`.
+
+That plan was originally authored on the planning branch
+`plan/repo-local-addons-2026-08-28` (tip
+`fa9c57767234be3bbc89d70523f657ba8097ca0b`), which held the plan document and
+nothing else. The document has since been merged onto `main` unchanged and the
+branch deleted, so the reference above resolves in-tree.
 
 Scope: two **dev-only** MCP servers, repository-local and additive-only. They are
 consumed by the coding agent (Claude Code / Cursor / VS Code / Codex / Pi /
@@ -82,8 +87,24 @@ secrets committed, zero unrelated dependency churn.
 - **Global CLI-agent configuration changes** — `GLOBAL_SCOPE_BLOCKED`; only
   repository-tracked config was introduced.
 
-## Note on the other remote branch
+## Note on the other remote branch (corrected 2026-08-28)
 
-`origin/exploration/openflow-inspired-orca-evolution` was inspected and left
-untouched: it is a divergent experimental branch (353 files, ~−61k lines) that
-would delete the product. It is not part of this add-on task.
+An earlier revision of this handoff recorded
+`origin/exploration/openflow-inspired-orca-evolution` as "a divergent
+experimental branch (353 files, ~−61k lines) that would delete the product".
+**That reading was wrong**, and the error is worth naming because it is easy to
+repeat: the session that wrote it inspected the branch from a shallow clone, so
+`main` and the exploration tip had no reachable common ancestor and every
+`git diff` against a fabricated merge base looked like a mass deletion.
+
+Against the true merge base (`2ba005468c3bbf938e4141ff3883725b223752c0`, found
+after `git fetch --unshallow`) the branch was **four documentation commits
+adding four files and 1,148 lines, with zero code and zero deletions**. It never
+threatened the product.
+
+Operational rule: never characterize a branch from a diff taken in a shallow
+clone. Confirm `git merge-base` resolves first, and unshallow if it does not.
+
+The branch content now lives at
+`docs/explorations/openflow-inspired-orca-evolution/` and the branch itself has
+been deleted.
