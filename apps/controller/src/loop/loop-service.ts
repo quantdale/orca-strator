@@ -645,6 +645,29 @@ export class LoopService {
    * A late/duplicate callback for an already-applied completion (dispatch
    * consumed) is a no-op.
    */
+  /**
+   * Has the iteration authorized by this dispatch already been completed
+   * durably?
+   *
+   * Before Change 028 the answer was `dispatch.status === "consumed"`, because
+   * consumption happened AT completion. 028 moved consumption into the atomic
+   * DISPATCH_START transition, so every in-flight iteration now has a consumed
+   * dispatch and that test answers "yes" for every turn — which silently
+   * swallowed every strategy completion and every postflight retry.
+   *
+   * With the transition processor wired, the durable completion/failure intent
+   * for the dispatch is the honest answer. Legacy wiring without a transition
+   * processor still consumes at completion, so the old test remains correct
+   * there.
+   */
+  iterationAlreadyCompleted(dispatchId: string): boolean {
+    if (this.transition) {
+      return this.transition.hasCompletedIterationFor(dispatchId);
+    }
+    const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
+    return dispatch?.status === "consumed";
+  }
+
   async onStrategyCompleted(
     repositoryId: string,
     dispatchId: string,
@@ -666,11 +689,12 @@ export class LoopService {
       return;
     }
 
-    // Idempotency: a consumed authorizing dispatch means this completion was
-    // already applied — late/duplicate callbacks must not re-consume or re-wake.
+    // Idempotency: late/duplicate completion callbacks must not re-apply the
+    // iteration. See `iterationAlreadyCompleted` — under Change 028 the
+    // dispatch is consumed when the turn STARTS, so consumption alone no longer
+    // answers this question.
     try {
-      const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
-      if (dispatch && dispatch.status === "consumed") return;
+      if (this.iterationAlreadyCompleted(dispatchId)) return;
     } catch {
       return; // DB closed during teardown (Fix #11)
     }
@@ -838,7 +862,8 @@ export class LoopService {
     } catch {
       return "ALREADY_APPLIED"; // DB closed during teardown (Fix #11)
     }
-    if (!dispatch || dispatch.status === "consumed") return "ALREADY_APPLIED";
+    if (!dispatch) return "ALREADY_APPLIED";
+    if (this.iterationAlreadyCompleted(dispatchId)) return "ALREADY_APPLIED";
 
     let run: RunRecord | null;
     try {

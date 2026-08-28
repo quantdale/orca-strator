@@ -368,14 +368,19 @@ export class IterationExecutionCoordinator {
         if (record.status !== "COMPLETED" || !record.report) continue;
         const dispatchId = record.dispatchId;
         if (!dispatchId) continue;
-        let alreadyConsumed: boolean;
+        let alreadyApplied: boolean;
         try {
+          // Change 028 moved dispatch consumption to the START of a turn, so a
+          // consumed dispatch no longer means the iteration finished. Ask the
+          // durable completion record instead, or no postflight retry candidate
+          // could ever be found.
           const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
-          alreadyConsumed = dispatch?.status === "consumed";
+          alreadyApplied =
+            dispatch === null || this.loopService.iterationAlreadyCompleted(dispatchId);
         } catch {
           break; // DB closed mid-sweep
         }
-        if (alreadyConsumed) continue;
+        if (alreadyApplied) continue;
 
         summary.candidates.push(record);
         let remote: RemotePublishResult | null = null;

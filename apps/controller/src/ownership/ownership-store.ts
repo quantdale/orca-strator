@@ -394,6 +394,30 @@ export class TransitionIntentStore {
     };
   }
 
+  /**
+   * True when any transition intent exists for this source whose operation is
+   * NOT one of `excludedOperations`.
+   *
+   * Change 028 moved dispatch consumption from iteration completion to
+   * DISPATCH_START, so `dispatch.status === "consumed"` no longer means "this
+   * iteration already completed". Callers that need that question answered ask
+   * the durable intent log instead, excluding the start operations.
+   */
+  hasIntentForSourceExcluding(
+    sourceKind: TransitionSourceKind,
+    sourceId: string,
+    excludedOperations: string[]
+  ): boolean {
+    const placeholders = excludedOperations.map(() => "?").join(", ");
+    const sql =
+      `SELECT 1 FROM orchestration_transition_intents
+        WHERE source_kind = ? AND source_id = ?` +
+      (excludedOperations.length ? ` AND operation NOT IN (${placeholders})` : "") +
+      ` LIMIT 1`;
+    const row = this.db.prepare(sql).get(sourceKind, sourceId, ...excludedOperations);
+    return row !== undefined;
+  }
+
   /** Atomically move PENDING -> APPLYING. Returns false if not PENDING. */
   markApplying(intentId: string): boolean {
     const result = this.db
