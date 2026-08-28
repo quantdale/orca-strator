@@ -341,7 +341,7 @@ Commits (this session, oldest first):
   c4d3772  Change 028 (D9.5): fast-tier guard so an undelivered outbox effect cannot return
   9a11051  Change 028 (D9/D11): repair the three stale "dispatch consumed = iteration done" inferences
   8ec3b86  Change 028 (D3.1): make postflight retry durable and separate success from terminal
-  <this>   Change 029 (7.6/8/9/12): fold Change 028, reconcile 026/027/029, final docs and state
+  d76f11b  Change 029 (7.6/8/9/12): fold Change 028, reconcile 026/027/029, final docs and state
 Tracked files: 471
 Status: working tree clean; branch == origin/claude/complete-entire-thing-n7u6i9
 ```
