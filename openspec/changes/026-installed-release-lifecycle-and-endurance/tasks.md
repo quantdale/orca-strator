@@ -107,7 +107,7 @@
 - [x] 15.1 `multi-repo-stress.mjs`: 4 fixture repos, independent watcher progression, sibling-failure containment, close/reopen during activity.
 - [x] 16.1 Integrity gate shared lib: integrity_check, migration history, FK check, snapshot openability after every scenario.
   Evidence: scripts/package/harness-lib.mjs used across crash/endurance/stress/upgrade harnesses.
-- [ ] Execution evidence for 13–16 on the final tree: see §22 battery (pending this session).
+- [x] Execution evidence for 13–16 on the final tree (host W, `659d92d`): crash-recovery `PACKAGED_CRASH_RECOVERY_QUALIFIED` C1–C5 10/10; endurance short `ENDURANCE_SHORT_MODE_PASSED` 6/6 with hard-kills at cycles 3 and 6; multi-repo `MULTI_REPO_PACKAGED_STRESS_QUALIFIED` M0–M5; integrity gate clean across all four harnesses. Long endurance remains 22.x/time-bound.
 
 ## 17. Rollback policy runbook
 
@@ -133,10 +133,10 @@
 
 ## 22. Final verification
 
-- [ ] 22.1 Focused suites during implementation; final battery: npm test, test:real, typecheck, build, lint, openspec validate --strict, git diff --check, version:check, package builds, smoke, harness runs as environment permits.
-  Pending: executed at Milestone-24 closure on the final tree (this session).
-- [ ] 22.2 Artifact records (filename/size/SHA-256/version/buildId/arch/signing/tier); endurance metrics recorded where executed.
-  Pending: same battery.
+- [x] 22.1 Focused suites during implementation; final battery: npm test, test:real, typecheck, build, lint, openspec validate --strict, git diff --check, version:check, package builds, smoke, harness runs as environment permits.
+  Evidence (host L, 2026-08-28): fast 473 (470 pass, 3 host-skips), **`npm run test:real` complete for the first time — 15 files, 60 passed / 6 skipped, 400.8s**, typecheck/build/lint clean, `openspec validate --all --strict` 30/30, `git diff --check` 0, `version:check` OK 0.1.0, source-integrity 210/735, backup-restore roundtrip PASS. Package builds/smoke/endurance/stress are Windows-only harnesses and stay at their host-W verdicts above; see FINAL-PROJECT-COMPLETION-REPORT §4 for which host produced each row.
+- [x] 22.2 Artifact records (filename/size/SHA-256/version/buildId/arch/signing/tier); endurance metrics recorded where executed.
+  Evidence: FINAL-PROJECT-COMPLETION-REPORT §6 — `Orca-Strator.exe` 235,533,824 B SHA-256 `e14b10dc6055…`, version 0.1.0, commit `543188b`, arch x64, signing UNSIGNED (Authenticode NotSigned), tier `PACKAGE_RUNTIME_QUALIFIED`; release manifest 703 B + SHA256SUMS.txt; endurance short report 6 cycles, ws 117MiB→93MiB, handles 264→302.
 
 ## 23. CI qualification updates
 
@@ -145,5 +145,5 @@
 
 ## 24. Closeout
 
-- [ ] 24.1 Fold delta specs into openspec/specs/, archive change, ROADMAP Milestone 24 entry with exact labels, waypoint update, commits/push, main == origin/main, clean tree.
-  Pending: after §22 battery + §11.2 dispatch evidence.
+- [ ] 24.1 Fold delta specs into openspec/specs/, archive change, ROADMAP Milestone 24 entry with exact labels, waypoint update, commits/push, clean tree.
+  **Deliberately still open.** §22 is now satisfied, but 9.2 (release dry-run rehearsal) and 11.2/12.2 (installer lifecycle on an ephemeral Windows runner) are not, and archiving would assert acceptance evidence that does not exist. This change stays active until those two run. Everything in it that does not require a sanctioned Windows environment is complete.

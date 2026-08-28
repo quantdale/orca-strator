@@ -973,3 +973,48 @@ typecheck/lint exit 0; `UNPACKED_UPGRADE_PRESERVATION_QUALIFIED` 10/10 via
 final sources. Remaining honest gaps: NSIS installer-lifecycle acceptance and
 long-soak endurance evidence are ephemeral-CI/local-sanctioned-env gated;
 real-tier run recorded in the session report.
+
+### Milestone 25 — Durable execution ownership, crash consistency, and full-project certification
+
+OpenSpec: `028-durable-execution-ownership-and-crash-consistency` (**complete,
+folded, archived**) and `029-full-project-completion-and-production-certification`
+(umbrella, active until Changes 026/027 close).
+
+Status: **engineering complete; certification complete for every gate that any
+available host can run.**
+
+Change 028 makes the controller safe when it dies at the worst instruction
+boundary: one durable repository actor lease enforced by a uniqueness boundary
+rather than an in-memory map; durable child-process identity classified against
+real OS evidence (`LIVE_MATCH` / `DEAD` / `PID_REUSED` / `UNKNOWN`) with kill
+refused on anything but a verified match; source consumption and run mutation
+committed in a single SQLite transaction with external effects moved to a
+replayable idempotent outbox; promise-aware callbacks; abortable initialization
+with deterministic bounded teardown; and conservative browser-profile reclaim.
+Its three delta specs are folded into `openspec/specs/`
+(`durable-execution-ownership`, `crash-consistent-transition-processing`,
+`abortable-runtime-lifecycle`).
+
+Qualification (2026-08-28): fast tier 473 (470 pass, 3 host-skips); **the
+complete 15-suite real-process tier green in one process — 60 passed, 6
+host-bound skips, 400.8s**; typecheck, build, lint exit 0; strict OpenSpec 30/30;
+source-integrity 210/735; backup/restore roundtrip PASS. Windows-host evidence
+from the prior session stands separately and is labelled as such in
+`docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md` §4: packaged crash recovery
+10/10, short endurance 6/6, multi-repo stress M0–M5, package smoke 13/13,
+unpacked upgrade 10/10, release manifest generated.
+
+Remaining honest gaps, all host- or authorization-bound and none hiding
+unfinished engineering: the NSIS installer lifecycle (needs elevation or a
+sanctioned Windows environment), long-soak endurance, the WSL executor tier,
+the Tailscale phone route, and an authorized OpenCode endpoint.
+
+**The correction this milestone exists to record:** the previous campaign
+classified the unrun real-process suites as external-blocked and, on that basis,
+reported no remaining Critical defects. Running the tier found four Critical
+defects — three introduced by Change 028 itself — that had left every autonomous
+turn through the production watcher path broken: a `START_EXECUTION_ACTOR`
+outbox effect with no delivery handler, and three places still inferring
+"iteration finished" from a dispatch that 028 had started consuming at the
+beginning of a turn. "Cannot run here" and "requires an external environment"
+are different categories, and only the second one is a qualification tier.

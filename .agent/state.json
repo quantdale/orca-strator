@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "project": "orca-strator",
   "developmentStatus": "IMPLEMENTING",
-  "highLevelGoal": "Make Orca crash-safe at its core unattended-execution boundaries: durable repository actor/process ownership across controller death, no second writer under live/unknown prior ownership, atomic/replayable dispatch-control-completion transitions, and bounded initialization/profile cleanup.",
-  "activeMilestone": 24,
-  "activeChange": "028-durable-execution-ownership-and-crash-consistency",
+  "highLevelGoal": "Finish Orca-Strator's documented V1 scope truthfully: crash-safe unattended execution (durable actor/process ownership, atomic replayable transitions, abortable lifecycle) certified by every gate an available host can actually run, with the remaining evidence enumerated as host-bound or authorization-bound rather than filed as a blanket external blocker.",
+  "activeMilestone": 25,
+  "activeChange": "029-full-project-completion-and-production-certification",
   "completedMilestones": [
     0,
     1,
@@ -29,46 +29,59 @@
     20,
     21,
     22,
-    23
+    23,
+    24
   ],
   "planningBaseSha": "77c0d7f6cd7fba354a11225f9dc291ff0da3add1",
   "checkpoint": {
-    "summary": "Final 029 certification at ae0ced1: Change 028 14.1-14.10 now PASS (crash-recovery C1-C5, endurance 6/6, multi-repo 4-repo, ownership probe, lifecycle), 13.4/13.5 audit/FK PASS (543188b), harness fixes 659d92d. Fast 469/469 ×2 + 5×51 determinism, typecheck/build/lint/openspec clean, backup PASS, package 13/13, upgrade 10/10, manifest UNSIGNED. No locally reproducible Critical/High remains; remaining is external Tailscale/OpenCode/installer/long + 15.x time/host batches. Add-on master plan implemented 2026-08-28: repo-local dev-only MCPs chrome-devtools-mcp@1.8.0 + @upstash/context7-mcp@4.0.3 via .mcp.json + .opencode/opencode.jsonc, scripts/mcp-preflight.mjs (pin/secret/drift guard); preflight + openspec 28/28 + integrity PASS.",
-    "updatedAt": "2026-08-28T07:30:00+08:00",
-    "lastCompletedTask": "Tick 14.1-14.10 qualified (ae0ced1) + report §8 to none Critical/High; endurance/multi-repo/package/upgrade/manifest already PASS at 659d92d",
-    "lastVerification": "npm test 469/469 PASS + 5×51 loops, typecheck 82s PASS, build 129s PASS, lint 81s PASS, openspec 28/28 PASS, integrity 209/722 PASS, version PASS, diff-check clean, backup-restore PASS, crash-recovery 10/10 PASS, endurance 6/6 PASS, multi-repo 4-repo PASS, package 13/13 PASS, upgrade 10/10 PASS, manifest e14b10dc PASS; main == origin/main at ae0ced1"
+    "summary": "2026-08-28 continuation session, from f63ddf0 on branch claude/complete-entire-thing-n7u6i9 (operator-named session branch; the repository default of direct-to-main is unchanged and nothing was force-pushed). Ran the fast tier on a non-Windows host and then, for the FIRST TIME, the complete 15-suite real-process tier in one process. That run found FOUR CRITICAL DEFECTS the fast tier structurally cannot see, three of them introduced by Change 028 itself: (1) deliverOutboxEffect had no START_EXECUTION_ACTOR branch, so every autonomous turn consumed its dispatch and never started an executor; (2) onStrategyCompleted read 'dispatch consumed' as 'already applied', so every SWARM/DAG completion was swallowed after workers had already published to the remote; (3) completePostflightRetry and retryPendingPostflight used the same stale inference, so postflight recovery could never find a candidate; (4) the retry recorded no durable transition, so it was not idempotent. Also fixed three High host-flavour defects (win32 path composition in chrome-discovery, POSIX basename in executorIdentityMatches, zombie handling in PortableProcessProbe). Change 028 is now complete: 125/125 tasks, three delta specs folded into openspec/specs/, archived as 2026-08-28-028-*. Changes 026/027 reconciled and DELIBERATELY left unarchived; Change 029 at 103/110 with the seven open items annotated host-bound or authorization-bound.",
+    "updatedAt": "2026-08-28T05:15:00+00:00",
+    "lastCompletedTask": "Change 029 §7.6/§8/§9/§12 — fold and archive Change 028, reconcile 026/027/029 task truth, update README/ROADMAP/TEST-STRATEGY/final report/state",
+    "lastVerification": "Host L (Linux, Node 24.20.0): npm test 473 (470 pass, 3 host-skips); npm run test:real COMPLETE 15 files, 60 passed / 6 classified skips, 400.8s, --no-file-parallelism; typecheck PASS; build PASS; lint PASS; openspec validate --all --strict 30/30; source-integrity 210 files / 735 imports; version:check 0.1.0; git diff --check 0; backup-restore roundtrip PASS. Host W (prior session, not re-runnable here): package smoke 13/13, crash-recovery 10/10, endurance short 6/6, multi-repo M0-M5, unpacked upgrade 10/10, release manifest UNSIGNED SHA256 e14b10dc. Each matrix row in docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md §4 names its host."
   },
-  "nextAction": "Add-on master plan (repo-local dev-only MCPs) implemented and committed; see docs/agent-integrations/REPOSITORY_LOCAL_ADDONS_HANDOFF.md for scope/preservation proof. Then: fold 16.6 delta specs (durable-execution-ownership, crash-consistent-transition-processing, abortable-runtime-lifecycle) into canonical specs and archive Change 028, then reconcile 027/026 per §7 external workflows (Tailscale/OpenCode/installer/long endurance) and finalize 029 umbrella; no further local engineering required beyond spec fold.",
+  "nextAction": "No local engineering remains. To close Changes 026/027 and archive Change 029, obtain the host- and authorization-bound evidence in FINAL-PROJECT-COMPLETION-REPORT §7, in this order: (1) run .github/workflows/windows-package.yml on windows-latest for the NSIS installer lifecycle (026 §11.2/12.2, 029 §9.2, 11.17); (2) run the release-script dry run without a production tag (026 §9.2, 029 §9.1); (3) on any Windows host with WSL, run npm run test:real to clear the five WSL skips, and npm run test:endurance for the long soak (029 §9.4, 11.15); (4) install/authorize Tailscale elevated for the phone route; (5) set ORCA_OPENCODE_QUALIFY_URL for the OpenCode probe. Then archive 026/027/029 and set developmentStatus to ROADMAP_COMPLETE. STANDING RULE for whoever picks this up: never record a suite you merely could not run on your host as external-blocked. That substitution is exactly what hid four Critical defects behind a green board for a full campaign.",
   "blockers": [
     {
+      "code": "INSTALLER_EXECUTION_SANCTIONED_ENV_ONLY",
+      "summary": "NSIS installer lifecycle acceptance needs elevation or a sanctioned/ephemeral Windows environment; silent install would mutate a shared machine.",
+      "evidence": "installer-acceptance.mjs implements isolated install/upgrade/uninstall phases and refuses non-win32 hosts; an unelevated dev host returns exit 1602.",
+      "nextAction": "Run .github/workflows/windows-package.yml on windows-latest, or npm run smoke:installer on an approved isolated machine."
+    },
+    {
+      "code": "WINDOWS_PACKAGING_HARNESSES_HOST_BOUND",
+      "summary": "crash-recovery, endurance, multi-repo-stress and package-smoke are Windows-only by design and cannot run on the Linux gate host. HOST-BOUND, not authorization-bound.",
+      "evidence": "Each script begins with `if (process.platform !== \"win32\") die(...)`. All four hold PASS verdicts from host W at 659d92d.",
+      "nextAction": "Re-run on any Windows host when one is available; no authorization needed."
+    },
+    {
+      "code": "WSL_EXECUTOR_TIER_HOST_BOUND",
+      "summary": "Five real-tier tests skip without wsl.exe and a node-capable distro (Q.WIN.WSL.1, real-swarm/real-dag/real-worktree WSL workers, WSL capability probe). HOST-BOUND, not authorization-bound.",
+      "evidence": "npm run test:real on host L: 60 passed / 6 skipped; five skips name the missing distro, one names the missing OpenCode URL.",
+      "nextAction": "Run npm run test:real on a Windows host with WSL installed; no code change required."
+    },
+    {
+      "code": "ENDURANCE_LONG_TIME_AND_HOST_BOUND",
+      "summary": "Long endurance is 30 cycles over hours on a Windows host. Short endurance is PASS 6/6.",
+      "evidence": "scripts/package/endurance.mjs is Windows-only; the short label completed 6/6 with hard-kills at cycles 3 and 6.",
+      "nextAction": "npm run test:endurance -- --cycles=30 with a real time budget; record threshold metrics honestly."
+    },
+    {
       "code": "TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED",
-      "summary": "Tailscale phone route still requires manual/elevated installation or approval on this machine and remains honestly external-unqualified.",
-      "evidence": "Previous qualification found the package available but non-elevated install exited 1602; core Orca productization must not bypass elevation.",
-      "nextAction": "When Tailscale is installed/authorized, run the private-phone route qualification independently."
+      "summary": "The Tailscale phone route still needs a manual or elevated installation and authorization on the target machine.",
+      "evidence": "The package is available but a non-elevated install exits 1602; productization must not bypass elevation.",
+      "nextAction": "Install and authorize Tailscale elevated, then run the private-phone route qualification independently."
     },
     {
       "code": "OPENCODE_EXTERNAL_UNQUALIFIED",
-      "summary": "Optional real OpenCode server/provider qualification remains external-unqualified because no authorized ORCA_OPENCODE_QUALIFY_URL is available.",
-      "evidence": "real-opencode qualification skips with EXPECTED_EXTERNAL_UNQUALIFIED when ORCA_OPENCODE_QUALIFY_URL is absent.",
-      "nextAction": "Provide an authorized OpenCode endpoint when available."
-    },
-    {
-      "code": "INSTALLER_EXECUTION_SANCTIONED_ENV_ONLY",
-      "summary": "NSIS installer lifecycle acceptance executes only in isolated/sanctioned environments or ephemeral CI; silent installation on this host mutates the machine outside the repository.",
-      "evidence": "installer-acceptance.mjs implements isolated phases; CI release pipeline runs them on windows-latest; local execution requires explicit authorization.",
-      "nextAction": "Run smoke:installer on an approved machine/session or rely on the tag-triggered CI acceptance job."
-    },
-    {
-      "code": "REAL_TIER_BASH_CAP",
-      "summary": "Full `npm run test:real` (15 heavy real-git suites, --no-file-parallelism) exceeds the 30-minute local bash execution cap; cannot complete in a single process.",
-      "evidence": "Focused 6-suite batch now passes together; remaining 9 suites validated in isolation. Per-file 240s budgets + teardown hardening applied.",
-      "nextAction": "Accept isolated + focused-batch evidence + green CI as sufficient M24 qualification; run remaining suites in separate bounded batches when useful."
+      "summary": "The optional real OpenCode server/provider qualification has no authorized endpoint.",
+      "evidence": "real-opencode skips with EXPECTED_EXTERNAL_UNQUALIFIED when ORCA_OPENCODE_QUALIFY_URL is absent.",
+      "nextAction": "Set ORCA_OPENCODE_QUALIFY_URL to an authorized endpoint and run apps/controller/test/real-opencode.test.ts."
     },
     {
       "code": "CHANGE_026_027_RESIDUAL_ACCEPTANCE",
-      "summary": "Changes 026/027 retain production-acceptance tasks requiring authorized external resources.",
-      "evidence": "Task files reconciled to evidence; these items explicitly remain unmarked as pending battery/dispatch.",
-      "nextAction": "Execute residual acceptance in a sanctioned environment with authorized resources; do not archive the changes until then."
+      "summary": "Changes 026 and 027 keep production-acceptance tasks that need the resources above; both stay unarchived until those are obtained.",
+      "evidence": "026 §9.2 and §11.2/12.2 and 027 §6.3 are reconciled to evidence and explicitly left open rather than reclassified.",
+      "nextAction": "Execute the residual acceptance in a sanctioned environment, then fold and archive both changes."
     }
   ],
   "developmentPolicies": {

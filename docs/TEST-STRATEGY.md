@@ -733,13 +733,32 @@ git diff --check                      pass
 npx openspec validate --all --strict  21 passed / 0 failed
 ```
 
-The real tier was last executed in full during the Change 018 qualification
-campaign with these results, which remain the latest real-tier evidence:
+The real tier was last executed in full on 2026-08-28 during the Change 029
+closeout:
 
 ```text
-npm run test:real                     14 files passed + 1 skipped file;
-                                      65 passed / 3 skipped / 0 failed (exit 0)
+npm run test:real                     15 files: 14 passed + 1 skipped file;
+                                      60 passed / 6 skipped / 0 failed (exit 0)
+                                      400.8s, --no-file-parallelism, one process
 ```
+
+**The real tier is a required gate, not an optional one.** This wording is
+deliberate and was earned. Between the Change 018 campaign and 2026-08-28 the
+tier was not run to completion, and the suites that were not run were recorded
+as "external-blocked" on the basis of a host process-budget limit. They were
+unrun, not external. Running them found four Critical defects — three of them
+introduced by Change 028 — that the fast tier structurally cannot see: the fast
+tier exercises `OrchestrationTransitionService` with its own test deliverer and
+its own synthetic protocol source, so it can prove the transaction boundary is
+sound while remaining blind to whether production wires an effect handler at all.
+Every autonomous turn through the production watcher path was broken the whole
+time. See `docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md` §2A.
+
+Before recording any suite as externally blocked, check which it is:
+- **host-bound** — the suite would run on a different machine you could obtain
+  (a Windows host, a WSL distro). It is unrun. Say so.
+- **authorization-bound** — the suite needs a credential, an elevated
+  installation or a sanctioned environment. Only this is a qualification tier.
 
 Real-tier skips are classified `EXPECTED_EXTERNAL_UNQUALIFIED` and are not
 faked: five WSL-distro-gated scenarios (real WSL Ubuntu required) and one

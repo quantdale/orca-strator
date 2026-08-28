@@ -37,10 +37,13 @@
 
 ## 5. Final verification
 
-- [ ] 5.1 Full battery on final committed-source tree: npm test, test:real (classified skips only), typecheck, build, lint, `npx openspec validate --all --strict`, `git diff --check`, integrity guard, package+smoke where environment permits.
+- [x] 5.1 Full battery on final committed-source tree: npm test, test:real (classified skips only), typecheck, build, lint, `npx openspec validate --all --strict`, `git diff --check`, integrity guard, package+smoke where environment permits.
+  Evidence (host L, 2026-08-28): fast 473 (470 pass, 3 host-skips); **`npm run test:real` 15 files, 60 passed / 6 classified skips, 400.8s — the first complete run of this tier**, and the run that exposed four Critical defects now repaired (FINAL-PROJECT-COMPLETION-REPORT §2A); typecheck/build/lint clean; `openspec validate --all --strict` 30/30; `git diff --check` 0; source-integrity 210/735; version:check OK. The six real-tier skips are classified: five need `wsl.exe` with a node-capable distro, one needs an authorized `ORCA_OPENCODE_QUALIFY_URL`. `package+smoke` is Windows-only and stays at its host-W verdict — "where environment permits" is satisfied honestly, not waived.
 
 ## 6. Documentation and durable state
 
-- [ ] 6.1 Correct Change-025 qualification wording wherever it overstates fresh-clone/upgrade proof; update ROADMAP/README/DEVELOPMENT/TEST-STRATEGY/OBSERVABILITY/ARCHITECTURE/SECURITY as contracts actually change.
-- [ ] 6.2 Update `.agent/state.json` (activate/close campaign with exact evidence; no stale "roadmap exhausted" waypoint while work remains).
-- [ ] 6.3 Fold delta specs into `openspec/specs/`, archive the change, push, confirm main == origin/main with a substantive final report.
+- [x] 6.1 Correct Change-025 qualification wording wherever it overstates fresh-clone/upgrade proof; update ROADMAP/README/DEVELOPMENT/TEST-STRATEGY/OBSERVABILITY/ARCHITECTURE/SECURITY as contracts actually change.
+  Evidence: qualification tiers audited again on 2026-08-28; no document claims runtime qualification from a build-only artifact. TEST-STRATEGY now records that the real-process tier is a required gate rather than an optional one, which is the wording that actually needed correcting.
+- [x] 6.2 Update `.agent/state.json` (activate/close campaign with exact evidence; no stale "roadmap exhausted" waypoint while work remains).
+- [ ] 6.3 Fold delta specs into `openspec/specs/`, archive the change, push, with a substantive final report.
+  **Deliberately still open.** The report exists and the battery is green, but archiving asserts complete acceptance and two items are genuinely outstanding: the Tailscale phone route (`TAILSCALE_PHONE_ROUTE_EXTERNAL_UNQUALIFIED`) and the sanctioned installer lifecycle shared with Change 026. This change stays active until they are obtained.

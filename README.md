@@ -172,16 +172,32 @@ Honest status (this machine):
 
 Only the truly external ChatGPT browser boundary is mocked for pipeline proof; the internal wiring being qualified is real. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full qualification matrix.
 
-Latest full qualification run on this tree (Changes 026+027): `npm test` fast
-tier 69 test files / 400 tests green — including the repository source-integrity
-pretest guard (all tracked relative imports resolve to Git-tracked modules),
-controller-compatibility, lifecycle-shutdown, schema-downgrade-guard,
-migration-backup, state-backup, runtime-log-bound, and release-tooling suites —
-with `npm run typecheck` and `npm run lint` exit 0. The P0 fresh-clone defect
-(ignored `runtime/` production sources) is repaired and re-proven from an
-origin-only clean worktree; `UNPACKED_UPGRADE_PRESERVATION_QUALIFIED` (10/10)
-and a re-run `PACKAGE_RUNTIME_QUALIFIED` packaged smoke back the upgrade and
-packaging truth on committed sources.
+Latest full qualification run on this tree (2026-08-28, Change 029 closeout):
+
+- `npm test` — fast tier, 76 files, 473 tests: 470 pass, 3 host-skips. Includes
+  the source-integrity pretest guard (210 tracked source files, 735 relative
+  imports all resolve to Git-tracked modules), controller-compatibility,
+  lifecycle-shutdown, schema-downgrade-guard, migration-backup, state-backup,
+  runtime-log-bound, ownership/transition/crash-matrix and release-tooling suites.
+- `npm run test:real` — **the complete 15-suite real-process tier in one
+  process: 60 passed, 6 skipped, 400.8s.** This tier is a required gate, not an
+  optional one. The six skips are host-bound and named: five need `wsl.exe` with
+  a node-capable distro, one needs an authorized `ORCA_OPENCODE_QUALIFY_URL`.
+- `npm run typecheck`, `npm run build`, `npm run lint` — exit 0.
+- `npm run openspec:validate` — 30/30 strict.
+
+`UNPACKED_UPGRADE_PRESERVATION_QUALIFIED` (10/10) and `PACKAGE_RUNTIME_QUALIFIED`
+(13/13) back the upgrade and packaging truth on committed sources; both are
+Windows-only harnesses and carry their host with them in
+`docs/audits/FINAL-PROJECT-COMPLETION-REPORT.md` §4.
+
+A note worth keeping, because it cost this project real correctness: until
+2026-08-28 the real-process tier had never been run to completion, and the
+suites that had not been run were recorded as "external-blocked". Running them
+found four Critical defects that the fast tier structurally cannot see —
+including a dispatch path that consumed its marker and then never started an
+executor. A test you cannot run on the host in front of you is an unrun test,
+not an external dependency.
 
 ## Durable development workflow
 
