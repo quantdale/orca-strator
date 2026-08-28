@@ -407,7 +407,7 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
     }
   });
 
-  it("Q.WIN.WSL.1 autonomous pipeline via REAL wsl.exe executor with a Linux working tree", async () => {
+  it("Q.WIN.WSL.1 autonomous pipeline via REAL wsl.exe executor with a Linux working tree", async (ctx) => {
     // This is the genuine WSL execution path (C/Q.5): the executor runs through
     // wsl.exe -d Ubuntu --cd <linux working tree> -- node <harness>. It must NOT
     // be skipped silently; if WSL or a node-capable distro is missing on this
@@ -417,7 +417,10 @@ describe("Real Runtime Qualification (Q): assembled controller, real git + real 
       console.warn(
         `Q.WIN.WSL.1 SKIPPED: wsl.exe distro '${distribution}' with node not available; UNQUALIFIED on this machine.`
       );
-      this.skip();
+      // `this` is undefined in an arrow-function test body: the skip must come
+      // from the injected test context, or the honest UNQUALIFIED path throws a
+      // TypeError and reports as a failure instead of a skip.
+      ctx.skip();
       return;
     }
 

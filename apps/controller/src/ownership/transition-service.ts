@@ -245,6 +245,37 @@ export class OrchestrationTransitionService {
     }
   }
 
+  /**
+   * True when a non-start transition already exists for this dispatch, i.e. the
+   * iteration it authorized has already been completed/failed durably.
+   *
+   * This is the post-Change-028 replacement for `dispatch.status === "consumed"`
+   * as an "already applied" test: DISPATCH_START consumes the dispatch at the
+   * START of the turn, so consumption no longer distinguishes a finished
+   * iteration from one that has only just begun.
+   */
+  hasCompletedIterationFor(dispatchId: string): boolean {
+    return this.intentStore.hasIntentForSourceExcluding("DISPATCH", dispatchId, [
+      "DISPATCH_START",
+      "DISPATCH_DRAIN"
+    ]);
+  }
+
+  /**
+   * True when this dispatch's iteration was applied as a SUCCESSFUL completion
+   * (the ordinary COMPLETE transition, or a POSTFLIGHT_COMPLETE republish).
+   *
+   * Narrower than `hasCompletedIterationFor`, which also counts the FAIL_*
+   * terminal transitions: a BLOCKED/PARTIAL iteration is durably applied but was
+   * never consumed as a success.
+   */
+  hasSuccessfulCompletionFor(dispatchId: string): boolean {
+    return (
+      this.intentStore.getBySource("DISPATCH", dispatchId, "COMPLETE") !== null ||
+      this.intentStore.getBySource("DISPATCH", dispatchId, "POSTFLIGHT_COMPLETE") !== null
+    );
+  }
+
   listPendingOutbox(): OutboxItem[] {
     return [
       ...this.outboxStore.listByState("PENDING"),

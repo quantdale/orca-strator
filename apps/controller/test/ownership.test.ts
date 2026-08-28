@@ -334,7 +334,7 @@ describe("PortableProcessProbe (D3 verdicts + no-foreign-kill)", () => {
     child.kill("SIGKILL");
     // give process a moment to die
     const deadline = Date.now() + 2000;
-    while (Date.now() < deadline && probe.classify({ hostPid: child.pid! }).startsWith("LIVE")) {
+    while (Date.now() < deadline && probe.classify({ hostPid: child.pid! }) !== "DEAD") {
       // busy wait briefly
     }
     expect(probe.classify({ hostPid: child.pid! })).toBe("DEAD");
@@ -383,7 +383,7 @@ describe("PortableProcessProbe (D3 verdicts + no-foreign-kill)", () => {
       // Our own record matches => verified kill succeeds.
       probe.killVerifiedTree(record);
       const deadline = Date.now() + 2000;
-      while (Date.now() < deadline && probe.classify(record).startsWith("LIVE")) {
+      while (Date.now() < deadline && probe.classify(record) !== "DEAD") {
         // busy wait
       }
       expect(probe.classify(record)).toBe("DEAD");
@@ -394,7 +394,7 @@ describe("PortableProcessProbe (D3 verdicts + no-foreign-kill)", () => {
       expect(() => probe.killVerifiedTree({ hostPid: process.pid })).toThrow(/REFUSING_KILL/);
       child.kill("SIGKILL");
       const deadline = Date.now() + 2000;
-      while (Date.now() < deadline && probe.classify({ hostPid: child.pid! }).startsWith("LIVE")) {
+      while (Date.now() < deadline && probe.classify({ hostPid: child.pid! }) !== "DEAD") {
         // busy wait
       }
       expect(probe.classify({ hostPid: child.pid! })).toBe("DEAD");

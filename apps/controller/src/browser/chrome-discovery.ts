@@ -49,7 +49,14 @@ const APP_PATHS_KEY =
 const APP_PATHS_WOW64_KEY =
   "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe";
 const BLBEACON_KEY = "HKCU\\Software\\Google\\Chrome\\BLBeacon";
-const CHROME_RELATIVE = path.join(
+/**
+ * Windows discovery always composes Windows paths. `path` resolves to the host
+ * flavour, so a non-Windows host (CI, WSL-side tooling, a Linux dev container)
+ * would otherwise build `C:\Program Files/Google/...` and never match a real
+ * `%ProgramFiles%` layout. `path.win32` is identical to `path` on Windows.
+ */
+const winPath = path.win32;
+const CHROME_RELATIVE = winPath.join(
   "Google",
   "Chrome",
   "Application",
@@ -122,7 +129,7 @@ export async function discoverSystemChrome(
     for (const candidate of candidates) {
       const base = env[candidate.envVar];
       if (!base) continue;
-      const exePath = path.join(base, CHROME_RELATIVE);
+      const exePath = winPath.join(base, CHROME_RELATIVE);
       if (fileExists(exePath)) {
         return {
           status: "FOUND",
@@ -178,7 +185,7 @@ async function readChromeVersion(
     const base =
       _env["ProgramFiles"] || _env["ProgramFiles(x86)"] || _env["LOCALAPPDATA"];
     if (!base) return null;
-    const appDir = path.join(base, "Google", "Chrome", "Application");
+    const appDir = winPath.join(base, "Google", "Chrome", "Application");
     const versions = seams
       .listDirs(appDir)
       .filter((d) => VERSION_DIR_RE.test(d))

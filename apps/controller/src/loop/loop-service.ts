@@ -8,6 +8,7 @@ import {
   type SolWakeResultStatus,
   type SolControlDecision,
   type StrategyRunStatus,
+  type ExecutionStrategy,
   type StrategyRunRecord,
   type RemotePublishResult,
   createPhaseBudgetPolicy,
@@ -644,6 +645,44 @@ export class LoopService {
    * A late/duplicate callback for an already-applied completion (dispatch
    * consumed) is a no-op.
    */
+  /**
+   * Has the iteration authorized by this dispatch already been completed
+   * durably?
+   *
+   * Before Change 028 the answer was `dispatch.status === "consumed"`, because
+   * consumption happened AT completion. 028 moved consumption into the atomic
+   * DISPATCH_START transition, so every in-flight iteration now has a consumed
+   * dispatch and that test answers "yes" for every turn — which silently
+   * swallowed every strategy completion and every postflight retry.
+   *
+   * With the transition processor wired, the durable completion/failure intent
+   * for the dispatch is the honest answer. Legacy wiring without a transition
+   * processor still consumes at completion, so the old test remains correct
+   * there.
+   */
+  iterationAlreadyCompleted(dispatchId: string): boolean {
+    if (this.transition) {
+      return this.transition.hasCompletedIterationFor(dispatchId);
+    }
+    const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
+    return dispatch?.status === "consumed";
+  }
+
+  /**
+   * Was this dispatch's iteration applied as a SUCCESSFUL completion?
+   *
+   * Narrower than `iterationAlreadyCompleted`: a PARTIAL/BLOCKED iteration is
+   * durably terminal but was never consumed as a success, and a
+   * postflight-blocked iteration has no completion transition at all.
+   */
+  iterationCompletedSuccessfully(dispatchId: string): boolean {
+    if (this.transition) {
+      return this.transition.hasSuccessfulCompletionFor(dispatchId);
+    }
+    const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
+    return dispatch?.status === "consumed";
+  }
+
   async onStrategyCompleted(
     repositoryId: string,
     dispatchId: string,
@@ -665,11 +704,12 @@ export class LoopService {
       return;
     }
 
-    // Idempotency: a consumed authorizing dispatch means this completion was
-    // already applied — late/duplicate callbacks must not re-consume or re-wake.
+    // Idempotency: late/duplicate completion callbacks must not re-apply the
+    // iteration. See `iterationAlreadyCompleted` — under Change 028 the
+    // dispatch is consumed when the turn STARTS, so consumption alone no longer
+    // answers this question.
     try {
-      const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
-      if (dispatch && dispatch.status === "consumed") return;
+      if (this.iterationAlreadyCompleted(dispatchId)) return;
     } catch {
       return; // DB closed during teardown (Fix #11)
     }
@@ -837,7 +877,8 @@ export class LoopService {
     } catch {
       return "ALREADY_APPLIED"; // DB closed during teardown (Fix #11)
     }
-    if (!dispatch || dispatch.status === "consumed") return "ALREADY_APPLIED";
+    if (!dispatch) return "ALREADY_APPLIED";
+    if (this.iterationAlreadyCompleted(dispatchId)) return "ALREADY_APPLIED";
 
     let run: RunRecord | null;
     try {
@@ -877,8 +918,29 @@ export class LoopService {
       return "ALREADY_APPLIED";
     }
 
-    // The consumed-status check above proves the dispatch store is wired.
-    this.dispatchStore?.updateStatus(dispatchId, "consumed");
+    // Change 028: record the retry's application durably and atomically with
+    // the dispatch consumption. Without an intent the sweep would find this
+    // record again on every pass, because 028 consumes the dispatch at the
+    // START of a turn and consumption alone no longer proves the iteration was
+    // applied.
+    if (this.transition) {
+      await this.transition.enqueueAndApply({
+        sourceKind: "DISPATCH",
+        sourceId: dispatchId,
+        operation: "POSTFLIGHT_COMPLETE",
+        repositoryId,
+        runId: run.id,
+        payloadJson: JSON.stringify({
+          iteration: record.iteration,
+          strategyRunId: record.strategyRunId,
+        }),
+        apply: () => {
+          this.dispatchStore?.updateStatus(dispatchId, "consumed");
+        },
+      });
+    } else {
+      this.dispatchStore?.updateStatus(dispatchId, "consumed");
+    }
 
     if (
       [
@@ -1764,6 +1826,8 @@ export class LoopService {
       } catch {
         // best-effort: browser close is idempotent and will be retried via replay
       }
+    } else if (item.effectKind === "START_EXECUTION_ACTOR") {
+      await this.deliverStartExecutionActor(item);
     } else if (item.effectKind === "CLOSE_REPOSITORY_PAGE") {
       try {
         const payload = JSON.parse(item.payloadJson || "{}");
@@ -1772,6 +1836,84 @@ export class LoopService {
       } catch {
         // idempotent close
       }
+    }
+  }
+
+  /**
+   * Change 028 (D9.5): deliver the actor start committed alongside a
+   * DISPATCH_START transition.
+   *
+   * The transition consumes the dispatch and moves the run to EXECUTOR_PENDING
+   * inside one transaction; launching the executor is the post-commit effect.
+   * Without this branch the effect was silently marked DELIVERED and the run
+   * stalled in EXECUTOR_PENDING forever with its dispatch already consumed —
+   * exactly the consumed-without-effect state this campaign exists to prevent.
+   *
+   * Exactly-once boundary (spec: "actor-start replay does not double-spawn"):
+   * a run that is no longer EXECUTOR_PENDING, or no longer points at this
+   * dispatch, has already had its actor started (or been superseded), so replay
+   * is a no-op. The coordinator's campaign/iteration ownership assertion is the
+   * durable second gate; a rejection there means another actor already owns the
+   * iteration and must not be duplicated.
+   */
+  private async deliverStartExecutionActor(item: OutboxItem): Promise<void> {
+    const runId = item.runId;
+    if (!runId) return;
+    let dispatchId = "";
+    let strategy: ExecutionStrategy | undefined;
+    let executionPlan: Record<string, unknown> | undefined;
+    try {
+      const payload = JSON.parse(item.payloadJson || "{}");
+      dispatchId = (payload.dispatchId as string) ?? "";
+      strategy = payload.strategy as ExecutionStrategy | undefined;
+      executionPlan = payload.executionPlan as Record<string, unknown> | undefined;
+    } catch {
+      return;
+    }
+    if (!dispatchId) return;
+
+    const run = this.runStore.get(runId);
+    if (!run) return;
+    // Already started, superseded, or terminal: never spawn a second actor.
+    if (run.status !== "EXECUTOR_PENDING") return;
+    if (run.activeDispatchId !== dispatchId) return;
+
+    // A strategy record already exists for this run: the actor was started and
+    // only the delivery acknowledgement was lost. Reconcile, never re-spawn.
+    try {
+      if (this.strategyRunStore?.getActiveForRun(run.id)) return;
+    } catch {
+      // Store unavailable: the run-status boundary above still holds.
+    }
+
+    const dispatch = this.dispatchStore?.get(dispatchId) ?? null;
+
+    try {
+      if (!this.coordinator) {
+        // Legacy single-agent flow for focused unit tests that have not wired
+        // the unified coordinator. Production always wires it (app.ts).
+        await this.executorService.startRun(item.repositoryId, dispatchId);
+        this.runStore.updateStatus(run.id, "EXECUTING");
+        this.publishStateChange(item.repositoryId, run.id, "EXECUTING");
+        return;
+      }
+      await this.coordinator.start(
+        item.repositoryId,
+        run,
+        dispatch as never,
+        (executionPlan ?? (dispatch as unknown as { executionPlan?: unknown })?.executionPlan ?? {}) as never,
+        strategy,
+      );
+    } catch (err: any) {
+      // The durable failure belongs on the run, not on the outbox: a retry
+      // would risk a second spawn against an unverifiable first attempt.
+      const errorMessage = err?.message || String(err);
+      this.runStore.updateStatus(run.id, "EXECUTOR_UNAVAILABLE", {
+        lastError: errorMessage,
+        finishedAt: new Date().toISOString(),
+      });
+      this.publishStateChange(item.repositoryId, run.id, "EXECUTOR_UNAVAILABLE");
+      this.cancelWallClockCeiling(item.repositoryId);
     }
   }
 

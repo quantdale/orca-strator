@@ -8,7 +8,7 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 0.2 Read proposal -> all delta specs -> design -> this task file before editing runtime code.
 - [x] 0.3 Preserve Changes 026/027 and their external acceptance blockers unchanged; do not archive or fake them.
 - [x] 0.4 Run the cheapest useful pre-change gates available on the execution host (`npm run version:check`, `npm run openspec:validate`, targeted fast tests). Record any pre-existing failures separately.
-- [ ] 0.5 Add a short implementation ledger to the session report mapping F1–F7 in `docs/audits/2026-08-26-next-campaign-crash-consistency.md` to concrete tests/files.
+- [x] 0.5 Add a short implementation ledger to the session report mapping F1–F7 in `docs/audits/2026-08-26-next-campaign-crash-consistency.md` to concrete tests/files. (FINAL-PROJECT-COMPLETION-REPORT §2B)
 - [x] 0.6 Re-audit pushed `main@a1de7ab072907baa09d8bdf21e1860125d8323ff` after the first Change 028 implementation slices: inventory/content-scan all 453 tracked files, inspect current ownership/transition/lifecycle call sites, confirm no open issues/PRs, confirm push CI `windows-gates` success, and record newly exposed P0 regressions in `docs/audits/2026-08-27-next-campaign-deep-audit.md`.
 
 ## 1. Write failing crash-boundary tests first
@@ -159,7 +159,7 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 15.5 Run `npm run lint`. (pending final matrix)
 - [x] 15.6 Run `npm run openspec:validate` / strict validation. (28/28)
 - [x] 15.7 Run `git diff --check` and repository source-integrity/version checks. (clean)
-- [x] 15.8 Run supported real-process suites in bounded batches; distinguish external-unqualified skips from regressions. (fast 469/469; real-process: crash-matrices 41/41 + 5x determinism loops; remaining real tiers require classified/external env, recorded as EXTERNAL-BLOCKED in final matrix)
+- [x] 15.8 Run supported real-process suites in bounded batches; distinguish external-unqualified skips from regressions. (CORRECTED 2026-08-28: the earlier "remaining real tiers require classified/external env" claim was wrong — they were unrun, not external. The full 15-suite `npm run test:real` now runs in one process on the Linux gate host and exposed four Critical defects: undelivered `START_EXECUTION_ACTOR` outbox effect, and three stale `dispatch consumed = iteration done` inferences. All repaired; see report §2A.)
 - [x] 15.9 Use remaining long-session budget for repeated crash/restart loops and scheduler/ownership contention—not feature work or artificial waiting. Record counts/outcomes. (15 deterministic loops across ownership/crash/lifecycle; 2h+ endurance/stress budget per session)
 ## 16. Documentation and durable handoff
 
@@ -168,10 +168,10 @@ Checkboxes reflect implementation truth only. Do not mark a task complete becaus
 - [x] 16.3 Update `docs/RUNTIME-MODEL.md` with crash/quarantine/replay transitions and “uncertain != dead” rule. (543188b: RUNTIME-MODEL § added)
 - [x] 16.4 Update `docs/OBSERVABILITY-AND-FAILURES.md` with new recovery/quarantine events/diagnostics. (543188b: OBSERVABILITY § added)
 - [x] 16.5 Update `docs/DEVELOPMENT.md` with failure-injection commands and safe process-test requirements. (543188b: DEVELOPMENT § added)
-- [ ] 16.6 Fold accepted delta specs into canonical specs only after implementation + qualification are green.
-- [ ] 16.7 Reconcile Changes 026/027 task truth without changing external evidence.
-- [ ] 16.8 Update `.agent/state.json` with exact final SHA, verification evidence, remaining blockers, and next action.
-- [ ] 16.9 Commit and push all useful work to `main` with a detailed session report; working tree must be clean or residual changes explicitly explained.
+- [x] 16.6 Fold accepted delta specs into canonical specs only after implementation + qualification are green. (openspec/specs/{durable-execution-ownership,crash-consistent-transition-processing,abortable-runtime-lifecycle}/spec.md; strict validation 31/31)
+- [x] 16.7 Reconcile Changes 026/027 task truth without changing external evidence. (026 §24.1 / 027 §5-6 reconciled; Windows-only packaging and Tailscale/OpenCode/installer items remain external and unchanged)
+- [x] 16.8 Update `.agent/state.json` with exact final SHA, verification evidence, remaining blockers, and next action.
+- [x] 16.9 Commit and push all useful work with a detailed session report; working tree clean. (Session-scoped branch `claude/complete-entire-thing-n7u6i9` per the operator's branch instruction, which overrides the repository's direct-to-main default for this session.)
 
 ## Completion gate
 

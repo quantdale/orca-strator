@@ -19,6 +19,7 @@ export type ProcessIdentityVerdict =
   | "UNKNOWN";
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import type { EventBus } from "../events/event-bus.js";
 import { redactSecrets, boundDataStrings } from "../events/event-bus.js";
 import type { RepositoryMutationEvent } from "@orca/shared";
@@ -100,7 +101,7 @@ function readPortableIdentity(
 ): Partial<Pick<ProcessIdentityEvidence, "startMarker" | "executableName">> {
   if (process.platform !== "linux") return {};
   try {
-    const stat = require("node:fs").readFileSync(`/proc/${pid}/stat`, "utf8");
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     // comm may contain spaces/parens; the start time is the field after the
     // last ')'. Safer: split on the first '(' and last ')'.
     const afterParen = stat.slice(stat.indexOf(")") + 1).trim();
@@ -116,9 +117,38 @@ function readPortableIdentity(
   }
 }
 
-/** Returns true if the OS considers the pid alive (signal 0 probe). */
+/**
+ * Reads the single-character process state from `/proc/<pid>/stat` on Linux.
+ * Returns null when /proc is unavailable or the entry is gone.
+ */
+function readLinuxProcState(pid: number): string | null {
+  if (process.platform !== "linux") return null;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // `comm` is parenthesised and may contain spaces; state is the first field
+    // after the closing ')'.
+    const afterParen = stat.slice(stat.indexOf(")") + 1).trim();
+    return afterParen.split(/\s+/)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns true if the OS considers the pid a LIVE process.
+ *
+ * Signal 0 alone is not sufficient on POSIX: a terminated child that its parent
+ * has not yet reaped stays addressable as a zombie, so `process.kill(pid, 0)`
+ * succeeds for a process that can no longer execute a single instruction. A
+ * zombie is not a second writer — reporting it alive would quarantine a
+ * repository forever and let `killVerifiedTree` claim it terminated something.
+ * On Linux we therefore consult `/proc/<pid>/stat`: state `Z` (zombie) and `X`
+ * (dead) are terminal. Other hosts keep the signal-0 answer.
+ */
 function isPidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
+  const state = readLinuxProcState(pid);
+  if (state === "Z" || state === "X" || state === "x") return false;
   try {
     process.kill(pid, 0);
     return true;

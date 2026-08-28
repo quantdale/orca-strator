@@ -376,7 +376,15 @@ describe("Real Strategy Loop R14 — buildApp AUTONOMOUS SWARM campaign (isolate
 
     // No new strategy record may appear for the legacy dispatch: it must run
     // as the default SINGLE_AGENT executor turn.
-    await waitForCondition(() => app.dispatchStore.get(dispatch2Id)?.status === "consumed", 120000);
+    // Change 028 consumes the dispatch when the turn STARTS, so "consumed" no
+    // longer marks the end of the turn: wait on the completed executor run.
+    await waitForCondition(
+      () =>
+        app.executorStore
+          .getByRepository(repoId)
+          .some((r) => r.iteration === 2 && r.status === "completed"),
+      120000
+    );
     expect(app.dispatchStore.get(dispatch2Id)?.status).toBe("consumed");
 
     // The repository-default executor really ran for iteration 2.
@@ -439,7 +447,10 @@ describe("Real Strategy Loop R14 — buildApp AUTONOMOUS SWARM campaign (isolate
     expect(conflictRes.json().error?.message).toMatch(/already active/i);
 
     expect(app.strategyRunStore.listByRun(runId)).toHaveLength(1);
-    expect(app.dispatchStore.get(dispatchId)?.status).toBe("detected");
+    // The autonomous DISPATCH_START already consumed this dispatch (Change 028),
+    // so the invariant the rejection must preserve is that no ITERATION
+    // COMPLETION was applied by the refused manual start.
+    expect(app.loopService.iterationAlreadyCompleted(dispatchId)).toBe(false);
 
     // Let the autonomous swarm finish cleanly so teardown kills nothing.
     delete process.env.ORCA_SWARM_HARNESS_SLOW_MS;
