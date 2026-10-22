@@ -163,3 +163,9 @@ If the user explicitly asks for a review stop, checkpoint and wait. Otherwise, a
 If the process/user actually ends the session, finish the smallest safe operation, inspect status, update tasks/waypoint, commit/push intended work, and leave any unavoidable local-only recovery state clearly documented.
 
 Do not voluntarily end merely because a change, milestone repair, or ordinary blocker was reached when safe roadmap work remains.
+
+## Cross-project UX, DX, and AX principles
+
+Cut taglines, helper text and secondary labels. If a screen needs them to make sense, fix the layout.
+
+Make the best decision that will elevate all three: the user experience (UX), developer experience (DX), and agent experience (AX) always, without breaking anything.
